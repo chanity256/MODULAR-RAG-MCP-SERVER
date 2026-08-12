@@ -1,3 +1,4 @@
-# Runtime dependencies (阶段 A 骨架阶段，仅最小依赖)
-# 后续阶段会按需补充：chromadb、langchain、openai、streamlit、mcp 等
+# Runtime dependencies
+# 后续阶段会按需补充：chromadb、openai、streamlit、mcp 等
 pyyaml>=6.0
+langchain-text-splitters>=0.3.0
