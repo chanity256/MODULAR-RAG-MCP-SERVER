@@ -63,7 +63,7 @@
 | B7.6 | ChromaStore 默认实现 | [x] | 2026-08-12 | ChromaStore 封装 chromadb PersistentClient；upsert 幂等、query 按 score 降序、top_k、metadata filters；持久化重开可读；14 集成测试全绿 |
 | B7.7 | LLM Reranker 实现 | [x] | 2026-08-12 | LLMReranker 读取 rerank.txt 构造 prompt + 注入 LLM；解析 JSON 数组重排候选；LLM异常/解析失败/越界回退原序 + last_fallback 标记；top_m 截断；未覆盖候选追加末尾 |
 | B7.8 | Cross-Encoder Reranker 实现 | [x] | 2026-08-12 | CrossEncoderReranker 可注入 scorer 打分排序；deterministic stable sort；scorer 异常/超时/长度不匹配回退原序 + last_fallback；top_m 截断；kwargs 临时覆盖 scorer |
-| B8 | Vision LLM 抽象接口与工厂集成 | [ ] | | |
+| B8 | Vision LLM 抽象接口与工厂集成 | [x] | 2026-08-12 | BaseVisionLLM(chat_with_image + load_image/encode_base64/prepare_image/_preprocess_image 扩展点)；LLMFactory 扩展 register_vision + create_vision_llm 独立 vision registry；Fake Vision LLM 验证路由 |
 | B9 | Azure Vision LLM 实现 | [ ] | | |
 
 #### 阶段 C：Ingestion Pipeline MVP
@@ -157,7 +157,7 @@
 | 阶段 | 总任务数 | 已完成 | 进度 |
 |------|---------|--------|------|
 | 阶段 A | 3 | 3 | 100% |
-| 阶段 B | 16 | 14 | 88% |
+| 阶段 B | 16 | 15 | 94% |
 | 阶段 C | 15 | 0 | 0% |
 | 阶段 D | 7 | 0 | 0% |
 | 阶段 E | 6 | 0 | 0% |
@@ -165,7 +165,7 @@
 | 阶段 G | 6 | 0 | 0% |
 | 阶段 H | 5 | 0 | 0% |
 | 阶段 I | 5 | 0 | 0% |
-| **总计** | **68** | **17** | **25%** |
+| **总计** | **68** | **18** | **26%** |
 
 
 ---
