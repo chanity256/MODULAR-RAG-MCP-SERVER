@@ -54,7 +54,7 @@
 | B3 | Splitter 抽象接口与工厂 | [x] | 2026-08-12 | BaseSplitter + SplitterFactory 注册路由；新增 SplitterConfig（可选节，默认 recursive） |
 | B4 | VectorStore 抽象接口与工厂 | [x] | 2026-08-12 | BaseVectorStore + VectorRecord/QueryResult 契约 + VectorStoreFactory 注册路由；契约测试约束 shape |
 | B5 | Reranker 抽象接口与工厂（含 None 回退） | [x] | 2026-08-12 | BaseReranker + NoneReranker（保持原序）+ RerankerFactory（none 默认注册）；未知 backend 报错 |
-| B6 | Evaluator 抽象接口与工厂 | [ ] | | |
+| B6 | Evaluator 抽象接口与工厂 | [x] | 2026-08-12 | BaseEvaluator + CustomEvaluator（hit_rate/mrr/hit_at_k）+ EvaluatorFactory（custom 默认注册）；create_from_settings 批量创建 |
 | B7.1 | OpenAI-Compatible LLM 实现 | [ ] | | |
 | B7.2 | Ollama LLM 实现 | [ ] | | |
 | B7.3 | OpenAI & Azure Embedding 实现 | [ ] | | |
@@ -157,7 +157,7 @@
 | 阶段 | 总任务数 | 已完成 | 进度 |
 |------|---------|--------|------|
 | 阶段 A | 3 | 3 | 100% |
-| 阶段 B | 16 | 5 | 31% |
+| 阶段 B | 16 | 6 | 38% |
 | 阶段 C | 15 | 0 | 0% |
 | 阶段 D | 7 | 0 | 0% |
 | 阶段 E | 6 | 0 | 0% |
@@ -165,7 +165,7 @@
 | 阶段 G | 6 | 0 | 0% |
 | 阶段 H | 5 | 0 | 0% |
 | 阶段 I | 5 | 0 | 0% |
-| **总计** | **68** | **8** | **12%** |
+| **总计** | **68** | **9** | **13%** |
 
 
 ---
