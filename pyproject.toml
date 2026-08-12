@@ -16,6 +16,7 @@ keywords = ["rag", "mcp", "retrieval-augmented-generation", "model-context-proto
 dependencies = [
     "pyyaml>=6.0",
     "langchain-text-splitters>=0.3.0",
+    "chromadb>=0.5.0",
 ]
 
 [project.optional-dependencies]

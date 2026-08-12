@@ -2,3 +2,4 @@
 # 后续阶段会按需补充：chromadb、openai、streamlit、mcp 等
 pyyaml>=6.0
 langchain-text-splitters>=0.3.0
+chromadb>=0.5.0
