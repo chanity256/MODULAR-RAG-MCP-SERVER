@@ -1967,7 +1967,7 @@ dashboard:
 | B6 | Evaluator 抽象接口与工厂 | [x] | 2026-08-12 | BaseEvaluator + CustomEvaluator（hit_rate/mrr/hit_at_k）+ EvaluatorFactory（custom 默认注册）；create_from_settings 批量创建 |
 | B7.1 | OpenAI-Compatible LLM 实现 | [x] | 2026-08-12 | OpenAICompatibleLLM 基类 + OpenAI/Azure/DeepSeek 子类；可注入 transport mock HTTP；LLMRequestError 含 provider+错误类型 |
 | B7.2 | Ollama LLM 实现 | [x] | 2026-08-12 | OllamaLLM 原生 /api/chat + 可注入 transport；连接失败/超时/错误响应可读报错且不泄露 api_key |
-| B7.3 | OpenAI & Azure Embedding 实现 | [ ] | | |
+| B7.3 | OpenAI & Azure Embedding 实现 | [x] | 2026-08-12 | OpenAICompatibleEmbedding 基类 + OpenAI/Azure 子类；批量 embed 顺序一致；空/超长输入可配置报错或截断；Azure 复用核心逻辑 |
 | B7.4 | Ollama Embedding 实现 | [ ] | | |
 | B7.5 | Recursive Splitter 默认实现 | [ ] | | |
 | B7.6 | ChromaStore 默认实现 | [ ] | | |
@@ -2067,7 +2067,7 @@ dashboard:
 | 阶段 | 总任务数 | 已完成 | 进度 |
 |------|---------|--------|------|
 | 阶段 A | 3 | 3 | 100% |
-| 阶段 B | 16 | 8 | 50% |
+| 阶段 B | 16 | 9 | 56% |
 | 阶段 C | 15 | 0 | 0% |
 | 阶段 D | 7 | 0 | 0% |
 | 阶段 E | 6 | 0 | 0% |
@@ -2075,7 +2075,7 @@ dashboard:
 | 阶段 G | 6 | 0 | 0% |
 | 阶段 H | 5 | 0 | 0% |
 | 阶段 I | 5 | 0 | 0% |
-| **总计** | **68** | **11** | **16%** |
+| **总计** | **68** | **12** | **18%** |
 
 
 ---
