@@ -22,6 +22,12 @@ vector_store:
   backend: chroma            # chroma | qdrant | pinecone
   persist_path: ./data/db/chroma
 
+# 文档切分配置
+splitter:
+  provider: recursive        # recursive | semantic | fixed_length
+  chunk_size: 1000
+  chunk_overlap: 200
+
 # 检索配置
 retrieval:
   sparse_backend: bm25       # bm25 | elasticsearch

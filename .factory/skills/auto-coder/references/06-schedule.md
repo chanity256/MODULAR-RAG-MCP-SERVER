@@ -51,7 +51,7 @@
 |---------|---------|------|---------|------|
 | B1 | LLM 抽象接口与工厂 | [x] | 2026-08-12 | BaseLLM + ChatMessage/ChatResponse + LLMFactory 注册路由；Fake provider 验证 |
 | B2 | Embedding 抽象接口与工厂 | [x] | 2026-08-12 | BaseEmbedding + EmbeddingFactory 注册路由；Fake embedding 稳定向量验证 |
-| B3 | Splitter 抽象接口与工厂 | [ ] | | |
+| B3 | Splitter 抽象接口与工厂 | [x] | 2026-08-12 | BaseSplitter + SplitterFactory 注册路由；新增 SplitterConfig（可选节，默认 recursive） |
 | B4 | VectorStore 抽象接口与工厂 | [ ] | | |
 | B5 | Reranker 抽象接口与工厂（含 None 回退） | [ ] | | |
 | B6 | Evaluator 抽象接口与工厂 | [ ] | | |
@@ -157,7 +157,7 @@
 | 阶段 | 总任务数 | 已完成 | 进度 |
 |------|---------|--------|------|
 | 阶段 A | 3 | 3 | 100% |
-| 阶段 B | 16 | 2 | 13% |
+| 阶段 B | 16 | 3 | 19% |
 | 阶段 C | 15 | 0 | 0% |
 | 阶段 D | 7 | 0 | 0% |
 | 阶段 E | 6 | 0 | 0% |
@@ -165,7 +165,7 @@
 | 阶段 G | 6 | 0 | 0% |
 | 阶段 H | 5 | 0 | 0% |
 | 阶段 I | 5 | 0 | 0% |
-| **总计** | **68** | **5** | **7%** |
+| **总计** | **68** | **6** | **9%** |
 
 
 ---

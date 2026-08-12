@@ -27,6 +27,7 @@ __all__ = [
     "EmbeddingConfig",
     "VisionLLMConfig",
     "VectorStoreConfig",
+    "SplitterConfig",
     "RetrievalConfig",
     "RerankConfig",
     "EvaluationConfig",
@@ -97,6 +98,21 @@ class VectorStoreConfig:
 
 
 @dataclass
+class SplitterConfig:
+    """文档切分配置（阶段 B3 引入）。
+
+    默认 provider=recursive（对应 B7.5 的 RecursiveCharacterTextSplitter）。
+    若配置缺失该节，``load_settings`` 会以默认值兜底，保证向后兼容。
+    """
+
+    provider: str = "recursive"
+    chunk_size: int = 1000
+    chunk_overlap: int = 200
+    separators: list[str] | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class RetrievalConfig:
     sparse_backend: str
     fusion_algorithm: str
@@ -149,6 +165,7 @@ class Settings:
     embedding: EmbeddingConfig
     vision_llm: VisionLLMConfig
     vector_store: VectorStoreConfig
+    splitter: SplitterConfig
     retrieval: RetrievalConfig
     rerank: RerankConfig
     evaluation: EvaluationConfig
@@ -275,6 +292,18 @@ def _build_vector_store(sec: dict[str, Any]) -> VectorStoreConfig:
     )
 
 
+def _build_splitter(sec: dict[str, Any]) -> SplitterConfig:
+    """splitter 为可选节，缺失时由调用方传空 dict 走默认值。"""
+    known = {"provider", "chunk_size", "chunk_overlap", "separators"}
+    return SplitterConfig(
+        provider=_opt(sec, "provider", "recursive"),
+        chunk_size=int(_opt(sec, "chunk_size", 1000)),
+        chunk_overlap=int(_opt(sec, "chunk_overlap", 200)),
+        separators=_opt(sec, "separators"),
+        extra=_extra(sec, known),
+    )
+
+
 def _build_retrieval(sec: dict[str, Any]) -> RetrievalConfig:
     known = {
         "sparse_backend", "fusion_algorithm",
@@ -397,12 +426,16 @@ def load_settings(path: str | os.PathLike[str] = "config/settings.yaml") -> Sett
     evaluation = _build_evaluation(_require_section(data, "evaluation"))
 
     # 可选节：缺失时使用默认值。
+    splitter_sec = data.get("splitter") or {}
     obs_sec = data.get("observability") or {}
     dashboard_sec = data.get("dashboard") or {}
+    if not isinstance(splitter_sec, dict):
+        raise ConfigError("config section 'splitter' must be a mapping")
     if not isinstance(obs_sec, dict):
         raise ConfigError("config section 'observability' must be a mapping")
     if not isinstance(dashboard_sec, dict):
         raise ConfigError("config section 'dashboard' must be a mapping")
+    splitter = _build_splitter(splitter_sec)
     observability = _build_observability(obs_sec)
     dashboard = _build_dashboard(dashboard_sec)
 
@@ -411,6 +444,7 @@ def load_settings(path: str | os.PathLike[str] = "config/settings.yaml") -> Sett
         embedding=embedding,
         vision_llm=vision_llm,
         vector_store=vector_store,
+        splitter=splitter,
         retrieval=retrieval,
         rerank=rerank,
         evaluation=evaluation,
