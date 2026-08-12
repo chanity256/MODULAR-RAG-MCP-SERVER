@@ -1972,7 +1972,7 @@ dashboard:
 | B7.5 | Recursive Splitter 默认实现 | [x] | 2026-08-12 | RecursiveSplitter 封装 LangChain RecursiveCharacterTextSplitter；Markdown 结构感知 separators；标题/代码块不打断 |
 | B7.6 | ChromaStore 默认实现 | [x] | 2026-08-12 | ChromaStore 封装 chromadb PersistentClient；upsert 幂等、query 按 score 降序、top_k、metadata filters；持久化重开可读；14 集成测试全绿 |
 | B7.7 | LLM Reranker 实现 | [x] | 2026-08-12 | LLMReranker 读取 rerank.txt 构造 prompt + 注入 LLM；解析 JSON 数组重排候选；LLM异常/解析失败/越界回退原序 + last_fallback 标记；top_m 截断；未覆盖候选追加末尾 |
-| B7.8 | Cross-Encoder Reranker 实现 | [ ] | | |
+| B7.8 | Cross-Encoder Reranker 实现 | [x] | 2026-08-12 | CrossEncoderReranker 可注入 scorer 打分排序；deterministic stable sort；scorer 异常/超时/长度不匹配回退原序 + last_fallback；top_m 截断；kwargs 临时覆盖 scorer |
 | B8 | Vision LLM 抽象接口与工厂集成 | [ ] | | |
 | B9 | Azure Vision LLM 实现 | [ ] | | |
 
@@ -2067,7 +2067,7 @@ dashboard:
 | 阶段 | 总任务数 | 已完成 | 进度 |
 |------|---------|--------|------|
 | 阶段 A | 3 | 3 | 100% |
-| 阶段 B | 16 | 13 | 81% |
+| 阶段 B | 16 | 14 | 88% |
 | 阶段 C | 15 | 0 | 0% |
 | 阶段 D | 7 | 0 | 0% |
 | 阶段 E | 6 | 0 | 0% |
@@ -2075,7 +2075,7 @@ dashboard:
 | 阶段 G | 6 | 0 | 0% |
 | 阶段 H | 5 | 0 | 0% |
 | 阶段 I | 5 | 0 | 0% |
-| **总计** | **68** | **16** | **24%** |
+| **总计** | **68** | **17** | **25%** |
 
 
 ---

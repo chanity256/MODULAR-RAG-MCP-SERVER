@@ -8,8 +8,10 @@ from libs.reranker.base_reranker import BaseReranker, NoneReranker, RerankCandid
 from libs.reranker.reranker_factory import RerankerFactory
 
 # 触发 provider 注册。
+from libs.reranker import cross_encoder_reranker as _cross_encoder_reranker  # noqa: F401
 from libs.reranker import llm_reranker as _llm_reranker  # noqa: F401
 
+_cross_encoder_reranker.register_cross_encoder_provider()
 _llm_reranker.register_llm_provider()
 
 __all__ = ["BaseReranker", "NoneReranker", "RerankCandidate", "RerankerFactory"]
