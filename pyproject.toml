@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "modular-rag-mcp-server"
+version = "0.1.0"
+description = "Modular RAG MCP Server — pluggable, observable, local-first knowledge retrieval over MCP."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Modular RAG MCP Server" }]
+keywords = ["rag", "mcp", "retrieval-augmented-generation", "model-context-protocol"]
+# Runtime dependencies are intentionally minimal in the skeleton (阶段 A).
+# Heavy deps (chromadb, langchain, openai, streamlit, mcp) are added in later phases.
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-check>=2.0",
+]
+
+[project.scripts]
+modular-rag-mcp-server = "mcp_server.server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"
+markers = [
+    "unit: unit tests (fast, isolated)",
+    "integration: integration tests (component collaboration)",
+    "e2e: end-to-end tests (full business flow)",
+]

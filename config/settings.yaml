@@ -1,0 +1,58 @@
+# Modular RAG MCP Server — 主配置文件
+# 阶段 A：最小可解析配置骨架。后续阶段会逐步补齐各 provider 的真实字段与校验规则。
+
+# LLM 配置
+llm:
+  provider: azure            # azure | openai | ollama | deepseek
+  model: gpt-4o
+  # provider-specific 字段（azure_endpoint / api_key / base_url 等）在阶段 B 补齐
+
+# Embedding 配置
+embedding:
+  provider: openai           # openai | azure | ollama
+  model: text-embedding-3-small
+
+# Vision LLM 配置（图片描述）
+vision_llm:
+  provider: azure            # azure | dashscope
+  model: gpt-4o
+
+# 向量存储配置
+vector_store:
+  backend: chroma            # chroma | qdrant | pinecone
+  persist_path: ./data/db/chroma
+
+# 检索配置
+retrieval:
+  sparse_backend: bm25       # bm25 | elasticsearch
+  fusion_algorithm: rrf     # rrf | weighted_sum
+  top_k_dense: 20
+  top_k_sparse: 20
+  top_k_final: 10
+
+# 重排配置
+rerank:
+  backend: cross_encoder    # none | cross_encoder | llm
+  model: cross-encoder/ms-marco-MiniLM-L-6-v2
+  top_m: 30
+
+# 评估配置
+evaluation:
+  backends: [ragas, custom]
+  golden_test_set: ./tests/fixtures/golden_test_set.json
+
+# 可观测性配置
+observability:
+  enabled: true
+  log_file: ./logs/traces.jsonl
+  logging:
+    log_level: INFO         # DEBUG | INFO | WARNING
+  detail_level: standard    # minimal | standard | verbose
+
+# Dashboard 管理平台配置
+dashboard:
+  enabled: true
+  port: 8501
+  traces_dir: ./logs
+  auto_refresh: true
+  refresh_interval: 5
