@@ -26,19 +26,32 @@ except Exception:  # pragma: no cover - logger 尚未实现时的兜底
 
 
 def main() -> int:
-    """骨架入口：加载配置并打印就绪信息。
+    """入口：加载配置（fail-fast）并打印就绪信息。
 
-    阶段 A3 会把 ``load_settings`` 的 fail-fast 校验接进来；当前只做最小占位。
+    阶段 A3：调用 ``load_settings()``，缺关键字段直接 fail-fast 退出。
+    真正的 MCP Server Stdio 入口在阶段 E 实现（``src/mcp_server/server.py``）。
     """
+    from core.settings import ConfigError, load_settings
+
     config_path = Path(__file__).resolve().parent / "config" / "settings.yaml"
-    logger.info("Modular RAG MCP Server skeleton starting (阶段 A)...")
+    logger.info("Modular RAG MCP Server starting (阶段 A)...")
     logger.info("Config path: %s (exists=%s)", config_path, config_path.exists())
 
-    if not config_path.exists():
-        logger.error("配置文件缺失: %s", config_path)
+    try:
+        settings = load_settings(config_path)
+    except ConfigError as exc:
+        logger.error("配置校验失败: %s", exc)
+        return 1
+    except FileNotFoundError as exc:
+        logger.error("配置文件缺失: %s", exc)
         return 1
 
-    # 占位：A3 将替换为 load_settings(config_path) 并做 fail-fast 校验。
+    logger.info(
+        "Settings loaded: llm.provider=%s | embedding.provider=%s | vector_store.backend=%s",
+        settings.llm.provider,
+        settings.embedding.provider,
+        settings.vector_store.backend,
+    )
     logger.info("Skeleton ready. MCP Server 入口将在阶段 E 实现。")
     return 0
 
