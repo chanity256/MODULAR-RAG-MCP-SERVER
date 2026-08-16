@@ -72,7 +72,7 @@
 |---------|---------|------|---------|------|
 | C1 | 定义核心数据类型/契约（Document/Chunk/ChunkRecord） | [x] | 2026-08-16 | Document/Chunk/ChunkRecord + ImageRef 六字段规范；[IMAGE: {id}] 占位符工具（make_image_id/image_placeholder/iter_image_placeholders/parse_image_refs）；to_dict/from_dict/to_json 契约稳定且忽略未知字段；metadata 增量扩展兼容；core/__init__ 统一 re-export |
 | C2 | 文件完整性检查（SHA256） | [x] | 2026-08-16 | FileIntegrityChecker 抽象 + SQLiteIntegrityChecker 默认实现；compute_sha256 流式 64KB 分块；should_skip 仅 status=success 跳过；mark_success/mark_failed 幂等覆盖（success 清 error_msg，failed 保留旧 file_path）；WAL + busy_timeout + 写锁支持单实例多线程与多连接并发；ingestion_history 表五字段契约；默认 data/db/ingestion_history.db 自动建目录 |
-| C3 | Loader 抽象基类与 PDF Loader | [ ] | | |
+| C3 | Loader 抽象基类与 PDF Loader | [x] | 2026-08-16 | BaseLoader 抽象 + PdfLoader：engine=auto 优先 MarkItDown（未安装/失败自动回退 pypdf 并告警）；pypdf 硬依赖（文本提取 + XObject 图片遍历，无需 Pillow）；图片存 {images_root}/{doc_hash}/{image_id}.png（JPEG 直存，RGB/Gray 8bit 内置 PNG 编码器）；[IMAGE: {id}] 占位符按页落位 + text_offset/text_length 精确；单图/整体失败均降级不阻塞；metadata 含 source_path/doc_type/sha256/page_count(/title)；新增 pypdf>=4.0 依赖 |
 | C4 | Splitter 集成（调用 Libs） | [ ] | | |
 | C5 | Transform 基类 + ChunkRefiner | [ ] | | |
 | C6 | MetadataEnricher | [ ] | | |
@@ -158,14 +158,14 @@
 |------|---------|--------|------|
 | 阶段 A | 3 | 3 | 100% |
 | 阶段 B | 16 | 16 | 100% |
-| 阶段 C | 15 | 2 | 13% |
+| 阶段 C | 15 | 3 | 20% |
 | 阶段 D | 7 | 0 | 0% |
 | 阶段 E | 6 | 0 | 0% |
 | 阶段 F | 5 | 0 | 0% |
 | 阶段 G | 6 | 0 | 0% |
 | 阶段 H | 5 | 0 | 0% |
 | 阶段 I | 5 | 0 | 0% |
-| **总计** | **68** | **21** | **31%** |
+| **总计** | **68** | **22** | **32%** |
 
 
 ---
