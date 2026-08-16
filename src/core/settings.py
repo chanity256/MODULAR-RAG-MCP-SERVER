@@ -34,6 +34,7 @@ __all__ = [
     "ObservabilityConfig",
     "DashboardConfig",
     "ChunkRefinerConfig",
+    "MetadataEnricherConfig",
     "IngestionConfig",
     "Settings",
     "load_settings",
@@ -173,10 +174,23 @@ class ChunkRefinerConfig:
 
 
 @dataclass
+class MetadataEnricherConfig:
+    """元数据增强配置（阶段 C6 引入，可选节）。
+
+    默认 ``use_llm=False``（规则兜底生成 title/summary/tags）；
+    打开后经 LLM 生成语义元数据，失败降级回规则结果。
+    """
+
+    use_llm: bool = False
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class IngestionConfig:
     """Ingestion Pipeline 配置（可选节，缺失时走默认值）。"""
 
     chunk_refiner: ChunkRefinerConfig = field(default_factory=ChunkRefinerConfig)
+    metadata_enricher: MetadataEnricherConfig = field(default_factory=MetadataEnricherConfig)
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -401,7 +415,18 @@ def _build_ingestion(sec: dict[str, Any]) -> IngestionConfig:
         prompt_path=_opt(cr_sec, "prompt_path", "config/prompts/chunk_refinement.txt"),
         extra=_extra(cr_sec, cr_known),
     )
-    return IngestionConfig(chunk_refiner=refiner, extra=_extra(sec, {"chunk_refiner"}))
+    me_sec = sec.get("metadata_enricher") or {}
+    if not isinstance(me_sec, dict):
+        raise ConfigError("config section 'ingestion.metadata_enricher' must be a mapping")
+    enricher = MetadataEnricherConfig(
+        use_llm=bool(_opt(me_sec, "use_llm", False)),
+        extra=_extra(me_sec, {"use_llm"}),
+    )
+    return IngestionConfig(
+        chunk_refiner=refiner,
+        metadata_enricher=enricher,
+        extra=_extra(sec, {"chunk_refiner", "metadata_enricher"}),
+    )
 
 
 def validate_settings(settings: Settings) -> None:
