@@ -35,6 +35,7 @@ __all__ = [
     "DashboardConfig",
     "ChunkRefinerConfig",
     "MetadataEnricherConfig",
+    "ImageCaptionerConfig",
     "IngestionConfig",
     "Settings",
     "load_settings",
@@ -186,11 +187,26 @@ class MetadataEnricherConfig:
 
 
 @dataclass
+class ImageCaptionerConfig:
+    """图片描述生成配置（阶段 C7 引入，可选节）。
+
+    默认 ``enabled=False``（保留 image_refs 并标记
+    ``has_unprocessed_images``，不阻塞 ingestion）；打开后经 Vision LLM
+    生成 caption 写入 ``metadata["image_captions"]``，单图失败降级。
+    """
+
+    enabled: bool = False
+    prompt_path: str = "config/prompts/image_captioning.txt"
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class IngestionConfig:
     """Ingestion Pipeline 配置（可选节，缺失时走默认值）。"""
 
     chunk_refiner: ChunkRefinerConfig = field(default_factory=ChunkRefinerConfig)
     metadata_enricher: MetadataEnricherConfig = field(default_factory=MetadataEnricherConfig)
+    image_captioner: ImageCaptionerConfig = field(default_factory=ImageCaptionerConfig)
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -422,10 +438,19 @@ def _build_ingestion(sec: dict[str, Any]) -> IngestionConfig:
         use_llm=bool(_opt(me_sec, "use_llm", False)),
         extra=_extra(me_sec, {"use_llm"}),
     )
+    ic_sec = sec.get("image_captioner") or {}
+    if not isinstance(ic_sec, dict):
+        raise ConfigError("config section 'ingestion.image_captioner' must be a mapping")
+    captioner = ImageCaptionerConfig(
+        enabled=bool(_opt(ic_sec, "enabled", False)),
+        prompt_path=_opt(ic_sec, "prompt_path", "config/prompts/image_captioning.txt"),
+        extra=_extra(ic_sec, {"enabled", "prompt_path"}),
+    )
     return IngestionConfig(
         chunk_refiner=refiner,
         metadata_enricher=enricher,
-        extra=_extra(sec, {"chunk_refiner", "metadata_enricher"}),
+        image_captioner=captioner,
+        extra=_extra(sec, {"chunk_refiner", "metadata_enricher", "image_captioner"}),
     )
 
 

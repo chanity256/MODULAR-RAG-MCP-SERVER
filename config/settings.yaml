@@ -35,6 +35,9 @@ ingestion:
     prompt_path: config/prompts/chunk_refinement.txt
   metadata_enricher:
     use_llm: false           # true 时经 LLM 生成 title/summary/tags（失败降级规则模式）
+  image_captioner:
+    enabled: false           # true 时经 Vision LLM 生成图片 caption（失败保留 image_refs 不阻塞）
+    prompt_path: config/prompts/image_captioning.txt
 
 # 检索配置
 retrieval:
