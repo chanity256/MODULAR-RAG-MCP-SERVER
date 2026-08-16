@@ -78,7 +78,7 @@
 | C6 | MetadataEnricher | [x] | 2026-08-16 | 规则模式：title 取首个 Markdown 标题/首行/source stem 兜底、summary 取前若干句（≤160 字符截断+省略号）、tags 取高频拉丁词（停用词过滤，CJK 补"中文"标签，空内容 doc_type 兜底），三字段保证非空且确定性；LLM 模式：内置 prompt（{text} 占位符）要求严格 JSON，解析兼容代码围栏、字段类型校验，非法/异常/init 失败降级规则结果 + enrich_fallback 原因；enriched_by 标记（rule/llm）；单 chunk 异常保留原文；ingestion.metadata_enricher.use_llm 配置开关（默认 false）+ settings.yaml 示例；MetadataEnricherConfig 并入 IngestionConfig；trace transform 打点（llm_enriched/fallback 计数）；21 单测一次通过 |
 | C7 | ImageCaptioner | [x] | 2026-08-16 | 启用模式（ingestion.image_captioner.enabled）：经 LLMFactory.create_vision_llm 逐图调用 chat_with_image，prompt 取 image_captioning.txt（{image_context} 替换为 chunk 上下文，800 字符截断；文件缺失回退内置模板），caption 写入 metadata.image_captions{image_id: caption}；降级模式（默认禁用/工厂失败/文件缺失/路径记录缺失/LLM 异常/空响应）：保留 image_refs+images 原样，标记 has_unprocessed_images=True（工厂失败附 image_caption_fallback 原因），全部成功不打标记；无图 chunk 原样透传；单 chunk 异常隔离；trace 打点（captioned/degraded 计数）；prompt 可注入测试；15 单测 |
 | C8 | DenseEncoder | [x] | 2026-08-16 | 包装 BaseEmbedding（EmbeddingFactory 按 settings.embedding.provider 创建，测试可注入 fake）：encode(chunks) 依序提取 chunks.text 单批送入 embed，返回等长向量列表；fail-fast 契约校验 DenseEncodingError：向量数≠chunk 数/维度不一致/空向量；空 chunks 返回 [] 且不触发底层调用；底层异常原样传播；dimension 代理属性；trace embedding 打点（chunks/dimension/elapsed_ms）；12 单测 |
-| C9 | SparseEncoder | [ ] | | |
+| C9 | SparseEncoder | [x] | 2026-08-16 | SparseDocStats(chunk_id/term_freqs/length) 输出契约，可直接供 C11 BM25Indexer 推导 df 与倒排表；默认分词 default_tokenize：拉丁词 [a-z0-9]+ 小写化 + CJK 逐字 unigram（与 D 阶段 QueryProcessor 粒度对齐），tokenizer 可注入；空文本明确行为：term_freqs={} 且 length=0 不抛错（空白文本同）；encode_chunks 顺序对齐 chunk_id；to_dict/from_dict 往返（容忍多余键）；确定性；trace embedding 打点（total_terms/unique_terms）；14 单测 |
 | C10 | BatchProcessor | [ ] | | |
 | C11 | BM25Indexer（倒排索引+IDF计算） | [ ] | | |
 | C12 | VectorUpserter（幂等upsert） | [ ] | | |
@@ -158,14 +158,14 @@
 |------|---------|--------|------|
 | 阶段 A | 3 | 3 | 100% |
 | 阶段 B | 16 | 16 | 100% |
-| 阶段 C | 15 | 8 | 53% |
+| 阶段 C | 15 | 9 | 60% |
 | 阶段 D | 7 | 0 | 0% |
 | 阶段 E | 6 | 0 | 0% |
 | 阶段 F | 5 | 0 | 0% |
 | 阶段 G | 6 | 0 | 0% |
 | 阶段 H | 5 | 0 | 0% |
 | 阶段 I | 5 | 0 | 0% |
-| **总计** | **68** | **27** | **40%** |
+| **总计** | **68** | **28** | **41%** |
 
 
 ---
