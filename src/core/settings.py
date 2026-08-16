@@ -33,6 +33,8 @@ __all__ = [
     "EvaluationConfig",
     "ObservabilityConfig",
     "DashboardConfig",
+    "ChunkRefinerConfig",
+    "IngestionConfig",
     "Settings",
     "load_settings",
     "validate_settings",
@@ -158,6 +160,27 @@ class DashboardConfig:
 
 
 @dataclass
+class ChunkRefinerConfig:
+    """Chunk 精炼配置（阶段 C5 引入）。
+
+    默认 ``use_llm=False``（仅规则去噪）；打开后经 LLMFactory 创建 LLM
+    做智能重写，失败自动降级回规则结果。
+    """
+
+    use_llm: bool = False
+    prompt_path: str = "config/prompts/chunk_refinement.txt"
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class IngestionConfig:
+    """Ingestion Pipeline 配置（可选节，缺失时走默认值）。"""
+
+    chunk_refiner: ChunkRefinerConfig = field(default_factory=ChunkRefinerConfig)
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class Settings:
     """全局配置聚合，供各工厂/模块读取。"""
 
@@ -171,6 +194,7 @@ class Settings:
     evaluation: EvaluationConfig
     observability: ObservabilityConfig
     dashboard: DashboardConfig
+    ingestion: IngestionConfig = field(default_factory=IngestionConfig)
     # 原始配置（便于后续模块读取未显式建模的字段）
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
@@ -366,6 +390,20 @@ def _build_dashboard(sec: dict[str, Any]) -> DashboardConfig:
     )
 
 
+def _build_ingestion(sec: dict[str, Any]) -> IngestionConfig:
+    """ingestion 为可选节，缺失时由调用方传空 dict 走默认值。"""
+    cr_sec = sec.get("chunk_refiner") or {}
+    if not isinstance(cr_sec, dict):
+        raise ConfigError("config section 'ingestion.chunk_refiner' must be a mapping")
+    cr_known = {"use_llm", "prompt_path"}
+    refiner = ChunkRefinerConfig(
+        use_llm=bool(_opt(cr_sec, "use_llm", False)),
+        prompt_path=_opt(cr_sec, "prompt_path", "config/prompts/chunk_refinement.txt"),
+        extra=_extra(cr_sec, cr_known),
+    )
+    return IngestionConfig(chunk_refiner=refiner, extra=_extra(sec, {"chunk_refiner"}))
+
+
 def validate_settings(settings: Settings) -> None:
     """集中化的必填字段检查。
 
@@ -429,15 +467,19 @@ def load_settings(path: str | os.PathLike[str] = "config/settings.yaml") -> Sett
     splitter_sec = data.get("splitter") or {}
     obs_sec = data.get("observability") or {}
     dashboard_sec = data.get("dashboard") or {}
+    ingestion_sec = data.get("ingestion") or {}
     if not isinstance(splitter_sec, dict):
         raise ConfigError("config section 'splitter' must be a mapping")
     if not isinstance(obs_sec, dict):
         raise ConfigError("config section 'observability' must be a mapping")
     if not isinstance(dashboard_sec, dict):
         raise ConfigError("config section 'dashboard' must be a mapping")
+    if not isinstance(ingestion_sec, dict):
+        raise ConfigError("config section 'ingestion' must be a mapping")
     splitter = _build_splitter(splitter_sec)
     observability = _build_observability(obs_sec)
     dashboard = _build_dashboard(dashboard_sec)
+    ingestion = _build_ingestion(ingestion_sec)
 
     settings = Settings(
         llm=llm,
@@ -450,6 +492,7 @@ def load_settings(path: str | os.PathLike[str] = "config/settings.yaml") -> Sett
         evaluation=evaluation,
         observability=observability,
         dashboard=dashboard,
+        ingestion=ingestion,
         raw=data,
     )
     validate_settings(settings)

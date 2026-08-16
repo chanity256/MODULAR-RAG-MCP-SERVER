@@ -28,6 +28,12 @@ splitter:
   chunk_size: 1000
   chunk_overlap: 200
 
+# Ingestion Pipeline 配置（阶段 C5 引入，可选节）
+ingestion:
+  chunk_refiner:
+    use_llm: false           # true 时经 LLM 智能重写（失败自动降级规则模式）
+    prompt_path: config/prompts/chunk_refinement.txt
+
 # 检索配置
 retrieval:
   sparse_backend: bm25       # bm25 | elasticsearch

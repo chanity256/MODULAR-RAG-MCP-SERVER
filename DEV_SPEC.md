@@ -1984,7 +1984,7 @@ dashboard:
 | C2 | 文件完整性检查（SHA256） | [x] | 2026-08-16 | FileIntegrityChecker 抽象 + SQLiteIntegrityChecker 默认实现；compute_sha256 流式 64KB 分块；should_skip 仅 status=success 跳过；mark_success/mark_failed 幂等覆盖（success 清 error_msg，failed 保留旧 file_path）；WAL + busy_timeout + 写锁支持单实例多线程与多连接并发；ingestion_history 表五字段契约；默认 data/db/ingestion_history.db 自动建目录 |
 | C3 | Loader 抽象基类与 PDF Loader | [x] | 2026-08-16 | BaseLoader 抽象 + PdfLoader：engine=auto 优先 MarkItDown（未安装/失败自动回退 pypdf 并告警）；pypdf 硬依赖（文本提取 + XObject 图片遍历，无需 Pillow）；图片存 {images_root}/{doc_hash}/{image_id}.png（JPEG 直存，RGB/Gray 8bit 内置 PNG 编码器）；[IMAGE: {id}] 占位符按页落位 + text_offset/text_length 精确；单图/整体失败均降级不阻塞；metadata 含 source_path/doc_type/sha256/page_count(/title)；新增 pypdf>=4.0 依赖 |
 | C4 | Splitter 集成（调用 Libs） | [x] | 2026-08-16 | DocumentChunker 适配层：确定性 ID {doc_id}_{index:04d}_{hash8}（唯一且可复现）；metadata 继承 + chunk_index；source_ref 溯源；图片引用按需分发（扫描 [IMAGE: id] 占位符，chunk 级 images 子集 + image_refs 列表，无占位符移除字段，幽灵引用 images 为空但 image_refs 保持一致）；SplitterFactory 配置驱动（chunk_size 改变切分数实测）；Chunk 类型契约 round-trip |
-| C5 | Transform 基类 + ChunkRefiner | [ ] | | |
+| C5 | Transform 基类 + ChunkRefiner | [x] | 2026-08-16 | BaseTransform 抽象 + ChunkRefiner（规则去噪：控制字符/HTML注释/页眉页脚/分隔线/空白折叠，代码块围栏逐字保留且幂等；LLM 重写：{text} prompt 模板去#注释+内置 fallback）；降级链：LLM 异常/空响应/工厂创建失败 → 规则结果 + refine_fallback 原因，单 chunk 异常保留原文；metadata refined_by 标记；ingestion.chunk_refiner.use_llm 配置开关（默认 false）；TraceContext 最小实现（uuid+record_stage+to_dict）；28 单测 + fixtures 8 场景 + 集成测试（真实 LLM 用例 RAG_LLM_INTEGRATION=1 启用，降级用例已验证） |
 | C6 | MetadataEnricher | [ ] | | |
 | C7 | ImageCaptioner | [ ] | | |
 | C8 | DenseEncoder | [ ] | | |
@@ -2068,14 +2068,14 @@ dashboard:
 |------|---------|--------|------|
 | 阶段 A | 3 | 3 | 100% |
 | 阶段 B | 16 | 16 | 100% |
-| 阶段 C | 15 | 4 | 27% |
+| 阶段 C | 15 | 5 | 33% |
 | 阶段 D | 7 | 0 | 0% |
 | 阶段 E | 6 | 0 | 0% |
 | 阶段 F | 5 | 0 | 0% |
 | 阶段 G | 6 | 0 | 0% |
 | 阶段 H | 5 | 0 | 0% |
 | 阶段 I | 5 | 0 | 0% |
-| **总计** | **68** | **23** | **34%** |
+| **总计** | **68** | **24** | **35%** |
 
 
 ---
