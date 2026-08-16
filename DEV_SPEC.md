@@ -1987,7 +1987,7 @@ dashboard:
 | C5 | Transform 基类 + ChunkRefiner | [x] | 2026-08-16 | BaseTransform 抽象 + ChunkRefiner（规则去噪：控制字符/HTML注释/页眉页脚/分隔线/空白折叠，代码块围栏逐字保留且幂等；LLM 重写：{text} prompt 模板去#注释+内置 fallback）；降级链：LLM 异常/空响应/工厂创建失败 → 规则结果 + refine_fallback 原因，单 chunk 异常保留原文；metadata refined_by 标记；ingestion.chunk_refiner.use_llm 配置开关（默认 false）；TraceContext 最小实现（uuid+record_stage+to_dict）；28 单测 + fixtures 8 场景 + 集成测试（真实 LLM 用例 RAG_LLM_INTEGRATION=1 启用，降级用例已验证） |
 | C6 | MetadataEnricher | [x] | 2026-08-16 | 规则模式：title 取首个 Markdown 标题/首行/source stem 兜底、summary 取前若干句（≤160 字符截断+省略号）、tags 取高频拉丁词（停用词过滤，CJK 补"中文"标签，空内容 doc_type 兜底），三字段保证非空且确定性；LLM 模式：内置 prompt（{text} 占位符）要求严格 JSON，解析兼容代码围栏、字段类型校验，非法/异常/init 失败降级规则结果 + enrich_fallback 原因；enriched_by 标记（rule/llm）；单 chunk 异常保留原文；ingestion.metadata_enricher.use_llm 配置开关（默认 false）+ settings.yaml 示例；MetadataEnricherConfig 并入 IngestionConfig；trace transform 打点（llm_enriched/fallback 计数）；21 单测一次通过 |
 | C7 | ImageCaptioner | [x] | 2026-08-16 | 启用模式（ingestion.image_captioner.enabled）：经 LLMFactory.create_vision_llm 逐图调用 chat_with_image，prompt 取 image_captioning.txt（{image_context} 替换为 chunk 上下文，800 字符截断；文件缺失回退内置模板），caption 写入 metadata.image_captions{image_id: caption}；降级模式（默认禁用/工厂失败/文件缺失/路径记录缺失/LLM 异常/空响应）：保留 image_refs+images 原样，标记 has_unprocessed_images=True（工厂失败附 image_caption_fallback 原因），全部成功不打标记；无图 chunk 原样透传；单 chunk 异常隔离；trace 打点（captioned/degraded 计数）；prompt 可注入测试；15 单测 |
-| C8 | DenseEncoder | [ ] | | |
+| C8 | DenseEncoder | [x] | 2026-08-16 | 包装 BaseEmbedding（EmbeddingFactory 按 settings.embedding.provider 创建，测试可注入 fake）：encode(chunks) 依序提取 chunks.text 单批送入 embed，返回等长向量列表；fail-fast 契约校验 DenseEncodingError：向量数≠chunk 数/维度不一致/空向量；空 chunks 返回 [] 且不触发底层调用；底层异常原样传播；dimension 代理属性；trace embedding 打点（chunks/dimension/elapsed_ms）；12 单测 |
 | C9 | SparseEncoder | [ ] | | |
 | C10 | BatchProcessor | [ ] | | |
 | C11 | BM25Indexer（倒排索引+IDF计算） | [ ] | | |
@@ -2068,14 +2068,14 @@ dashboard:
 |------|---------|--------|------|
 | 阶段 A | 3 | 3 | 100% |
 | 阶段 B | 16 | 16 | 100% |
-| 阶段 C | 15 | 7 | 47% |
+| 阶段 C | 15 | 8 | 53% |
 | 阶段 D | 7 | 0 | 0% |
 | 阶段 E | 6 | 0 | 0% |
 | 阶段 F | 5 | 0 | 0% |
 | 阶段 G | 6 | 0 | 0% |
 | 阶段 H | 5 | 0 | 0% |
 | 阶段 I | 5 | 0 | 0% |
-| **总计** | **68** | **26** | **38%** |
+| **总计** | **68** | **27** | **40%** |
 
 
 ---
