@@ -70,7 +70,7 @@
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| C1 | 定义核心数据类型/契约（Document/Chunk/ChunkRecord） | [ ] | | |
+| C1 | 定义核心数据类型/契约（Document/Chunk/ChunkRecord） | [x] | 2026-08-16 | Document/Chunk/ChunkRecord + ImageRef 六字段规范；[IMAGE: {id}] 占位符工具（make_image_id/image_placeholder/iter_image_placeholders/parse_image_refs）；to_dict/from_dict/to_json 契约稳定且忽略未知字段；metadata 增量扩展兼容；core/__init__ 统一 re-export |
 | C2 | 文件完整性检查（SHA256） | [ ] | | |
 | C3 | Loader 抽象基类与 PDF Loader | [ ] | | |
 | C4 | Splitter 集成（调用 Libs） | [ ] | | |
@@ -158,14 +158,14 @@
 |------|---------|--------|------|
 | 阶段 A | 3 | 3 | 100% |
 | 阶段 B | 16 | 16 | 100% |
-| 阶段 C | 15 | 0 | 0% |
+| 阶段 C | 15 | 1 | 7% |
 | 阶段 D | 7 | 0 | 0% |
 | 阶段 E | 6 | 0 | 0% |
 | 阶段 F | 5 | 0 | 0% |
 | 阶段 G | 6 | 0 | 0% |
 | 阶段 H | 5 | 0 | 0% |
 | 阶段 I | 5 | 0 | 0% |
-| **总计** | **68** | **19** | **28%** |
+| **总计** | **68** | **20** | **29%** |
 
 
 ---
