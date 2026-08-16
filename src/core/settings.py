@@ -207,6 +207,8 @@ class IngestionConfig:
     chunk_refiner: ChunkRefinerConfig = field(default_factory=ChunkRefinerConfig)
     metadata_enricher: MetadataEnricherConfig = field(default_factory=MetadataEnricherConfig)
     image_captioner: ImageCaptionerConfig = field(default_factory=ImageCaptionerConfig)
+    # 编码批大小（C10 BatchProcessor 使用；批次内单次调用底层 provider）。
+    batch_size: int = 32
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -446,11 +448,15 @@ def _build_ingestion(sec: dict[str, Any]) -> IngestionConfig:
         prompt_path=_opt(ic_sec, "prompt_path", "config/prompts/image_captioning.txt"),
         extra=_extra(ic_sec, {"enabled", "prompt_path"}),
     )
+    raw_batch_size = _opt(sec, "batch_size", 32)
+    if not isinstance(raw_batch_size, int) or isinstance(raw_batch_size, bool) or raw_batch_size < 1:
+        raise ConfigError("config field 'ingestion.batch_size' must be a positive integer")
     return IngestionConfig(
         chunk_refiner=refiner,
         metadata_enricher=enricher,
         image_captioner=captioner,
-        extra=_extra(sec, {"chunk_refiner", "metadata_enricher", "image_captioner"}),
+        batch_size=raw_batch_size,
+        extra=_extra(sec, {"chunk_refiner", "metadata_enricher", "image_captioner", "batch_size"}),
     )
 
 

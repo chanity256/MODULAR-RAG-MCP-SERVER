@@ -1989,7 +1989,7 @@ dashboard:
 | C7 | ImageCaptioner | [x] | 2026-08-16 | 启用模式（ingestion.image_captioner.enabled）：经 LLMFactory.create_vision_llm 逐图调用 chat_with_image，prompt 取 image_captioning.txt（{image_context} 替换为 chunk 上下文，800 字符截断；文件缺失回退内置模板），caption 写入 metadata.image_captions{image_id: caption}；降级模式（默认禁用/工厂失败/文件缺失/路径记录缺失/LLM 异常/空响应）：保留 image_refs+images 原样，标记 has_unprocessed_images=True（工厂失败附 image_caption_fallback 原因），全部成功不打标记；无图 chunk 原样透传；单 chunk 异常隔离；trace 打点（captioned/degraded 计数）；prompt 可注入测试；15 单测 |
 | C8 | DenseEncoder | [x] | 2026-08-16 | 包装 BaseEmbedding（EmbeddingFactory 按 settings.embedding.provider 创建，测试可注入 fake）：encode(chunks) 依序提取 chunks.text 单批送入 embed，返回等长向量列表；fail-fast 契约校验 DenseEncodingError：向量数≠chunk 数/维度不一致/空向量；空 chunks 返回 [] 且不触发底层调用；底层异常原样传播；dimension 代理属性；trace embedding 打点（chunks/dimension/elapsed_ms）；12 单测 |
 | C9 | SparseEncoder | [x] | 2026-08-16 | SparseDocStats(chunk_id/term_freqs/length) 输出契约，可直接供 C11 BM25Indexer 推导 df 与倒排表；默认分词 default_tokenize：拉丁词 [a-z0-9]+ 小写化 + CJK 逐字 unigram（与 D 阶段 QueryProcessor 粒度对齐），tokenizer 可注入；空文本明确行为：term_freqs={} 且 length=0 不抛错（空白文本同）；encode_chunks 顺序对齐 chunk_id；to_dict/from_dict 往返（容忍多余键）；确定性；trace embedding 打点（total_terms/unique_terms）；14 单测 |
-| C10 | BatchProcessor | [ ] | | |
+| C10 | BatchProcessor | [x] | 2026-08-16 | split 契约：batch_size=2 对 5 chunks 分 [2,2,1] 三批、保序不丢不重、空输入 []；run 契约：逐批驱动 encode_fn 按输入顺序拼接，结果数守恒校验（不匹配 RuntimeError），编码异常原样传播；每批耗时记录进 trace（batch_timings_ms，空跑不打点）；默认批大小取 ingestion.batch_size（yaml 可配，正整数校验，显式参数优先，无 settings 时 32）；非法批大小 ValueError；run_dense/run_sparse 便捷路径（对接 C8/C9）；18 单测 |
 | C11 | BM25Indexer（倒排索引+IDF计算） | [ ] | | |
 | C12 | VectorUpserter（幂等upsert） | [ ] | | |
 | C13 | ImageStorage（图片存储+SQLite索引） | [ ] | | |
@@ -2068,14 +2068,14 @@ dashboard:
 |------|---------|--------|------|
 | 阶段 A | 3 | 3 | 100% |
 | 阶段 B | 16 | 16 | 100% |
-| 阶段 C | 15 | 9 | 60% |
+| 阶段 C | 15 | 10 | 67% |
 | 阶段 D | 7 | 0 | 0% |
 | 阶段 E | 6 | 0 | 0% |
 | 阶段 F | 5 | 0 | 0% |
 | 阶段 G | 6 | 0 | 0% |
 | 阶段 H | 5 | 0 | 0% |
 | 阶段 I | 5 | 0 | 0% |
-| **总计** | **68** | **28** | **41%** |
+| **总计** | **68** | **29** | **43%** |
 
 
 ---

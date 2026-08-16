@@ -38,6 +38,7 @@ ingestion:
   image_captioner:
     enabled: false           # true 时经 Vision LLM 生成图片 caption（失败保留 image_refs 不阻塞）
     prompt_path: config/prompts/image_captioning.txt
+  batch_size: 32             # 编码批大小（C10 BatchProcessor：每批一次底层调用）
 
 # 检索配置
 retrieval:
