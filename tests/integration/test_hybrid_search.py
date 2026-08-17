@@ -291,6 +291,28 @@ def test_both_routes_fail_raise(tmp_path, settings):
         hybrid.search("anything", 5)
 
 
+def test_failed_route_with_empty_survivor_returns_empty(tmp_path, settings):
+    """一路失败 + 存活路零命中：降级为存活路的合法空结果（不抛错）。
+
+    D7 依赖该语义：无 API key/无数据环境下 CLI 应给出友好提示，
+    而非把"存活路无命中"误报为链路故障。
+    """
+    persist = tmp_path / "empty_chroma"
+    settings = replace(settings, vector_store=replace(settings.vector_store, persist_path=str(persist)))
+    store = ChromaStore(settings.vector_store, collection="empty")
+    indexer = BM25Indexer(index_path=tmp_path / "empty_bm25" / "index.json")
+    hybrid = HybridSearch(
+        settings,
+        query_processor=QueryProcessor(settings),
+        dense_retriever=_ExplodingDenseRetriever(),
+        sparse_retriever=SparseRetriever(settings, bm25_indexer=indexer, vector_store=store),
+        fusion=RRFFusion(settings),
+    )
+    assert hybrid.search("azure", 5) == []
+    assert list(hybrid.last_route_failures) == ["dense"]
+    shutil.rmtree(persist, ignore_errors=True)
+
+
 def test_single_route_degradation_keeps_route_scores(tmp_path, settings, components):
     """降级结果保留存活路原始分数与排序（不做单路 RRF 重打分）。"""
     hybrid = HybridSearch(

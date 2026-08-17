@@ -1,0 +1,383 @@
+"""在线查询命令行入口（阶段 D7，开发调试用）。
+
+用法（spec D7 验收形态）::
+
+    python scripts/query.py --query "如何配置 Azure？"
+    python scripts/query.py --query "bm25 scoring" --top-k 5 --collection docs --verbose
+    python scripts/query.py --query "部署密钥" --no-rerank
+
+行为契约（D7 验收标准）：
+- ``--query``：必填查询文本（空/纯空白按用法错误处理，退出码 2）。
+- ``--top-k``：可选返回数量（默认 ``retrieval.top_k_final``）。
+- ``--collection``：可选，限定检索集合（构造 ``filters={"collection": ...}``，
+  Dense 路 Pre-filter + 全路 Post-filter 兜底）。
+- ``--verbose``：额外显示各阶段中间结果（Dense/Sparse/Fusion 召回、
+  Rerank 后端与 fallback 状态）。
+- ``--no-rerank``：跳过 Reranker 阶段（直接返回融合排名）。
+- 默认模式输出：Top-K 结果（序号、score、来源文件、页码、文本摘要）。
+- 无数据/无命中：友好提示先运行 ``scripts/ingest.py`` 摄取数据（退出码 0）。
+
+内部流程（spec D7）：加载 Settings → 初始化组件（Embedding / VectorStore /
+BM25Indexer / Reranker）→ 组装 QueryProcessor + DenseRetriever +
+SparseRetriever + HybridSearch → ``HybridSearch.search()`` →（除非
+``--no-rerank``）``Reranker.rerank()`` → 格式化输出。
+
+与 MCP Tool 的关系（spec 注记）：本脚本是开发调试入口；E3
+``query_knowledge_hub`` 是生产 MCP Tool。两者共享 Core 层
+（HybridSearch + Reranker），入口与输出格式各自独立。
+
+可测试性：解析/渲染/执行全部为可导入纯函数，``main(argv, *, search=...,
+reranker=..., out=...)`` 支持注入已构建的查询栈（离线单测零网络零
+真实持久化，见 ``tests/unit/test_query_entry.py``）。
+
+退出码：``0`` = 查询完成（含无命中）；``1`` = 检索链路失败；
+``2`` = 用法/配置错误。
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable, Sequence
+
+# 让 ``src`` 下的包在未安装时也可被直接 import（与根 ``main.py``、
+# ``scripts/ingest.py`` 同一模式，支持 ``python scripts/query.py`` 直接运行）。
+_SRC_DIR = Path(__file__).resolve().parents[1] / "src"
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
+
+from core.query_engine import HybridSearch, Reranker  # noqa: E402
+from core.query_engine.query_processor import QueryProcessingError  # noqa: E402
+from core.settings import ConfigError, Settings, load_settings  # noqa: E402
+from core.trace.trace_context import TraceContext  # noqa: E402
+from core.types import RetrievalResult  # noqa: E402
+
+__all__ = [
+    "DEFAULT_CONFIG_PATH",
+    "EXIT_OK",
+    "EXIT_FAILURE",
+    "EXIT_USAGE",
+    "QueryOutcome",
+    "build_parser",
+    "parse_args",
+    "build_search",
+    "build_reranker",
+    "run_query",
+    "render_result_line",
+    "render_no_results",
+    "render_verbose_sections",
+    "main",
+]
+
+#: 默认配置文件（仓库根 ``config/settings.yaml``，绝对路径不受 CWD 影响）。
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "settings.yaml"
+
+# 退出码语义。
+EXIT_OK = 0
+EXIT_FAILURE = 1
+EXIT_USAGE = 2
+
+#: 结果文本摘要的最大字符数（单行折叠）。
+EXCERPT_CHARS = 160
+
+#: 输出函数签名（默认 ``print``；测试注入 list.append 收集器）。
+Emit = Callable[[str], None]
+
+
+# ---------------------------------------------------------------------------
+# 结果模型
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class QueryOutcome:
+    """一次 CLI 查询的完整结果（人读渲染 + 机读 ``to_dict``）。"""
+
+    query: str
+    top_k: int
+    results: list[RetrievalResult] = field(default_factory=list)
+    dense: list[RetrievalResult] = field(default_factory=list)
+    sparse: list[RetrievalResult] = field(default_factory=list)
+    fused: list[RetrievalResult] = field(default_factory=list)
+    collection: str | None = None
+    rerank_applied: bool = False
+    rerank_fallback: bool | None = None
+    rerank_backend: str | None = None
+    trace_id: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "query": self.query,
+            "top_k": self.top_k,
+            "collection": self.collection,
+            "results": [r.to_dict() for r in self.results],
+            "dense_ids": [r.chunk_id for r in self.dense],
+            "sparse_ids": [r.chunk_id for r in self.sparse],
+            "fused_ids": [r.chunk_id for r in self.fused],
+            "rerank_applied": self.rerank_applied,
+            "rerank_fallback": self.rerank_fallback,
+            "rerank_backend": self.rerank_backend,
+            "trace_id": self.trace_id,
+        }
+
+
+# ---------------------------------------------------------------------------
+# 参数解析
+# ---------------------------------------------------------------------------
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """构造 CLI 参数解析器（``--query`` 必填，其余可选）。"""
+    parser = argparse.ArgumentParser(
+        prog="query",
+        description="对本地知识库执行混合检索（Dense + Sparse + RRF + 可选 Rerank）。",
+    )
+    parser.add_argument(
+        "--query",
+        required=True,
+        help="查询文本（必填）",
+    )
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=None,
+        help="返回结果数量（默认取 settings retrieval.top_k_final）",
+    )
+    parser.add_argument(
+        "--collection",
+        default=None,
+        help="限定检索集合（写入 filters 供 Pre/Post-filter）",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="显示各阶段中间结果（Dense/Sparse/Fusion/Rerank）",
+    )
+    parser.add_argument(
+        "--no-rerank",
+        action="store_true",
+        help="跳过 Reranker 精排阶段（直接返回融合排名）",
+    )
+    parser.add_argument(
+        "--config",
+        default=str(DEFAULT_CONFIG_PATH),
+        help=f"配置文件路径（默认 {DEFAULT_CONFIG_PATH}）",
+    )
+    return parser
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """解析 argv（缺省取 ``sys.argv[1:]``；非法参数由 argparse 退出码 2 处理）。"""
+    return build_parser().parse_args(argv)
+
+
+# ---------------------------------------------------------------------------
+# 查询栈构建与执行
+# ---------------------------------------------------------------------------
+
+
+def build_search(settings: Settings) -> HybridSearch:
+    """按 ``Settings`` 构建默认混合检索栈（HybridSearch 内部按需创建组件）。"""
+    return HybridSearch(settings)
+
+
+def build_reranker(settings: Settings) -> Reranker:
+    """按 ``Settings`` 构建精排器（backend 由 ``rerank.backend`` 驱动）。"""
+    return Reranker(settings)
+
+
+def run_query(
+    search: Any,
+    reranker: Any | None,
+    query: str,
+    top_k: int | None = None,
+    *,
+    collection: str | None = None,
+    verbose: bool = False,
+    out: Emit | None = None,
+) -> QueryOutcome:
+    """执行一次查询并渲染输出（组件可注入，离线可测）。
+
+    Args:
+        search: 任何具备 ``search(query, top_k, filters, trace=...)`` 签法
+            的对象（真 ``HybridSearch`` 或测试 fake；fake 需自行提供
+            ``last_dense_results`` / ``last_sparse_results`` /
+            ``last_fused_results`` 供 verbose 展示，缺失时静默跳过）。
+        reranker: 任何具备 ``rerank(query, results, trace=...)`` 签法的对象；
+            ``None`` 或空结果时跳过精排（等价 ``--no-rerank``）。
+        query: 查询文本。
+        top_k: 返回数量（``None`` 透传给 search 由其取默认）。
+        collection: 可选集合过滤。
+        verbose: True 时输出各阶段中间结果。
+        out: 输出函数（缺省 ``print``）。
+
+    Returns:
+        :class:`QueryOutcome`（含最终结果与各阶段中间产物）。
+    """
+    emit = print if out is None else out
+    trace = TraceContext(metadata={"query": query, "collection": collection})
+    filters = {"collection": collection} if collection else None
+
+    results = search.search(query, top_k=top_k, filters=filters, trace=trace)
+
+    outcome = QueryOutcome(query=query, top_k=top_k or 0, collection=collection)
+    outcome.dense = list(getattr(search, "last_dense_results", []) or [])
+    outcome.sparse = list(getattr(search, "last_sparse_results", []) or [])
+    outcome.fused = list(getattr(search, "last_fused_results", []) or [])
+
+    if reranker is not None and results:
+        outcome.rerank_applied = True
+        outcome.rerank_backend = getattr(reranker, "backend_name", None)
+        results = reranker.rerank(query, results, trace=trace)
+        outcome.rerank_fallback = bool(getattr(reranker, "last_fallback", False))
+
+    outcome.results = list(results)
+    outcome.trace_id = trace.trace_id
+
+    if verbose:
+        emit(render_verbose_sections(outcome))
+        emit("")
+
+    if not outcome.results:
+        emit(render_no_results())
+    else:
+        emit(f'query: {query!r}  top_k={len(outcome.results)}'
+             + (f'  collection={collection!r}' if collection else ''))
+        for index, result in enumerate(outcome.results, start=1):
+            emit(render_result_line(index, result))
+    return outcome
+
+
+# ---------------------------------------------------------------------------
+# 渲染
+# ---------------------------------------------------------------------------
+
+
+def render_result_line(index: int, result: RetrievalResult, *, excerpt_chars: int = EXCERPT_CHARS) -> str:
+    """渲染单条结果：序号 + score + 来源 + 页码 + 单行文本摘要。"""
+    source = result.metadata.get("source_path") or result.metadata.get("source") or "-"
+    page = result.metadata.get("page")
+    location = f"  source={source}"
+    if page is not None:
+        location += f"  page={page}"
+    excerpt = " ".join(result.text.split())  # 折叠空白为单行
+    if len(excerpt) > excerpt_chars:
+        excerpt = excerpt[: excerpt_chars - 1] + "…"
+    return f"[{index}] score={result.score:.4f}{location}\n    {excerpt}"
+
+
+def render_no_results() -> str:
+    """无命中时的友好提示（spec D7：提示先摄取数据）。"""
+    return (
+        "未找到相关文档。请先运行摄取入口建立索引，例如：\n"
+        "  python scripts/ingest.py --path <文件或目录> --collection <集合名>"
+    )
+
+
+def _render_stage_items(items: Sequence[RetrievalResult]) -> str:
+    if not items:
+        return "    (无)"
+    return "\n".join(f"    {r.chunk_id}  score={r.score:.4f}" for r in items)
+
+
+def render_verbose_sections(outcome: QueryOutcome) -> str:
+    """渲染 verbose 各阶段中间结果（Dense/Sparse/Fusion/Rerank）。"""
+    lines = [
+        f"--- dense recall ({len(outcome.dense)} hits) ---",
+        _render_stage_items(outcome.dense),
+        f"--- sparse recall ({len(outcome.sparse)} hits) ---",
+        _render_stage_items(outcome.sparse),
+        f"--- fusion ({len(outcome.fused)} fused) ---",
+        _render_stage_items(outcome.fused),
+    ]
+    if outcome.rerank_applied:
+        fallback = "true" if outcome.rerank_fallback else "false"
+        lines.append(
+            f"--- rerank (backend={outcome.rerank_backend}, fallback={fallback}) ---"
+        )
+    else:
+        lines.append("--- rerank (skipped) ---")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# CLI 入口
+# ---------------------------------------------------------------------------
+
+
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    search: Any | None = None,
+    reranker: Any | None = None,
+    out: Emit | None = None,
+) -> int:
+    """CLI 入口（返回进程退出码，不直接 ``sys.exit``）。
+
+    Args:
+        argv: 参数列表（缺省 ``sys.argv[1:]``）。
+        search: 已构建的 ``HybridSearch``（测试注入；缺省按 ``--config``
+            加载 ``Settings`` 后经 :func:`build_search` 构建）。
+        reranker: 已构建的 ``Reranker``（测试注入；缺省且未指定
+            ``--no-rerank`` 时构建）。注意：显式传入 ``reranker=None``
+            与未传无法区分时按"构建默认"处理；离线测试请传入 sentinel
+            或 ``--no-rerank``。
+        out: 输出函数（缺省 ``print``）。
+
+    Returns:
+        ``0`` 查询完成（含无命中）；``1`` 检索链路失败；
+        ``2`` 用法/配置错误。
+    """
+    emit = print if out is None else out
+    args = parse_args(argv)
+
+    need_settings = search is None or (reranker is None and not args.no_rerank)
+    settings: Settings | None = None
+    if need_settings:
+        try:
+            settings = load_settings(args.config)
+        except (ConfigError, FileNotFoundError) as exc:
+            emit(f"[usage] 配置加载失败: {exc}")
+            return EXIT_USAGE
+
+    if search is None:
+        try:
+            search = build_search(settings)
+        except Exception as exc:
+            emit(f"[usage] 查询组件初始化失败: {exc}")
+            return EXIT_USAGE
+
+    if reranker is None and not args.no_rerank:
+        # 默认构建精排器；构建失败按用法/配置错误处理（可用 --no-rerank 规避）。
+        try:
+            reranker = build_reranker(settings)
+        except Exception as exc:
+            emit(f"[usage] Reranker 初始化失败（可用 --no-rerank 规避）: {exc}")
+            return EXIT_USAGE
+
+    try:
+        run_query(
+            search,
+            reranker,
+            args.query,
+            top_k=args.top_k,
+            collection=args.collection,
+            verbose=args.verbose,
+            out=emit,
+        )
+    except QueryProcessingError as exc:
+        emit(f"[usage] 查询无效: {exc}")
+        return EXIT_USAGE
+    except (TypeError, ValueError) as exc:
+        emit(f"[usage] 参数无效: {exc}")
+        return EXIT_USAGE
+    except Exception as exc:  # HybridSearchError 及其余运行时故障
+        emit(f"[error] 检索失败: {type(exc).__name__}: {exc}")
+        return EXIT_FAILURE
+    return EXIT_OK
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

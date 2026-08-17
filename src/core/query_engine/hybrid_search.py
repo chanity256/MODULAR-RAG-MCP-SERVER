@@ -13,8 +13,9 @@
 - **组件全可注入**（测试 fake / 未来替换实现）；未注入时按 ``Settings``
   创建默认实现（构造期即创建，与 D2/D3 纪律一致）。
 - **降级策略**：Dense/Sparse 任一路径抛异常时记录失败、降级到另一路
-  的原始结果（保留该路分数与排序，不做单路 RRF 重打分）；两路均失败
-  抛 :class:`HybridSearchError`（无可用召回路径，不可静默返回空）。
+  的原始结果（保留该路分数与排序，不做单路 RRF 重打分；存活路零命中
+  属于合法结果，返回空列表）；**两路均抛异常**才抛
+  :class:`HybridSearchError`（无可用召回路径，不可静默返回空）。
 - **Metadata 过滤**（先解析、能前置则前置、无法前置则后置兜底）：
   Dense 路透传 ``filters`` 给 store 做 Pre-filter；融合后统一跑
   ``_apply_metadata_filters`` Post-filter（覆盖 Sparse 路——BM25 无
@@ -164,11 +165,10 @@ class HybridSearch:
             failures["sparse"] = f"{type(exc).__name__}: {exc}"
             self._logger.warning("sparse route failed, degrading to dense: %s", failures["sparse"])
 
-        if failures and not dense_results and not sparse_results:
+        if "dense" in failures and "sparse" in failures:
             raise HybridSearchError(
                 "both retrieval routes failed — "
-                f"dense: {failures.get('dense', 'no results')}; "
-                f"sparse: {failures.get('sparse', 'no results')}"
+                f"dense: {failures['dense']}; sparse: {failures['sparse']}"
             )
 
         if dense_results and sparse_results:
