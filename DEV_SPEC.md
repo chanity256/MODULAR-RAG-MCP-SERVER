@@ -2012,7 +2012,7 @@ dashboard:
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| E1 | MCP Server 入口与 Stdio 约束 | [ ] | | |
+| E1 | MCP Server 入口与 Stdio 约束 | [x] | 2026-08-17 | MCPServer stdio 主循环（零外部依赖，官方 mcp SDK 未安装故按协议手工实现 JSON-RPC 消息收发，E2 ProtocolHandler 落地完整解析）：stdout 每行仅输出一个 JSON-RPC 消息（响应 flush 后即写，绝不混入日志），日志全走 observability.logger（stderr）；initialize 握手返回 protocolVersion=2025-06-18 + capabilities.tools 能力声明 + serverInfo(name/version)；notifications/initialized 等无 id 通知静默无响应；shutdown 请求哨兵优雅退出（无响应）；stdin EOF 正常退出码 0；非法 JSON/非对象消息返回 -32700 Parse error；handler 异常防污染通道返回 -32603 且不泄露堆栈；message_handler 注入点供 E2 接入完整 tools/list、tools/call 与错误码规范；未接入前其余方法占位 -32601；serve(stdin?, stdout?) 可注入流便于测试，python -m mcp_server.server 可直接运行；测试 tests/integration/test_mcp_server.py 5 用例（真子进程 PYTHONPATH=src 启动：initialize 握手字段断言、通知不产生响应且不污染后续请求、EOF 退出 stderr 含启动/停止日志且 stdout 仅一行 JSON-RPC、E2 前占位方法 -32601、shutdown 干净退出 stdout 仅剩 initialize 响应）；全套件 781 通过 2 跳过（既有门控） |
 | E2 | Protocol Handler 协议解析与能力协商 | [ ] | | |
 | E3 | query_knowledge_hub Tool | [ ] | | |
 | E4 | list_collections Tool | [ ] | | |
