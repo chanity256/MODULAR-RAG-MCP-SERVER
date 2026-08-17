@@ -106,7 +106,8 @@ def test_tools_list_and_unknown_method(server):
     response = _rpc(server, {"jsonrpc": "2.0", "id": 3, "method": "tools/list"})
     msg = json.loads(response)
     tools = msg["result"]["tools"]
-    assert [t["name"] for t in tools] == ["query_knowledge_hub"]
+    assert [t["name"] for t in tools] == ["query_knowledge_hub", "list_collections"]
+    assert tools[1]["inputSchema"] == {"type": "object", "properties": {}}
     schema = tools[0]
     assert "hybrid retrieval" in schema["description"]
     assert schema["inputSchema"]["required"] == ["query"]
