@@ -2,6 +2,7 @@
 
 from core.query_engine.dense_retriever import DenseRetrievalError, DenseRetriever
 from core.query_engine.fusion import DEFAULT_RRF_K, RRFFusion, rrf_fuse_rankings
+from core.query_engine.hybrid_search import HybridSearch, HybridSearchError
 from core.query_engine.query_processor import (
     DEFAULT_STOPWORDS,
     QueryProcessingError,
@@ -21,4 +22,6 @@ __all__ = [
     "RRFFusion",
     "rrf_fuse_rankings",
     "DEFAULT_RRF_K",
+    "HybridSearch",
+    "HybridSearchError",
 ]
