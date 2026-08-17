@@ -1991,7 +1991,7 @@ dashboard:
 | C9 | SparseEncoder | [x] | 2026-08-16 | SparseDocStats(chunk_id/term_freqs/length) 输出契约，可直接供 C11 BM25Indexer 推导 df 与倒排表；默认分词 default_tokenize：拉丁词 [a-z0-9]+ 小写化 + CJK 逐字 unigram（与 D 阶段 QueryProcessor 粒度对齐），tokenizer 可注入；空文本明确行为：term_freqs={} 且 length=0 不抛错（空白文本同）；encode_chunks 顺序对齐 chunk_id；to_dict/from_dict 往返（容忍多余键）；确定性；trace embedding 打点（total_terms/unique_terms）；14 单测 |
 | C10 | BatchProcessor | [x] | 2026-08-16 | split 契约：batch_size=2 对 5 chunks 分 [2,2,1] 三批、保序不丢不重、空输入 []；run 契约：逐批驱动 encode_fn 按输入顺序拼接，结果数守恒校验（不匹配 RuntimeError），编码异常原样传播；每批耗时记录进 trace（batch_timings_ms，空跑不打点）；默认批大小取 ingestion.batch_size（yaml 可配，正整数校验，显式参数优先，无 settings 时 32）；非法批大小 ValueError；run_dense/run_sparse 便捷路径（对接 C8/C9）；18 单测 |
 | C11 | BM25Indexer（倒排索引+IDF计算） | [x] | 2026-08-16 | 消费 C9 SparseDocStats 构建倒排索引（spec 结构 {term:{idf,postings:[{chunk_id,tf,doc_length}]}}）；IDF=log((N-df+0.5)/(df+0.5)) 自然对数精确公式（df>N/2 可为负、df=N/2 恰为 0，不截断不加 1）；Okapi BM25 打分（k1=1.5/b=0.75 可配，校验 k1≥0、b∈[0,1]，qtf 查询词频乘子）；query(keywords,top_k)→[{chunk_id,score}] 降序稳定排序（同分按 chunk_id 升序），与 D3 SparseRetriever 契约对齐；build 清空重建/add 增量（同 chunk_id 替换、df=0 死词清理、IDF 随 N 全量重算，跨批次重复=幂等重摄取、单批内重复 fail-fast BM25IndexError）；空 term_freqs 文档不入索引不计入 N；save/load JSON（version=1、原子写 tmp+os.replace、自动建目录、容忍多余键、load 采纳文件 k1/b 并校验 num_docs/total_length 与 postings 一致），默认 data/db/bm25/index.json；avgdl/df/get_postings 只读视图；trace storage 打点（mode/docs/replaced/elapsed_ms，空跑不打点）；35 单测（含 C9→C11 链路与负 IDF 排序稳定性） |
-| C12 | VectorUpserter（幂等upsert） | [ ] | | |
+| C12 | VectorUpserter（幂等upsert） | [x] | 2026-08-17 | 消费 C8 DenseEncoder 向量输出（chunks+vectors 平行等长序列）组装 VectorRecord（id+vector+text+完整 metadata 浅拷贝），经 VectorStoreFactory（settings.vector_store.backend 路由，测试可注入 fake store）调 BaseVectorStore.upsert() 分批幂等写入；幂等键=chunk.id（spec 公式 hash(source_path+chunk_index+content_hash[:8]) 由 C4 DocumentChunker 落地为 {doc_id}_{index:04d}_{content_hash[:8]}，与 C11 SparseDocStats.chunk_id/D3 get_by_ids 共用 id 空间，故不重新派生：同 chunk 重跑 id 不变、内容变更 content_hash 变化 id 变更、后端按 id 覆盖无重复记录）；批切分按 ingestion.batch_size（显式参数>settings>默认32，保序 [2,2,1] 不丢不重）；fail-fast VectorUpsertError（数量不等/空向量/维度不一致/非数值或 bool 分量/单次调用内重复 chunk_id/单 Chunk 实例/store 返回非法计数非 int 或超 [0,批大小]；跨调用重复=幂等重摄取不报错；store 异常原样传播）；空输入零统计不触库不打点；UpsertSummary(chunks/batches/written/ids 与输入同序)；trace storage 打点（method=vector_upserter，chunks/batches/batch_size/written/elapsed_ms，trace 透传 store）；33 单测（含 C8→C12 链路 fake HashEmbedding 端到端与幂等重跑） |
 | C13 | ImageStorage（图片存储+SQLite索引） | [ ] | | |
 | C14 | Pipeline 编排（MVP 串起来） | [ ] | | |
 | C15 | 脚本入口 ingest.py | [ ] | | |
@@ -2068,14 +2068,14 @@ dashboard:
 |------|---------|--------|------|
 | 阶段 A | 3 | 3 | 100% |
 | 阶段 B | 16 | 16 | 100% |
-| 阶段 C | 15 | 11 | 73% |
+| 阶段 C | 15 | 12 | 80% |
 | 阶段 D | 7 | 0 | 0% |
 | 阶段 E | 6 | 0 | 0% |
 | 阶段 F | 5 | 0 | 0% |
 | 阶段 G | 6 | 0 | 0% |
 | 阶段 H | 5 | 0 | 0% |
 | 阶段 I | 5 | 0 | 0% |
-| **总计** | **68** | **30** | **44%** |
+| **总计** | **68** | **31** | **46%** |
 
 
 ---
