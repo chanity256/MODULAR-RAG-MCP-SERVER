@@ -40,6 +40,15 @@ SUPPORTED_METHODS = ("initialize", "tools/list", "tools/call")
 ToolHandler = Callable[[dict], Any]
 
 
+class ToolInvalidParams(ValueError):
+    """Tool 参数校验失败：映射为 JSON-RPC -32602（而非 -32603）。
+
+    Tool handler 主动抛出本异常时，``message`` 会原样进入错误响应
+    （仅限参数描述，不得包含内部细节）；其他异常仍统一 -32603
+    且不泄露消息文本。
+    """
+
+
 @dataclass
 class ToolDefinition:
     """单个 MCP Tool 的声明式定义。"""
@@ -179,6 +188,8 @@ class ProtocolHandler:
 
         try:
             output = self._tools[name].handler(arguments)
+        except ToolInvalidParams as exc:
+            return _error(msg_id, INVALID_PARAMS, str(exc) or "Invalid tool arguments")
         except Exception:
             # 内部异常统一 -32603，且消息中不包含堆栈/异常文本（防泄露）。
             return _error(msg_id, INTERNAL_ERROR, f"Tool execution failed: {name}")

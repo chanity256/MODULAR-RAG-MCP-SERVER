@@ -132,9 +132,24 @@ class _ShutdownSentinel:
 _SHUTDOWN = _ShutdownSentinel()
 
 
+def build_default_protocol_handler() -> ProtocolHandler:
+    """构建注册了 E3+ tools 的缺省 ProtocolHandler。
+
+    Tools 懒初始化（见 ``tools/query_knowledge_hub``），注册本身
+    不触发网络/凭据依赖；后续 tool（E4/E5）在此追加注册。
+    """
+    from mcp_server.tools.query_knowledge_hub import create_query_knowledge_hub_definition
+
+    handler = ProtocolHandler()
+    handler.register_tool(create_query_knowledge_hub_definition())
+    return handler
+
+
 def main(stdin: TextIO | None = None, stdout: TextIO | None = None) -> int:
     """模块级入口：``python -m mcp_server.server``。"""
-    return MCPServer().serve(stdin=stdin, stdout=stdout)
+    return MCPServer(protocol_handler=build_default_protocol_handler()).serve(
+        stdin=stdin, stdout=stdout
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover

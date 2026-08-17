@@ -102,13 +102,76 @@ def test_stderr_has_logs_stdout_clean_on_eof(server):
 
 
 def test_tools_list_and_unknown_method(server):
-    """E2 ProtocolHandler 已接入：tools/list 返回空列表，未知方法 -32601。"""
+    """E2/E3：tools/list 返回 query_knowledge_hub schema，未知方法 -32601。"""
     response = _rpc(server, {"jsonrpc": "2.0", "id": 3, "method": "tools/list"})
     msg = json.loads(response)
-    assert msg["result"] == {"tools": []}
+    tools = msg["result"]["tools"]
+    assert [t["name"] for t in tools] == ["query_knowledge_hub"]
+    schema = tools[0]
+    assert "hybrid retrieval" in schema["description"]
+    assert schema["inputSchema"]["required"] == ["query"]
+    assert set(schema["inputSchema"]["properties"]) == {"query", "top_k", "collection"}
     response = _rpc(server, {"jsonrpc": "2.0", "id": 4, "method": "foo/bar"})
     msg = json.loads(response)
     assert msg["error"]["code"] == -32601
+
+
+def test_query_knowledge_hub_call(server):
+    """E3：tools/call query_knowledge_hub 参数校验路径（懒初始化，无网络依赖）。
+
+    - 缺 query / 空 query / 非法 top_k → -32602（校验先于检索栈构建）；
+    - 未知 tool → -32602。
+    """
+    response = _rpc(
+        server,
+        {
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "tools/call",
+            "params": {"name": "query_knowledge_hub", "arguments": {}},
+        },
+    )
+    msg = json.loads(response)
+    assert msg["error"]["code"] == -32602
+
+    response = _rpc(
+        server,
+        {
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "tools/call",
+            "params": {"name": "query_knowledge_hub", "arguments": {"query": "   "}},
+        },
+    )
+    msg = json.loads(response)
+    assert msg["error"]["code"] == -32602
+
+    response = _rpc(
+        server,
+        {
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "tools/call",
+            "params": {
+                "name": "query_knowledge_hub",
+                "arguments": {"query": "bm25 scoring", "top_k": 0},
+            },
+        },
+    )
+    msg = json.loads(response)
+    assert msg["error"]["code"] == -32602
+
+    response = _rpc(
+        server,
+        {
+            "jsonrpc": "2.0",
+            "id": 8,
+            "method": "tools/call",
+            "params": {"name": "no_such_tool", "arguments": {}},
+        },
+    )
+    msg = json.loads(response)
+    assert msg["error"]["code"] == -32602
 
 
 def test_shutdown_request_exits_cleanly(server):

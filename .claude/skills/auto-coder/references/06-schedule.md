@@ -41,114 +41,114 @@
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| A1 | 初始化目录树与最小可运行入口 | [x] | 2026-01-26 | 目录结构、配置文件、main.py 已创建 |
-| A2 | 引入 pytest 并建立测试目录约定 | [x] | 2026-01-26 | pytest 配置、tests/ 目录结构、22 个冒烟测试 |
-| A3 | 配置加载与校验（Settings） | [x] | 2026-01-26 | 配置加载、校验与单元测试 |
+| A1 | 初始化目录树与最小可运行入口 | [x] | 2026-08-12 | 骨架就绪：目录树/__init__.py/main.py/pyproject.toml/config/settings.yaml + 3 prompts，venv 可导入 |
+| A2 | 引入 pytest 并建立测试目录约定 | [x] | 2026-08-12 | pytest 基座就绪：test_smoke_imports.py（4 用例）全绿 |
+| A3 | 配置加载与校验（Settings） | [x] | 2026-08-12 | Settings dataclass + load_settings + validate_settings；缺失字段可读报错；main.py fail-fast |
 
 #### 阶段 B：Libs 可插拔层
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| B1 | LLM 抽象接口与工厂 | [x] | 2026-01-27 | BaseLLM + LLMFactory + 16个单元测试 |
-| B2 | Embedding 抽象接口与工厂 | [x] | 2026-01-27 | BaseEmbedding + EmbeddingFactory + 22个单元测试 |
-| B3 | Splitter 抽象接口与工厂 | [x] | 2026-01-27 | BaseSplitter + SplitterFactory + 20个单元测试 |
-| B4 | VectorStore 抽象接口与工厂 | [x] | 2026-01-27 | BaseVectorStore + VectorStoreFactory + 34个单元测试 |
-| B5 | Reranker 抽象接口与工厂（含 None 回退） | [x] | 2026-01-27 | BaseReranker + RerankerFactory + NoneReranker + 单元测试 |
-| B6 | Evaluator 抽象接口与工厂 | [x] | 2026-01-27 | BaseEvaluator + EvaluatorFactory + CustomEvaluator + 单元测试 |
-| B7.1 | OpenAI-Compatible LLM 实现 | [x] | 2026-01-28 | OpenAILLM + AzureLLM + DeepSeekLLM + 33个单元测试 |
-| B7.2 | Ollama LLM 实现 | [x] | 2026-01-28 | OllamaLLM + 32个单元测试 |
-| B7.3 | OpenAI & Azure Embedding 实现 | [x] | 2026-01-28 | OpenAIEmbedding + AzureEmbedding + 27个单元测试 |
-| B7.4 | Ollama Embedding 实现 | [x] | 2026-01-28 | OllamaEmbedding + 20个单元测试 |
-| B7.5 | Recursive Splitter 默认实现 | [x] | 2026-01-28 | RecursiveSplitter + 24个单元测试 + langchain集成 |
-| B7.6 | ChromaStore 默认实现 | [x] | 2026-01-30 | ChromaStore + 20个集成测试 + roundtrip验证 |
-| B7.7 | LLM Reranker 实现 | [x] | 2026-01-30 | LLMReranker + 20个单元测试 + prompt模板支持 |
-| B7.8 | Cross-Encoder Reranker 实现 | [x] | 2026-01-30 | CrossEncoderReranker + 26个单元测试 + 工厂集成 |
-| B8 | Vision LLM 抽象接口与工厂集成 | [x] | 2026-01-31 | BaseVisionLLM + ImageInput + LLMFactory扩展 + 35个单元测试 |
-| B9 | Azure Vision LLM 实现 | [x] | 2026-01-31 | AzureVisionLLM + 22个单元测试 + mock测试 + 图片压缩 |
+| B1 | LLM 抽象接口与工厂 | [x] | 2026-08-12 | BaseLLM + ChatMessage/ChatResponse + LLMFactory 注册路由；Fake provider 验证 |
+| B2 | Embedding 抽象接口与工厂 | [x] | 2026-08-12 | BaseEmbedding + EmbeddingFactory 注册路由；Fake embedding 稳定向量验证 |
+| B3 | Splitter 抽象接口与工厂 | [x] | 2026-08-12 | BaseSplitter + SplitterFactory 注册路由；新增 SplitterConfig（可选节，默认 recursive） |
+| B4 | VectorStore 抽象接口与工厂 | [x] | 2026-08-12 | BaseVectorStore + VectorRecord/QueryResult 契约 + VectorStoreFactory 注册路由；契约测试约束 shape |
+| B5 | Reranker 抽象接口与工厂（含 None 回退） | [x] | 2026-08-12 | BaseReranker + NoneReranker（保持原序）+ RerankerFactory（none 默认注册）；未知 backend 报错 |
+| B6 | Evaluator 抽象接口与工厂 | [x] | 2026-08-12 | BaseEvaluator + CustomEvaluator（hit_rate/mrr/hit_at_k）+ EvaluatorFactory（custom 默认注册）；create_from_settings 批量创建 |
+| B7.1 | OpenAI-Compatible LLM 实现 | [x] | 2026-08-12 | OpenAICompatibleLLM 基类 + OpenAI/Azure/DeepSeek 子类；可注入 transport mock HTTP；LLMRequestError 含 provider+错误类型 |
+| B7.2 | Ollama LLM 实现 | [x] | 2026-08-12 | OllamaLLM 原生 /api/chat + 可注入 transport；连接失败/超时/错误响应可读报错且不泄露 api_key |
+| B7.3 | OpenAI & Azure Embedding 实现 | [x] | 2026-08-12 | OpenAICompatibleEmbedding 基类 + OpenAI/Azure 子类；批量 embed 顺序一致；空/超长输入可配置报错或截断；Azure 复用核心逻辑 |
+| B7.4 | Ollama Embedding 实现 | [x] | 2026-08-12 | OllamaEmbedding 原生 /api/embed 批量 + 旧版单条兼容；连接失败/超时/错误响应可读且不泄露 api_key |
+| B7.5 | Recursive Splitter 默认实现 | [x] | 2026-08-12 | RecursiveSplitter 封装 LangChain RecursiveCharacterTextSplitter；Markdown 结构感知 separators；标题/代码块不打断 |
+| B7.6 | ChromaStore 默认实现 | [x] | 2026-08-12 | ChromaStore 封装 chromadb PersistentClient；upsert 幂等、query 按 score 降序、top_k、metadata filters；持久化重开可读；14 集成测试全绿 |
+| B7.7 | LLM Reranker 实现 | [x] | 2026-08-12 | LLMReranker 读取 rerank.txt 构造 prompt + 注入 LLM；解析 JSON 数组重排候选；LLM异常/解析失败/越界回退原序 + last_fallback 标记；top_m 截断；未覆盖候选追加末尾 |
+| B7.8 | Cross-Encoder Reranker 实现 | [x] | 2026-08-12 | CrossEncoderReranker 可注入 scorer 打分排序；deterministic stable sort；scorer 异常/超时/长度不匹配回退原序 + last_fallback；top_m 截断；kwargs 临时覆盖 scorer |
+| B8 | Vision LLM 抽象接口与工厂集成 | [x] | 2026-08-12 | BaseVisionLLM(chat_with_image + load_image/encode_base64/prepare_image/_preprocess_image 扩展点)；LLMFactory 扩展 register_vision + create_vision_llm 独立 vision registry；Fake Vision LLM 验证路由 |
+| B9 | Azure Vision LLM 实现 | [x] | 2026-08-12 | AzureVisionLLM(BaseVisionLLM) 可注入 transport；Azure URL/headers(api-key)；OpenAI Vision 消息格式(text+image_url data URL)；图片预处理 Pillow 可用时压缩/不可用优雅降级；auth/network/malformed 错误可读且不泄露 api_key；chat_text 继承可用 |
 
 #### 阶段 C：Ingestion Pipeline MVP
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| C1 | 定义核心数据类型/契约（Document/Chunk/ChunkRecord） | [x] | 2026-01-30 | Document/Chunk/ChunkRecord + 18个单元测试 |
-| C2 | 文件完整性检查（SHA256） | [x] | 2026-01-30 | FileIntegrityChecker + SQLiteIntegrityChecker + 25个单元测试 |
-| C3 | Loader 抽象基类与 PDF Loader | [x] | 2026-01-30 | BaseLoader + PdfLoader + PyMuPDF图片提取 + 21单元测试 + 9集成测试 |
-| C4 | Splitter 集成（调用 Libs） | [x] | 2026-01-31 | DocumentChunker + 19个单元测试 + 5个核心增值功能 |
-| C5 | Transform 基类 + ChunkRefiner | [x] | 2026-01-31 | BaseTransform + ChunkRefiner (Rule + LLM) + TraceContext + 25单元测试 + 5集成测试 |
-| C6 | MetadataEnricher | [x] | 2026-01-31 | MetadataEnricher (Rule + LLM) + 26单元测试 + 真实LLM集成测试 |
-| C7 | ImageCaptioner | [x] | 2026-02-01 | ImageCaptioner + Azure Vision LLM 实现 + 集成测试 |
-| C8 | DenseEncoder | [x] | 2026-02-01 | 批量编码+Azure集成测试 |
-| C9 | SparseEncoder | [x] | 2026-02-01 | 词频统计+语料库统计+26单元测试 |
-| C10 | BatchProcessor | [x] | 2026-02-01 | BatchProcessor + BatchResult + 20个单元测试 |
-| C11 | BM25Indexer（倒排索引+IDF计算） | [x] | 2026-02-01 | BM25索引器+IDF计算+持久化+26单元测试 |
-| C12 | VectorUpserter（幂等upsert） | [x] | 2026-02-01 | 稳定chunk_id生成+幂等upsert+21单元测试 |
-| C13 | ImageStorage（图片存储+SQLite索引） | [x] | 2026-02-01 | ImageStorage + SQLite索引 + 37个单元测试 + WAL并发支持 |
-| C14 | Pipeline 编排（MVP 串起来） | [x] | 2026-02-02 | 完整流程编排+Azure LLM/Embedding集成测试通过 |
-| C15 | 脚本入口 ingest.py | [x] | 2026-02-02 | CLI脚本+E2E测试+文件发现+skip功能 |
+| C1 | 定义核心数据类型/契约（Document/Chunk/ChunkRecord） | [x] | 2026-08-16 | Document/Chunk/ChunkRecord + ImageRef 六字段规范；[IMAGE: {id}] 占位符工具（make_image_id/image_placeholder/iter_image_placeholders/parse_image_refs）；to_dict/from_dict/to_json 契约稳定且忽略未知字段；metadata 增量扩展兼容；core/__init__ 统一 re-export |
+| C2 | 文件完整性检查（SHA256） | [x] | 2026-08-16 | FileIntegrityChecker 抽象 + SQLiteIntegrityChecker 默认实现；compute_sha256 流式 64KB 分块；should_skip 仅 status=success 跳过；mark_success/mark_failed 幂等覆盖（success 清 error_msg，failed 保留旧 file_path）；WAL + busy_timeout + 写锁支持单实例多线程与多连接并发；ingestion_history 表五字段契约；默认 data/db/ingestion_history.db 自动建目录 |
+| C3 | Loader 抽象基类与 PDF Loader | [x] | 2026-08-16 | BaseLoader 抽象 + PdfLoader：engine=auto 优先 MarkItDown（未安装/失败自动回退 pypdf 并告警）；pypdf 硬依赖（文本提取 + XObject 图片遍历，无需 Pillow）；图片存 {images_root}/{doc_hash}/{image_id}.png（JPEG 直存，RGB/Gray 8bit 内置 PNG 编码器）；[IMAGE: {id}] 占位符按页落位 + text_offset/text_length 精确；单图/整体失败均降级不阻塞；metadata 含 source_path/doc_type/sha256/page_count(/title)；新增 pypdf>=4.0 依赖 |
+| C4 | Splitter 集成（调用 Libs） | [x] | 2026-08-16 | DocumentChunker 适配层：确定性 ID {doc_id}_{index:04d}_{hash8}（唯一且可复现）；metadata 继承 + chunk_index；source_ref 溯源；图片引用按需分发（扫描 [IMAGE: id] 占位符，chunk 级 images 子集 + image_refs 列表，无占位符移除字段，幽灵引用 images 为空但 image_refs 保持一致）；SplitterFactory 配置驱动（chunk_size 改变切分数实测）；Chunk 类型契约 round-trip |
+| C5 | Transform 基类 + ChunkRefiner | [x] | 2026-08-16 | BaseTransform 抽象 + ChunkRefiner（规则去噪：控制字符/HTML注释/页眉页脚/分隔线/空白折叠，代码块围栏逐字保留且幂等；LLM 重写：{text} prompt 模板去#注释+内置 fallback）；降级链：LLM 异常/空响应/工厂创建失败 → 规则结果 + refine_fallback 原因，单 chunk 异常保留原文；metadata refined_by 标记；ingestion.chunk_refiner.use_llm 配置开关（默认 false）；TraceContext 最小实现（uuid+record_stage+to_dict）；28 单测 + fixtures 8 场景 + 集成测试（真实 LLM 用例 RAG_LLM_INTEGRATION=1 启用，降级用例已验证） |
+| C6 | MetadataEnricher | [x] | 2026-08-16 | 规则模式：title 取首个 Markdown 标题/首行/source stem 兜底、summary 取前若干句（≤160 字符截断+省略号）、tags 取高频拉丁词（停用词过滤，CJK 补"中文"标签，空内容 doc_type 兜底），三字段保证非空且确定性；LLM 模式：内置 prompt（{text} 占位符）要求严格 JSON，解析兼容代码围栏、字段类型校验，非法/异常/init 失败降级规则结果 + enrich_fallback 原因；enriched_by 标记（rule/llm）；单 chunk 异常保留原文；ingestion.metadata_enricher.use_llm 配置开关（默认 false）+ settings.yaml 示例；MetadataEnricherConfig 并入 IngestionConfig；trace transform 打点（llm_enriched/fallback 计数）；21 单测一次通过 |
+| C7 | ImageCaptioner | [x] | 2026-08-16 | 启用模式（ingestion.image_captioner.enabled）：经 LLMFactory.create_vision_llm 逐图调用 chat_with_image，prompt 取 image_captioning.txt（{image_context} 替换为 chunk 上下文，800 字符截断；文件缺失回退内置模板），caption 写入 metadata.image_captions{image_id: caption}；降级模式（默认禁用/工厂失败/文件缺失/路径记录缺失/LLM 异常/空响应）：保留 image_refs+images 原样，标记 has_unprocessed_images=True（工厂失败附 image_caption_fallback 原因），全部成功不打标记；无图 chunk 原样透传；单 chunk 异常隔离；trace 打点（captioned/degraded 计数）；prompt 可注入测试；15 单测 |
+| C8 | DenseEncoder | [x] | 2026-08-16 | 包装 BaseEmbedding（EmbeddingFactory 按 settings.embedding.provider 创建，测试可注入 fake）：encode(chunks) 依序提取 chunks.text 单批送入 embed，返回等长向量列表；fail-fast 契约校验 DenseEncodingError：向量数≠chunk 数/维度不一致/空向量；空 chunks 返回 [] 且不触发底层调用；底层异常原样传播；dimension 代理属性；trace embedding 打点（chunks/dimension/elapsed_ms）；12 单测 |
+| C9 | SparseEncoder | [x] | 2026-08-16 | SparseDocStats(chunk_id/term_freqs/length) 输出契约，可直接供 C11 BM25Indexer 推导 df 与倒排表；默认分词 default_tokenize：拉丁词 [a-z0-9]+ 小写化 + CJK 逐字 unigram（与 D 阶段 QueryProcessor 粒度对齐），tokenizer 可注入；空文本明确行为：term_freqs={} 且 length=0 不抛错（空白文本同）；encode_chunks 顺序对齐 chunk_id；to_dict/from_dict 往返（容忍多余键）；确定性；trace embedding 打点（total_terms/unique_terms）；14 单测 |
+| C10 | BatchProcessor | [x] | 2026-08-16 | split 契约：batch_size=2 对 5 chunks 分 [2,2,1] 三批、保序不丢不重、空输入 []；run 契约：逐批驱动 encode_fn 按输入顺序拼接，结果数守恒校验（不匹配 RuntimeError），编码异常原样传播；每批耗时记录进 trace（batch_timings_ms，空跑不打点）；默认批大小取 ingestion.batch_size（yaml 可配，正整数校验，显式参数优先，无 settings 时 32）；非法批大小 ValueError；run_dense/run_sparse 便捷路径（对接 C8/C9）；18 单测 |
+| C11 | BM25Indexer（倒排索引+IDF计算） | [x] | 2026-08-16 | 消费 C9 SparseDocStats 构建倒排索引（spec 结构 {term:{idf,postings:[{chunk_id,tf,doc_length}]}}）；IDF=log((N-df+0.5)/(df+0.5)) 自然对数精确公式（df>N/2 可为负、df=N/2 恰为 0，不截断不加 1）；Okapi BM25 打分（k1=1.5/b=0.75 可配，校验 k1≥0、b∈[0,1]，qtf 查询词频乘子）；query(keywords,top_k)→[{chunk_id,score}] 降序稳定排序（同分按 chunk_id 升序），与 D3 SparseRetriever 契约对齐；build 清空重建/add 增量（同 chunk_id 替换、df=0 死词清理、IDF 随 N 全量重算，跨批次重复=幂等重摄取、单批内重复 fail-fast BM25IndexError）；空 term_freqs 文档不入索引不计入 N；save/load JSON（version=1、原子写 tmp+os.replace、自动建目录、容忍多余键、load 采纳文件 k1/b 并校验 num_docs/total_length 与 postings 一致），默认 data/db/bm25/index.json；avgdl/df/get_postings 只读视图；trace storage 打点（mode/docs/replaced/elapsed_ms，空跑不打点）；35 单测（含 C9→C11 链路与负 IDF 排序稳定性） |
+| C12 | VectorUpserter（幂等upsert） | [x] | 2026-08-17 | 消费 C8 DenseEncoder 向量输出（chunks+vectors 平行等长序列）组装 VectorRecord（id+vector+text+完整 metadata 浅拷贝），经 VectorStoreFactory（settings.vector_store.backend 路由，测试可注入 fake store）调 BaseVectorStore.upsert() 分批幂等写入；幂等键=chunk.id（spec 公式 hash(source_path+chunk_index+content_hash[:8]) 由 C4 DocumentChunker 落地为 {doc_id}_{index:04d}_{content_hash[:8]}，与 C11 SparseDocStats.chunk_id/D3 get_by_ids 共用 id 空间，故不重新派生：同 chunk 重跑 id 不变、内容变更 content_hash 变化 id 变更、后端按 id 覆盖无重复记录）；批切分按 ingestion.batch_size（显式参数>settings>默认32，保序 [2,2,1] 不丢不重）；fail-fast VectorUpsertError（数量不等/空向量/维度不一致/非数值或 bool 分量/单次调用内重复 chunk_id/单 Chunk 实例/store 返回非法计数非 int 或超 [0,批大小]；跨调用重复=幂等重摄取不报错；store 异常原样传播）；空输入零统计不触库不打点；UpsertSummary(chunks/batches/written/ids 与输入同序)；trace storage 打点（method=vector_upserter，chunks/batches/batch_size/written/elapsed_ms，trace 透传 store）；33 单测（含 C8→C12 链路 fake HashEmbedding 端到端与幂等重跑） |
+| C13 | ImageStorage（图片存储+SQLite索引） | [x] | 2026-08-17 | put(image_id,data,collection?,doc_hash?,page_num?,ext?,trace?) 图片字节原子落盘（tmp+os.replace）+ INSERT OR REPLACE 登记 SQLite 索引（spec 精确表结构 image_id PK/file_path/collection/doc_hash/page_num/created_at + idx_collection/idx_doc_hash，WAL+busy_timeout=5000+threading.Lock 复用 C2 SQLiteIntegrityChecker 模式，构造失败自动关连接）；目录布局统一 spec data/images/{collection}/ 与 C3 PdfLoader data/images/{doc_hash}/：collection 优先、缺省回退 doc_hash（对齐 DEV_SPEC 数据目录注释“{collection}/（实际存储在 {doc_hash}/ 子目录下）”）、两者皆缺 fail-fast；幂等性=image_id PRIMARY KEY 不重新派生（对齐 C3 make_image_id {doc_hash}_{page}_{seq}，与 ImageRef.id/[IMAGE: 占位符]/C4 image_refs 同一 id 空间）：重复 put 覆盖文件+替换行不产生重复行、目录变更的重复 put 清理旧文件防孤儿、created_at 按库内 datetime('now') 回读；扩展名默认 .png 自动补前导点（ImageRef.path 约定）；get(image_id) miss 返回 None；list_images(collection?,doc_hash?,limit?) 按 image_id 升序确定性排序（支持按 collection 批量查询）+count 过滤计数；delete 单张（行+文件，不存在返回 False 无副作用）、delete_images(col,doc_hash) 批量删除（至少一个过滤条件防全表误删，对齐 E 阶段 DocumentManager delete_images 契约）；fail-fast ImageStorageError（空/非 str id、含路径分隔符或 ./.. 的 id/collection/doc_hash/ext 防目录逃逸、空或非 bytes 数据、page_num 非非负 int、limit 非正 int）；caption 不入索引表（spec 表结构无此列——C7 caption 存 chunk metadata.image_captions，图片↔chunk 关联由 C4 占位符/image_refs 表达，索引保持最小契约）；trace storage 打点（method=image_storage，action=put（replaced 标记）/delete_images，elapsed_ms）；默认 data/images + data/db/image_index.db；48 单测（含关闭重开持久化与幂等重跑） |
+| C14 | Pipeline 编排（MVP 串起来） | [x] | 2026-08-17 | IngestionPipeline.run(source_path, collection="default", on_progress?, *, force=False, trace?) -> IngestionResult（source_path/collection/doc_hash/status(success|skipped)/chunks/images/written/trace_id/elapsed_ms + to_dict，对齐 03-tech-stack 5.3 回调契约与 C15 --force/--collection 入参）；串行六阶段 integrity→load→split→transform→encode→store：C2 compute_sha256+should_skip 未变更且非 force 零成本跳过（不再 load/编码/触库，trace integrity 打 skipped 标记）；load 按扩展名路由（.pdf→PdfLoader(images_root=ImageStorage.images_root) 统一图片根目录，未知扩展 fail-fast 清晰异常，可注入 BaseLoader 支持新格式/测试）；split 用 C4 DocumentChunker 确定性 id 并把本次 collection 写入每个 chunk metadata["collection"]（供 D 阶段 BaseVectorStore.query(filters={"collection":...}) 过滤）；transform 依次 ChunkRefiner→MetadataEnricher→ImageCaptioner（C5-C7 内部降级：LLM/Vision 关闭时 refined_by/enriched_by=rule、含图 chunk 标 has_unprocessed_images=True 仍完成摄取）；encode 经 C10 BatchProcessor 分批驱动 C8 DenseEncoder + C9 SparseEncoder（保序拼接，空 chunks 零调用零触库）；store 三路持久化：BM25 已有索引文件则 load 后增量 add（同 chunk_id 替换）否则空索引 add（等价重建）再 save 原子落盘、向量 C12 幂等 upsert（chunk.id 键）、图片读 Loader 落盘字节经 C13 put 登记 SQLite 索引（目录键取 doc_hash，对齐 C3 布局与 C13『{collection}/ 实际存于 {doc_hash}/』注记；缺文件仅告警跳过不阻塞）；失败语义：各阶段异常统一包装 IngestionPipelineError（携带 stage 属性 + "stage 'x' failed for path" 信息），已知 file_hash 时 mark_failed（下次可重跑）+ trace error 打点；组件全部可构造注入（fake loader/embedding/store 即可离线单测），未注入惰性按 Settings 创建（首个 run 初始化一次，构造 Pipeline 零 IO）；注入判定必须 is not None（BM25Indexer 定义 __len__，空索引 falsy，or 会静默丢弃注入实例——已用 pick() 固化并注释）；on_progress(stage,current,total) 按 load/split/transform(1..3)/embed(按批 2*ceil(n/batch_size))/upsert(1..3) 上报，None 时行为一致；trace 顺序：pipeline 级 method=pipeline 标记 integrity/load/split/transform/embed/store 依序 + 组件 transform/embedding/storage 打点交错可验；无新增配置项（完全由现有 ingestion.*/splitter/vector_store 配置驱动）；测试落位 tests/unit/test_ingestion_pipeline.py（13 单测：spec 原定 tests/integration/ 需真实 Chroma/嵌入网络，按离线确定性纪律改为纯单元——边界 fake（Loader/Embedding/VectorStore）+ 其余 C2-C13 真实组件落 tmp_path，覆盖 happy-path 三路产物/未变更跳过/force 幂等替换/文件变更增量/LLM 关闭降级标记/空文档零触库/加载与 integrity 失败/未知扩展/trace 顺序/on_progress 序列/to_dict），真实 fixtures 端到端归 C15 e2e（tests/e2e/test_data_ingestion.py） |
+| C15 | 脚本入口 ingest.py | [x] | 2026-08-17 | scripts/ingest.py CLI 入口（离线可用，与根 main.py 同款 sys.path shim，支持 `python scripts/ingest.py` 直接运行；用法对齐 I5 验收形态 `--path ... --collection test`）：--path（必填，文件或目录；目录 rglob 递归收集受支持扩展名——与 pipeline Loader 路由一致且单测含 drift guard，suffix 小写比较大小写不敏感，路径排序保证确定性，非支持扩展名静默忽略）/--collection（默认 default，透传 run 写入 chunk metadata 供 D 阶段过滤）/--force（透传强制重摄取，幂等替换）/另加 --config（默认仓库根 config/settings.yaml 绝对路径，不受 CWD 影响）与 -v/--verbose（打印 on_progress 逐阶段进度，缺省静默只出逐文件行+汇总块）；可测试性：解析/收集/聚合/渲染全部为可导入纯函数 build_parser/parse_args/collect_files/run_ingest/aggregate/render_summary/build_pipeline/main(argv, *, pipeline=None, out=print) -> int（scripts 非 package，单测经 importlib 按路径加载，注入已构建 pipeline 即零子进程零网络）；执行语义：逐文件 pipeline.run，单文件 IngestionPipelineError 映射为 failed FileOutcome 不中断批次（其余文件照常摄取），IngestSummary 聚合 ingested/skipped/failed/chunks/images/written（失败文件不计产物）+ 人读汇总块（失败文件逐条列错误）；退出码：0=全部成功或跳过（含空目录，打印 no supported files found）/1=存在失败文件/2=用法或配置错误（路径不存在、单文件扩展名不支持、ConfigError/FileNotFoundError）；无新增配置项（完全复用现有 settings）；测试：tests/unit/test_ingest_entry.py 26 单测（解析默认值与 --path 必填、collect_files 单文件/递归排序/扩展名过滤/空目录/不存在/不支持、聚合数学、渲染、退出码矩阵、单文件失败隔离、collection/force/on_progress 透传、SUPPORTED_EXTENSIONS drift guard，fake pipeline 零网络零持久化）+ tests/e2e/test_data_ingestion.py（承接 C14 遗留 spec e2e：真 PdfLoader 解析内置极简 PDF 生成器（与 C3 loader 契约测试同法，仓库无预置 PDF fixture）产出的 simple/with_images 字节流，真 DocumentChunker/规则 transform（LLM 关闭）/BatchProcessor+SparseEncoder/BM25Indexer JSON 落盘/SQLiteIntegrityChecker/ImageStorage SQLite/ChromaStore 嵌入式 PersistentClient（离线可用）全部持久化落 tmp_path，唯一注入确定性哈希 embedding——真 embedding provider 需网络；覆盖：CLI 目录摄取全链路产物断言（chroma count>0 且 query 命中并全带 metadata.collection 过滤值、BM25 索引落盘重载 num_docs 与向量数一致、图片 SQLite 登记+字节文件存在、两文件 trace id）、重跑（全新组件自磁盘构建）未变更全 skipped 且向量计数不增长、--force 重摄取幂等替换、坏 PDF 映射 failed 退出码 1 且好文件仍完整落库、单文件 --path）；真 `python scripts/ingest.py` 子进程 + 真 embedding provider 冒烟按 RAG_LLM_INTEGRATION 先例以 RAG_E2E_INTEGRATION=1 门控默认跳过（cwd 切 tmp 使 data/db 产物落临时目录），默认套件离线全绿（591 通过 2 跳过，另一跳过为既有 RAG_LLM_INTEGRATION 门控）） |
 
 #### 阶段 D：Retrieval MVP
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| D1 | QueryProcessor（关键词提取 + filters） | [x] | 2026-02-03 | ProcessedQuery类型+关键词提取+停用词过滤+filter语法+38单元测试 |
-| D2 | DenseRetriever（调用 VectorStore.query） | [x] | 2026-02-03 | RetrievalResult类型+依赖注入+ChromaStore.query修复+30单元测试 |
-| D3 | SparseRetriever（BM25 查询） | [x] | 2026-02-04 | BaseVectorStore.get_by_ids+ChromaStore实现+SparseRetriever+26单元测试 |
-| D4 | RRF Fusion | [x] | 2026-02-04 | RRFFusion类+k参数可配置+加权融合+确定性输出+34单元测试 |
-| D5 | HybridSearch 编排 | [x] | 2026-02-04 | HybridSearch类+并行检索+优雅降级+元数据过滤+29集成测试 |
-| D6 | Reranker（Core 层编排 + Fallback） | [x] | 2026-02-04 | CoreReranker+LLM Reranker集成+Fallback机制+27单元测试+7集成测试 |
-| D7 | 脚本入口 query.py（查询可用） | [x] | 2026-02-04 | CLI 查询入口 + verbose 输出 |
+| D1 | QueryProcessor（关键词提取 + filters） | [x] | 2026-08-17 | core/query_engine/query_processor.py QueryProcessor（规则关键词提取 + filters 结构解析，零外部依赖）：分词与 C9 SparseEncoder.default_tokenize 精确对齐（拉丁词 [a-z0-9]+ 小写化 + CJK 逐字 unigram，token 顺序拉丁在前 CJK 在后；core 层不 import ingestion，本地实现 + 单测 drift guard 双向锁死防漂移，保证 BM25 查询词与索引词同一 token 空间）；停用词过滤 DEFAULT_STOPWORDS（英文虚词 + 中文常用虚字保守集合，实体/动词一律保留），stopwords/tokenizer 均可注入整体替换；非空保证：全部 token 被过滤时回退原始 token（"the and of" 类整句虚词查询保底可用），保序去重（dict.fromkeys 按首次出现）确定性输出；filters 可空实现：process(query, *, filters=None) 不做自然语言约束抽取（后续演进），None→{}、类型校验（非 dict TypeError）后浅拷贝透传（键集合无白名单，值语义归 D2/D3 检索器），ProcessedQuery.filters 恒为 dict；fail-fast QueryProcessingError(ValueError)：空/纯空白查询、纯标点无可提取 token 查询，非 str 查询/非 dict filters 抛 TypeError（信息可读）；core/types.py 新增 ProcessedQuery dataclass（query 原样保留供 Dense 路用/keywords 供 D3 喂 BM25Indexer.query/filters），to_dict/from_dict（忽略未知字段）/to_json/from_json 契约与既有类型一致，core/__init__ 统一 re-export，query_engine/__init__ 导出 QueryProcessor；trace 打点 query_processing 阶段（method=query_processor，details 含 keywords/keyword_count/filter_keys/elapsed_ms，对齐 F3 约定）；无新增配置项（settings 参数保留给后续查询扩展如同义词表）；测试 tests/unit/test_query_processor.py 34 单测（英文/CJK/混合提取、小写化、保序去重、全停用词回退、实词保留、确定性、原文 verbatim 保留、空/空白/纯标点/非 str fail-fast、filters 默认空 dict/浅拷贝互不影响/非 dict 报错/任意值透传、序列化往返与未知键容忍、注入点、trace 打点、C9 分词 drift guard 参数化 6 样例、C9→C11 链路真 SparseEncoder+BM25Indexer 命中验证）；全套件 623 通过 2 跳过（既有门控）|
+| D2 | DenseRetriever（调用 VectorStore.query） | [x] | 2026-08-17 | core/query_engine/dense_retriever.py DenseRetriever（query embedding + VectorStore 向量检索的语义召回编排）：embedding_client/vector_store 均可注入（注入判定 is not None，未注入经 EmbeddingFactory/VectorStoreFactory 按 settings 创建，导入 libs.embedding/libs.vector_store 包触发 provider 注册）；retrieve(query, top_k, filters=None, trace=None) -> List[RetrievalResult] 内部流程 embed([query]) → store.query(vector, top_k, filters) → QueryResult→RetrievalResult(chunk_id/score/text/metadata) 字段映射（score 统一 float 化）；fail-fast：非 str/空查询与非法 top_k/filters 抛 TypeError/ValueError，embedding 单条 query 输出≠1 个向量或空向量抛 DenseRetrievalError（provider 契约破坏），store 异常原样传播（降级决策归 D5）；filters 原样透传（Chroma where Pre-filter，值语义归 store）；trace 打点 dense_retrieval 阶段（method=dense_retriever，details 含 top_k/filter_keys/hits/elapsed_ms，对齐 F3 约定）；core/types.py 新增 RetrievalResult dataclass（chunk_id/score/text/metadata，与 C4/C11/C12 共用 chunk id 空间，score 语义由产出阶段决定恒为越高越相关），to_dict/from_dict（忽略未知字段）/to_json/from_json 契约与既有类型一致，构造期校验（空 id/非数值或 bool score/非 str text/非 dict metadata fail-fast），core/__init__ 统一 re-export，query_engine/__init__ 导出 DenseRetriever；ChromaStore.query 自 B7.6 起已携带 text（All-in-One 存储，命中即可取回无需查库），D2 验收以真 Chroma 集成测试断言（含 filters 场景）无需代码改动；无新增配置项；测试 tests/unit/test_dense_retriever.py 30 单测（编排顺序与参数、字段映射、score float 化、filters 透传、空库空结果、fail-fast 参数化（空白/非 str 查询、6 种非法 top_k、非 dict filters）、embedding 契约破坏（2 向量/空向量）、store 异常传播、trace 打点、RetrievalResult 序列化往返与未知键容忍与构造校验参数化、core 包导出、工厂默认构造路由）+ tests/integration/test_chroma_store_roundtrip.py 补 2 用例（query 返回含 text+metadata、filters 命中保留 text）；全套件 655 通过 2 跳过（既有门控）|
+| D3 | SparseRetriever（BM25 查询） | [x] | 2026-08-17 | core/query_engine/sparse_retriever.py SparseRetriever（BM25 打分 + 向量库按 id 取回正文的稀疏召回编排）：bm25_indexer/vector_store 均可注入（注入判定 is not None；vector_store 未注入经 VectorStoreFactory 创建；bm25_indexer 未注入创建 BM25Indexer(settings) 并尽力加载持久化索引 data/db/bm25/index.json（与 C14 Pipeline 同一路径约定），FileNotFoundError 时空内存索引起步查询返回空不报错，注入实例原样使用不做 load）；retrieve(keywords, top_k, trace=None) -> List[RetrievalResult] 内部流程 bm25_indexer.query(keywords, top_k) → [{chunk_id, score}] → vector_store.get_by_ids(chunk_ids) → 合并 score 与 text/metadata（BM25 score 降序保持，score float 化）；id 空间对齐：BM25 倒排 chunk_id 与 C12 upsert 键共用（C4 确定性 ID），All-in-One 存储命中即可取回，索引命中但库中缺失的死条目跳过（告警日志不阻塞）；空 keywords 直接返回空结果零触索引零触库；fail-fast：非列表/含非 str 或空串项的 keywords 抛 TypeError，非法 top_k 抛 ValueError；trace 打点 sparse_retrieval 阶段（method=sparse_retriever，details 含 keyword_count/top_k/hits/merged/skipped/elapsed_ms，对齐 F3）；BaseVectorStore 新增 get_by_ids(ids) 抽象方法（返回 {id,text,metadata} dict 列表，缺失 id 跳过不占位，顺序与请求一致重复去重），ChromaStore 实现经 collection.get（Chroma 拒绝重复 id，先按首次出现去重再请求，非列表/空串 id fail-fast ValueError），既有 3 处测试 fake（test_vector_store_contract/test_vector_upserter/test_ingestion_pipeline）补齐 get_by_ids 实现满足扩展契约；无新增配置项；测试 tests/unit/test_sparse_retriever.py 21 单测（真 BM25Indexer+fake store：命中合并 score/text/metadata、BM25 降序、死条目跳过、无命中/空 keywords 零触库、top_k 限制、get_by_ids 收到按 score 序命中 id 集、fail-fast 参数化（非列表/非 str 项/6 种非法 top_k）、trace 打点、默认构造无文件空起步/有文件自动加载（monkeypatch.chdir tmp）、注入 indexer 原样使用）+ tests/integration/test_chroma_store_roundtrip.py 补 5 用例（get_by_ids 返回 text+metadata、请求序保持+缺失跳过、重复 id 去重、空输入、输入校验）；全套件 681 通过 2 跳过（既有门控）|
+| D4 | RRF Fusion | [x] | 2026-08-17 | core/query_engine/fusion.py RRFFusion + 纯函数 rrf_fuse_rankings（排名倒数融合，不依赖各路分数绝对值只看排名）：公式 Score(id)=Σ_routes 1/(k+Rank_route(id))，Rank 从 1 起、k 平滑常数默认 60（显式参数 > settings.retrieval.rrf_k > 默认，config/settings.yaml 补 rrf_k: 60 示例，构造期校验非负 int 非 bool）；纯函数只吃 id 排名列表便于独立单测融合数学（同一路内重复 id 只按首次出现排名计一次、空输入空输出）；RRFFusion.fuse(dense, sparse, top_k=None, trace=None) -> List[RetrievalResult] 组装 RetrievalResult：score 为 RRF 融合分数（round 6 位），text/metadata 取该 chunk 首次出现路由载荷（dense 先于 sparse，dense 路 Pre-filter 后载荷更可信）且 metadata dict 拷贝防跨突变；确定性输出：score 降序、同分按 chunk_id 升序打破平局，同输入重复调用结果完全一致；top_k 可选截断（正整数校验），dense/sparse 非列表 TypeError fail-fast；trace 打点 fusion 阶段（method=rrf，details 含 k/dense/sparse/fused/elapsed_ms，对齐 F3）；query_engine/__init__ 导出 RRFFusion/rrf_fuse_rankings/DEFAULT_RRF_K；测试 tests/unit/test_fusion_rrf.py 36 单测（纯函数手工基准值（对称两路同分、双路命中胜单路、k=0、重复 id 计一次、空输入、非法 k 参数化）、类组装（RRF 降序、同分 id 升序、payload dense 优先/sparse 兜底、单路保序+RRF 分值、双空、确定性、top_k 截断、metadata 拷贝隔离）、k 解析三级优先（无 settings 默认 60/yaml 42/replace 覆盖/显式胜 settings）+ yaml 配置驱动断言、fail-fast（非列表路由/非法 k/非法 top_k 参数化）、trace 打点）；全套件 717 通过 2 跳过（既有门控）|
+| D5 | HybridSearch 编排 | [x] | 2026-08-17 | core/query_engine/hybrid_search.py HybridSearch（QueryProcessor + DenseRetriever + SparseRetriever + RRFFusion 完整编排）：search(query, top_k=None, filters=None, trace=None) -> List[RetrievalResult] 内部流程 process（D1，filters 透传解析）→ 双路召回（dense 用 pq.query+top_k_dense+filters Pre-filter 透传 store；sparse 用 pq.keywords+top_k_sparse，BM25 无 metadata 过滤能力）→ fusion.fuse（两路均有结果时 RRF；单路降级时保留存活路原始分数与排序，不做单路重打分）→ _apply_metadata_filters Post-filter 兜底（等值匹配 + 缺失字段宽松包含 missing->include 防 metadata 质量不稳误杀召回，硬约束前置 Dense 路）→ [:top_k_final]；降级策略：任一路异常捕获记录 last_route_failures 降级另一路不中断查询（告警日志），两路均失败抛 HybridSearchError（不可静默返回空），两路均空（无数据非失败）友好返回 []；组件全可注入（注入判定 is not None，缺省按 Settings 创建 QueryProcessor/DenseRetriever/SparseRetriever/RRFFusion），top_k None 取 retrieval.top_k_final、显式参数校验正整数；中间结果暴露 last_dense_results/last_sparse_results/last_fused_results/last_route_failures（供 D7 --verbose 各阶段中间产物展示，每次 search 重置）；trace：组件各自记录 query_processing/dense_retrieval/sparse_retrieval/fusion 阶段（F3 约定）+ 本类记录 hybrid 编排阶段（method=hybrid_search，details 含 routes 计数/degraded/fused/filtered/returned/top_k/elapsed_ms），trace None 时内部新建；query_engine/__init__ 导出 HybridSearch/HybridSearchError；无新增配置项（retrieval.top_k_* 驱动）；测试 tests/integration/test_hybrid_search.py 18 用例（离线真实组件：真 ChromaStore 嵌入式 tmp 持久化 + 真 BM25Indexer + 真 QueryProcessor/RRFFusion + 确定性 bag-of-words BaseEmbedding 使 Dense 相似度=词重合度可断言）：混合 Top-K 含 text+metadata 且预期 chunk 居首（azure authentication 双路命中）、top_k 限制与默认 top_k_final、纯关键词查询 BM25 强路径仍召回、非法 top_k/空查询 fail-fast、filters collection 收窄（Pre+Post 双路生效）与全排除空结果与缺失字段宽松包含（_apply_metadata_filters 单元级直测）、Dense 失败降级 sparse/Sparse 失败降级 dense（last_route_failures 断言 + 存活路分数保留）、双路失败 HybridSearchError、空库空索引友好空结果（failures 为空）、trace 五阶段齐全（query_processing/dense_retrieval/sparse_retrieval/fusion/hybrid）、last_* 中间结果与 hybrid 阶段 details 断言）；全套件 735 通过 2 跳过（既有门控）|
+| D6 | Reranker（Core 层编排 + Fallback） | [x] | 2026-08-17 | core/query_engine/reranker.py Reranker（接入 libs.reranker 可插拔后端的 Core 层精排编排 + 稳定回退）：编排 RetrievalResult → RerankCandidate → backend.rerank → RetrievalResult，重排只改顺序与 score（后端分数 float 化），text/metadata 保留融合阶段原始载荷（metadata dict 拷贝防跨突变）；backend 可注入（缺省 RerankerFactory.create(settings) 按 rerank.backend 路由，导入 libs.reranker 包触发注册），backend_name 属性暴露配置名；fallback 双通道（D6 验收：后端异常不影响最终返回且标记 fallback=true）：①backend.rerank 抛异常（网络/超时/解析失败）→ 返回输入原序原分（等价回退 RRF 融合排名，系统可用性优先）+ last_fallback=True + last_error 记录异常（告警日志）；②后端内部回退透传（B7.7/B7.8 契约：LLM 解析失败/CrossEncoder scorer 异常不抛错而是原序返回并置自身 last_fallback=True）→ getattr 检测透传标记；last_fallback/last_error 每次调用重置（D7 CLI 逐次可读）；防御：后端返回输入中不存在的 id 跳过、重复 id 只出一次、合法截断（CrossEncoder top_m，长度<=输入契约）尊重不强行补齐；空候选不触后端直接空结果；fail-fast：非 str/空查询与非列表 results 抛 TypeError/ValueError；trace 打点 rerank 阶段（method=reranker，details 含 backend/candidates/returned/fallback/error?/elapsed_ms，对齐 F3 约定）；config/prompts/rerank.txt 沿用 B7.7 无改动（仅 LLM 后端启用时使用）；query_engine/__init__ 导出 Reranker；无新增配置项；测试 tests/unit/test_reranker_fallback.py 15 单测（可脚本化 fake 后端：重排+分数更新+载荷保留、候选载荷透传、空候选零触后端、NoneReranker 恒等（backend=none 默认构造）、异常回退原序+fallback 标记+last_error、内部回退标记透传、标记逐次重置（失败后换健康后端清零）、未知 id 跳过、top_m 截断尊重、重复 id 去重、fail-fast（空白/None 查询/非列表）、trace 成功与回退阶段（error 字段）、backend_name）；全套件 750 通过 2 跳过（既有门控）|
+| D7 | 脚本入口 query.py（查询可用） | [x] | 2026-08-17 | scripts/query.py CLI 入口（离线可用，与 scripts/ingest.py 同款 sys.path shim 支持 `python scripts/query.py` 直接运行；用法对齐 spec 验收形态 `--query "如何配置 Azure？"`）：--query 必填/--top-k（默认 None 透传取 settings retrieval.top_k_final）/--collection（构造 filters={"collection":...} 走 Dense Pre-filter + Post-filter 兜底）/--verbose（各阶段中间结果）/--no-rerank（跳过精排）/--config（默认仓库根绝对路径不受 CWD 影响）；内部流程：加载 Settings（search/reranker 任一未注入且需要时加载一次复用）→ build_search=HybridSearch(settings)（组件内部按需创建）→（除非 --no-rerank）build_reranker=Reranker(settings)（backend 由 rerank.backend 驱动，cross_encoder 无 scorer 时构造合法、rerank 期异常由 D6 双通道 fallback 回退融合排名）→ run_query：TraceContext 贯穿 search+rerank，QueryOutcome 数据类承载 results/dense/sparse/fused/rerank_applied/rerank_fallback/rerank_backend/trace_id + to_dict；默认输出 Top-K（[序号] score=四位小数 + source_path(+page) + 单行文本摘要 160 字符折叠截断省略号），verbose 额外输出 dense/sparse/fusion 三段召回（chunk_id+score）与 rerank 段（backend+fallback 或 skipped）；无命中友好提示"未找到相关文档，请先运行 scripts/ingest.py 摄取数据"（退出码 0）；退出码语义：0=查询完成（含无命中）/1=检索链路失败（HybridSearchError 等运行时异常）/2=用法或配置错误（argparse 缺 --query、空/纯空白查询 QueryProcessingError、参数 ValueError/TypeError、配置缺失 ConfigError、组件初始化失败含 Reranker 初始化失败提示可用 --no-rerank 规避）；可测试性：build_parser/parse_args/run_query/render_result_line/render_no_results/render_verbose_sections/main(argv, *, search=..., reranker=..., out=print) 全部可导入纯函数，注入 fake search/reranker 即零网络零子进程零真实持久化；D7 期间修正 D5 HybridSearchError 语义：仅在 Dense/Sparse 两路均抛异常时抛错，一路失败+存活路零命中降级为合法空结果（对齐 spec"任一路径失败降级到单路结果"，D7 CLI 无 API key/无数据环境实测该路径给出友好提示而非误报链路故障，含回归测试）；无新增配置项；测试 tests/unit/test_query_entry.py 25 单测（解析必填与默认值与全旗标、缺 --query 退出码 2、run_query 渲染 Top-K 行与 collection filter 透传与 top_k 透传、无命中友好提示、reranker 应用顺序变化/fallback 标记/空结果跳过精排、verbose 段头（dense/sparse/fusion/rerank backend+fallback/skipped）、渲染折叠截断与缺 source/page 兜底、QueryOutcome.to_dict、main 退出码矩阵（0 注入成功/0 无命中/0 默认构建 reranker 走 tmp 配置/2 空查询/2 非法参数/2 配置缺失/1 HybridSearchError、--no-rerank 全注入时零 settings 加载 monkeypatch 断言）、真 Chroma+真 BM25+确定性 bag-of-words embedding 注入 main 的离线端到端（--no-rerank 命中 a.pdf Top-1））+ test_hybrid_search.py 补 1 用例（一路失败+存活路零命中返回空不抛错）；真 `python scripts/query.py` 冒烟：--help 正常、无 API key/无数据 --no-rerank 与默认 rerank 路径均友好提示退出码 0（dense 降级 sparse 告警可见）；全套件 776 通过 2 跳过（既有门控）|
 
 #### 阶段 E：MCP Server 层与 Tools
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| E1 | MCP Server 入口与 Stdio 约束 | [x] | 2026-02-04 | server.py 使用官方 MCP SDK + stdio + 2集成测试 |
-| E2 | Protocol Handler 协议解析与能力协商 | [x] | 2026-02-04 | ProtocolHandler类+tool注册+错误处理+20单元测试 |
-| E3 | query_knowledge_hub Tool | [x] | 2026-02-04 | ResponseBuilder+CitationGenerator+Tool注册+24单元测试+2集成测试 |
-| E4 | list_collections Tool | [x] | 2026-02-04 | ListCollectionsTool+CollectionInfo+ChromaDB集成+41单元测试+2集成测试 |
-| E5 | get_document_summary Tool | [x] | 2026-02-04 | GetDocumentSummaryTool+DocumentSummary+错误处理+71单元测试 |
-| E6 | 多模态返回组装（Text + Image） | [x] | 2026-02-04 | MultimodalAssembler+base64编码+MIME检测+ResponseBuilder集成+54单元测试+4集成测试 |
+| E1 | MCP Server 入口与 Stdio 约束 | [x] | 2026-08-17 | MCPServer stdio 主循环（零外部依赖，官方 mcp SDK 未安装故按协议手工实现 JSON-RPC 消息收发，E2 ProtocolHandler 落地完整解析）：stdout 每行仅输出一个 JSON-RPC 消息（响应 flush 后即写，绝不混入日志），日志全走 observability.logger（stderr）；initialize 握手返回 protocolVersion=2025-06-18 + capabilities.tools 能力声明 + serverInfo(name/version)；notifications/initialized 等无 id 通知静默无响应；shutdown 请求哨兵优雅退出（无响应）；stdin EOF 正常退出码 0；非法 JSON/非对象消息返回 -32700 Parse error；handler 异常防污染通道返回 -32603 且不泄露堆栈；message_handler 注入点供 E2 接入完整 tools/list、tools/call 与错误码规范；未接入前其余方法占位 -32601；serve(stdin?, stdout?) 可注入流便于测试，python -m mcp_server.server 可直接运行；测试 tests/integration/test_mcp_server.py 5 用例（真子进程 PYTHONPATH=src 启动：initialize 握手字段断言、通知不产生响应且不污染后续请求、EOF 退出 stderr 含启动/停止日志且 stdout 仅一行 JSON-RPC、E2 前占位方法 -32601、shutdown 干净退出 stdout 仅剩 initialize 响应）；全套件 781 通过 2 跳过（既有门控） |
+| E2 | Protocol Handler 协议解析与能力协商 | [x] | 2026-08-17 | ProtocolHandler 独立可测类（不依赖 socket/进程，handle_message 吃 dict 返回响应 dict 或 None）：消息级校验（非对象/缺 jsonrpc/非 "2.0"/缺 method/非 str method → -32600 Invalid Request；params 非 object → -32602）；通知（无 id 键）一律静默返回 None（含未知方法通知，JSON-RPC 语义）；id:null 视为请求合法响应；三类核心方法路由：initialize → protocolVersion=2025-06-18 + capabilities.tools{listChanged:false} 能力协商 + serverInfo(name/version 可自定义注入)；tools/list → 已注册 ToolDefinition 的 name/description/inputSchema 列表（无 tool 时 {"tools":[]} 合法状态）；tools/call → params.name/arguments 校验后路由 handler 执行，输出包装 MCP content 数组（str→TextContent，dict 含 content 原样透传供 E3 structuredContent），缺 name/空名/非 str 名/未知 tool/arguments 非 object → -32602，handler 异常 → -32603 且错误消息仅含 tool 名不含异常文本/堆栈（防泄露）；未知请求方法 → -32601；register_tool 双风格（ToolDefinition 实例或逐字段，重复注册 ValueError，非 callable handler TypeError，inputSchema 缺省 {"type":"object","properties":{}}）；server.py 接线：MCPServer 新增 protocol_handler 参数，message_handler 缺省取 ProtocolHandler().handle_message（E1 的 default_message_handler 占位删除，常量移至 protocol_handler 并由 server re-import）；E1 集成测试同步更新（capabilities 断言 {"tools":{"listChanged":false}}、tools/list 返回空列表、未知方法 foo/bar 断 -32601）；测试 tests/unit/test_protocol_handler.py 30 单测（initialize 三用例、tools/list 空/schema/字段风格默认值/重复与非法注册参数化、tools/call 路由 str/dict 输出/默认空 arguments/未知 tool/非法参数参数化/-32603 无泄露、消息级 -32600 参数化/-32602 params/通知参数化/id:null、MCPServer 默认接线与注入接线）+ test_mcp_server.py 1 用例改写；全套件 813 通过 2 跳过（既有门控） |
+| E3 | query_knowledge_hub Tool | [x] | 2026-08-17 | 新增 core/response 模块：CitationGenerator.generate(retrieval_results) 产出 1-based Citation 列表（id/source 取 metadata.source_path 缺省 source 兜底 unknown/page 非数值归 None/chunk_id/text/score 四舍五入 4 位），输入非列表或元素非 RetrievalResult 抛 TypeError；ResponseBuilder.build(results, query) 返回 MCP tool result（content[0] 为 Markdown：query 标题 + [n] source,p.N (score) + 摘要引用块，超 400 字符截断加省略号；structuredContent={query, answer, citations}，全文保留在 citations.text；空结果返回 EMPTY_RESULT_MESSAGE 友好提示而非空数组且 citations=[]；CitationGenerator 可注入）。mcp_server/tools/query_knowledge_hub.py：QueryKnowledgeHubTool 可调用类（search/reranker/settings 可注入且懒初始化——首次调用才构建 HybridSearch/Reranker/load_settings，server 启动零网络依赖；__call__(arguments) 校验 query 必填非空、top_k 正整数、collection 非空字符串，非法抛 ToolInvalidParams；TraceContext 打点；collection 转 filters={"collection": ...}；search 后 rerank_enabled 且结果非空时走 Reranker.rerank；最后 ResponseBuilder.build）。E2 增强：ProtocolHandler 新增 ToolInvalidParams(ValueError) 异常通道（handler 主动抛出映射 -32602 且带描述消息，其余异常仍 -32603 不泄露）。server.py 新增 build_default_protocol_handler() 注册 query_knowledge_hub（E4/E5 在此追加），main 改用之。集成测试更新（tools/list 断言 query_knowledge_hub schema；tools/call 参数校验 -32602 与未知 tool）并新增 tests/unit/test_response_builder.py（13 用例）与 tests/unit/test_query_knowledge_hub_tool.py（20 用例：校验参数化/Markdown+citations/空结果/top_k+collection 透传/rerank 应用与空结果跳过/懒初始化/ProtocolHandler 注册路由/-32602 映射与 -32603 无泄露）。全套件 851 通过 2 跳过。 |
+| E4 | list_collections Tool | [ ] | | |
+| E5 | get_document_summary Tool | [ ] | | |
+| E6 | 多模态返回组装（Text + Image） | [ ] | | |
 
 #### 阶段 F：Trace 基础设施与打点
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| F1 | TraceContext 增强（finish + 耗时统计 + trace_type） | [x] | 2026-02-08 | TraceContext增强(trace_type/finish/elapsed_ms/to_dict)+TraceCollector+28单元测试 |
-| F2 | 结构化日志 logger（JSON Lines） | [x] | 2026-02-08 | JSONFormatter+get_trace_logger+write_trace+16单元测试 |
-| F3 | 在 Query 链路打点 | [x] | 2026-02-08 | HybridSearch+CoreReranker trace注入(5阶段)+14集成测试 |
-| F4 | 在 Ingestion 链路打点 | [x] | 2026-02-08 | Pipeline五阶段trace注入(load/split/transform/embed/upsert)+11集成测试 |
-| F5 | Pipeline 进度回调 (on_progress) | [x] | 2026-02-08 | on_progress回调(6阶段通知)+6单元测试 |
+| F1 | TraceContext 增强（finish + 耗时统计 + trace_type） | [ ] | | |
+| F2 | 结构化日志 logger（JSON Lines） | [ ] | | |
+| F3 | 在 Query 链路打点 | [ ] | | |
+| F4 | 在 Ingestion 链路打点 | [ ] | | |
+| F5 | Pipeline 进度回调 (on_progress) | [ ] | | |
 
 #### 阶段 G：可视化管理平台 Dashboard
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| G1 | Dashboard 基础架构与系统总览页 | [x] | 2026-02-09 | app.py多页面导航+overview页+ConfigService+start_dashboard.py+11单元测试 |
-| G2 | DocumentManager 实现 | [x] | 2026-02-09 | DocumentManager跨存储协调(ChromaStore+BM25+ImageStorage+IntegrityChecker)+文档删除+21单元测试 |
-| G3 | 数据浏览器页面 | [x] | 2026-02-09 | DataService只读门面+文档列表+chunk内容展示+元数据JSON展开+collection切换 |
-| G4 | Ingestion 管理页面 | [x] | 2026-02-09 | 文件上传+IngestionPipeline集成+实时进度条+TraceContext自动记录 |
-| G5 | Ingestion 追踪页面 | [x] | 2026-02-09 | TraceService读取traces.jsonl+阶段时间线+耗时柱状图+stage详情展开 |
-| G6 | Query 追踪页面 | [x] | 2026-02-09 | Query trace过滤+检索结果展示+rerank对比+耗时分析 |
+| G1 | Dashboard 基础架构与系统总览页 | [ ] | | |
+| G2 | DocumentManager 实现 | [ ] | | |
+| G3 | 数据浏览器页面 | [ ] | | |
+| G4 | Ingestion 管理页面 | [ ] | | |
+| G5 | Ingestion 追踪页面 | [ ] | | |
+| G6 | Query 追踪页面 | [ ] | | |
 
 #### 阶段 H：评估体系
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| H1 | RagasEvaluator 实现 | [x] | 2026-02-09 | 19/19 tests passed |
-| H2 | CompositeEvaluator 实现 | [x] | 2026-02-09 | 11/11 tests passed |
-| H3 | EvalRunner + Golden Test Set | [x] | 2026-02-09 | 15/15 tests passed |
-| H4 | 评估面板页面 | [x] | 2026-02-09 | 6/6 tests passed, dashboard page with history tracking |
-| H5 | Recall 回归测试（E2E） | [x] | 2026-02-09 | 3 unit+4 e2e(skip without data), hit@k+MRR threshold gating |
+| H1 | RagasEvaluator 实现 | [ ] | | |
+| H2 | CompositeEvaluator 实现 | [ ] | | |
+| H3 | EvalRunner + Golden Test Set | [ ] | | |
+| H4 | 评估面板页面 | [ ] | | |
+| H5 | Recall 回归测试（E2E） | [ ] | | |
 
 #### 阶段 I：端到端验收与文档收口
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| I1 | E2E：MCP Client 侧调用模拟 | [x] | 2026-02-23 | 7个E2E测试+import死锁修复+非阻塞readline |
-| I2 | E2E：Dashboard 冒烟测试 | [x] | 2026-02-24 | 6个页面冒烟测试+AppTest框架+mock服务 |
-| I3 | 完善 README（运行说明 + MCP + Dashboard） | [x] | 2026-02-24 | 快速开始+配置说明+MCP配置+Dashboard指南+测试+FAQ |
-| I4 | 清理接口一致性（契约测试补齐） | [x] | 2026-02-24 | VectorStore+Reranker+Evaluator边界测试+83测试全绿 |
-| I5 | 全链路 E2E 验收 | [x] | 2026-02-24 | 1198单元+30e2e通过,ingest/query/evaluate脚本验证 |
+| I1 | E2E：MCP Client 侧调用模拟 | [ ] | | |
+| I2 | E2E：Dashboard 冒烟测试 | [ ] | | |
+| I3 | 完善 README（运行说明 + MCP + Dashboard） | [ ] | | |
+| I4 | 清理接口一致性（契约测试补齐） | [ ] | | |
+| I5 | 全链路 E2E 验收 | [ ] | | |
 
 ---
 
@@ -160,19 +160,19 @@
 | 阶段 B | 16 | 16 | 100% |
 | 阶段 C | 15 | 15 | 100% |
 | 阶段 D | 7 | 7 | 100% |
-| 阶段 E | 6 | 6 | 100% |
-| 阶段 F | 5 | 5 | 100% |
-| 阶段 G | 6 | 6 | 100% |
-| 阶段 H | 5 | 5 | 100% |
-| 阶段 I | 5 | 5 | 100% |
-| **总计** | **68** | **68** | **100%** |
+| 阶段 E | 6 | 0 | 0% |
+| 阶段 F | 5 | 0 | 0% |
+| 阶段 G | 6 | 0 | 0% |
+| 阶段 H | 5 | 0 | 0% |
+| 阶段 I | 5 | 0 | 0% |
+| **总计** | **68** | **41** | **60%** |
 
 
 ---
 
 ## 阶段 A：工程骨架与测试基座（目标：先可导入，再可测试）
 
-### A1：初始化目录树与最小可运行入口 ✅
+### A1：初始化目录树与最小可运行入口
 - **目标**：在 repo 根目录创建第 5.2 节所述目录骨架与空模块文件（可 import）。
 - **修改文件**：
   - `main.py`
@@ -241,7 +241,7 @@
 - **验收标准**：在测试里用 Fake provider（测试内 stub）验证工厂路由逻辑。
 - **测试方法**：`pytest -q tests/unit/test_llm_factory.py`。
 
-### B2：Embedding 抽象接口与工厂 ✅
+### B2：Embedding 抽象接口与工厂
 - **目标**：定义 `BaseEmbedding` 与 `EmbeddingFactory`，支持批量 embed。
 - **修改文件**：
   - `src/libs/embedding/base_embedding.py`
