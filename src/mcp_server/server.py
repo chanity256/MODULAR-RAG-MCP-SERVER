@@ -4,10 +4,10 @@
 - ``stdout`` 仅输出合法 MCP JSON-RPC 消息（每行一个 JSON 对象）。
 - 所有日志/调试信息一律走 ``stderr``（复用 ``observability.logger``）。
 
-阶段 E1 仅保证：启动 server 能完成 ``initialize`` 握手、
-``notifications/initialized`` 静默接收、stdin EOF 优雅退出。
-完整协议解析（``tools/list`` / ``tools/call`` / 错误码规范）在 E2 的
-``protocol_handler.py`` 中实现，本模块预留 ``message_handler`` 注入点。
+阶段 E1 保证：启动 server 能完成 ``initialize`` 握手、通知静默接收、
+stdin EOF 优雅退出。协议解析与方法路由（``initialize`` / ``tools/list`` /
+``tools/call`` / 错误码规范）由 E2 的 ``protocol_handler.ProtocolHandler``
+提供，本模块缺省将其作为 ``message_handler`` 接入。
 """
 
 from __future__ import annotations
@@ -20,56 +20,19 @@ if __package__ in (None, ""):  # pragma: no cover - 直接运行兜底
     sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1]))
 
 from observability.logger import get_logger
-
-# 跟踪 MCP 最新稳定协议版本（DEV_SPEC 3.2.3）。
-PROTOCOL_VERSION = "2025-06-18"
-SERVER_NAME = "modular-rag-mcp-server"
-SERVER_VERSION = "0.1.0"
+from mcp_server.protocol_handler import (
+    PROTOCOL_VERSION,
+    SERVER_NAME,
+    SERVER_VERSION,
+    ProtocolHandler,
+)
 
 # JSON-RPC 2.0 错误码
 PARSE_ERROR = -32700
-METHOD_NOT_FOUND = -32601
 
-# E2 将注入的完整消息处理器：dict -> dict | None（None 表示无需响应的通知）。
+# E2+ 的完整消息处理器经 ``MCPServer(message_handler=...)`` 注入；
+# 缺省使用 ``ProtocolHandler.handle_message``。
 MessageHandler = Callable[[dict], "dict | None"]
-
-
-def default_message_handler(message: dict) -> dict | None:
-    """E1 最小消息处理：initialize 握手 + 通知静默 + 其余方法占位报错。
-
-    E2 的 ``ProtocolHandler`` 落地后经 ``MCPServer(message_handler=...)``
-    替换本实现。
-    """
-    method = message.get("method")
-    msg_id = message.get("id")
-    is_request = msg_id is not None
-
-    if method == "initialize" and is_request:
-        return {
-            "jsonrpc": "2.0",
-            "id": msg_id,
-            "result": {
-                "protocolVersion": PROTOCOL_VERSION,
-                "capabilities": {
-                    # 能力协商：声明支持 tools（具体 tool schema 由 E2/E3 补齐）。
-                    "tools": {}
-                },
-                "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
-            },
-        }
-
-    if not is_request:
-        # 通知（如 notifications/initialized）不产生响应。
-        return None
-
-    return {
-        "jsonrpc": "2.0",
-        "id": msg_id,
-        "error": {
-            "code": METHOD_NOT_FOUND,
-            "message": f"Method not found: {method!r} (E2 ProtocolHandler 尚未接入)",
-        },
-    }
 
 
 class MCPServer:
@@ -85,8 +48,12 @@ class MCPServer:
         self,
         message_handler: MessageHandler | None = None,
         logger: Any = None,
+        protocol_handler: ProtocolHandler | None = None,
     ) -> None:
-        self.message_handler = message_handler or default_message_handler
+        if message_handler is None:
+            protocol_handler = protocol_handler or ProtocolHandler()
+            message_handler = protocol_handler.handle_message
+        self.message_handler = message_handler
         self.logger = logger or get_logger("mcp_server")
 
     def serve(self, stdin: TextIO | None = None, stdout: TextIO | None = None) -> int:

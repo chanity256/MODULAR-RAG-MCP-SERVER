@@ -64,7 +64,7 @@ def test_initialize_handshake(server):
     assert msg["jsonrpc"] == "2.0"
     assert msg["id"] == 1
     assert msg["result"]["protocolVersion"] == "2025-06-18"
-    assert msg["result"]["capabilities"] == {"tools": {}}
+    assert msg["result"]["capabilities"] == {"tools": {"listChanged": False}}
     assert msg["result"]["serverInfo"]["name"] == "modular-rag-mcp-server"
     assert "version" in msg["result"]["serverInfo"]
 
@@ -101,9 +101,12 @@ def test_stderr_has_logs_stdout_clean_on_eof(server):
     assert "result" in msg
 
 
-def test_e1_placeholder_methods_report_method_not_found(server):
-    """E2 前的占位行为：未接入 ProtocolHandler 的方法返回 -32601。"""
+def test_tools_list_and_unknown_method(server):
+    """E2 ProtocolHandler 已接入：tools/list 返回空列表，未知方法 -32601。"""
     response = _rpc(server, {"jsonrpc": "2.0", "id": 3, "method": "tools/list"})
+    msg = json.loads(response)
+    assert msg["result"] == {"tools": []}
+    response = _rpc(server, {"jsonrpc": "2.0", "id": 4, "method": "foo/bar"})
     msg = json.loads(response)
     assert msg["error"]["code"] == -32601
 
