@@ -245,3 +245,45 @@ def test_query_non_list_vector_raises(store):
 def test_upsert_non_list_records_raises(store):
     with pytest.raises(ValueError):
         store.upsert("not a list")  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# 阶段 D2 验收：query 返回结果包含 text 字段（DenseRetriever 依赖）
+# ---------------------------------------------------------------------------
+
+
+def test_query_results_include_text_and_metadata(store):
+    records = [
+        VectorRecord(
+            id="d2_c1",
+            vector=[1.0, 0.0],
+            text="azure 认证配置说明",
+            metadata={"source_path": "docs/azure.pdf", "page": 3, "collection": "docs"},
+        ),
+        VectorRecord(
+            id="d2_c2",
+            vector=[0.0, 1.0],
+            text="bm25 稀疏检索原理",
+            metadata={"source_path": "docs/bm25.pdf"},
+        ),
+    ]
+    store.upsert(records)
+    results = store.query([1.0, 0.0], top_k=2)
+    assert len(results) == 2
+    top = results[0]
+    assert top.id == "d2_c1"
+    assert top.text == "azure 认证配置说明"
+    assert top.metadata["source_path"] == "docs/azure.pdf"
+    assert top.metadata["page"] == 3
+    # 每条命中都携带完整 text（All-in-One 存储：命中即可取回，无需额外查库）。
+    assert all(r.text for r in results)
+
+
+def test_query_results_include_text_with_filters(store):
+    store.upsert([
+        VectorRecord(id="d2_f1", vector=[1.0, 0.0], text="kept", metadata={"collection": "x"}),
+        VectorRecord(id="d2_f2", vector=[1.0, 0.0], text="filtered", metadata={"collection": "y"}),
+    ])
+    results = store.query([1.0, 0.0], top_k=5, filters={"collection": "x"})
+    assert len(results) == 1
+    assert results[0].text == "kept"

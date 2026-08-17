@@ -34,6 +34,7 @@ __all__ = [
     "Chunk",
     "ChunkRecord",
     "ProcessedQuery",
+    "RetrievalResult",
     "IMAGE_PLACEHOLDER_TEMPLATE",
     "IMAGE_PLACEHOLDER_PATTERN",
     "image_placeholder",
@@ -365,6 +366,62 @@ class ProcessedQuery:
 
     @classmethod
     def from_json(cls, raw: str) -> ProcessedQuery:
+        return cls.from_dict(json.loads(raw))
+
+
+@dataclass
+class RetrievalResult:
+    """单条检索结果（阶段 D2/D3/D5/D6 共用的查询链路契约）。
+
+    Attributes:
+        chunk_id: 命中 chunk 的确定性 ID（与 C4 DocumentChunker / C11
+            ``SparseDocStats.chunk_id`` / C12 upsert 键共用同一 id 空间）。
+        score: 相关性分数（越高越相关；语义由产出阶段决定——Dense 相似度 /
+            BM25 分数 / D4 RRF 融合分数 / D6 Rerank 分数）。
+        text: 命中 chunk 的原文（All-in-One 存储保证命中即可取回，无需查库）。
+        metadata: 命中 chunk 的完整 metadata（source_path / page / title /
+            tags / image_refs 等）。
+    """
+
+    chunk_id: str
+    score: float
+    text: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.chunk_id, str) or not self.chunk_id:
+            raise ValueError(f"RetrievalResult.chunk_id must be a non-empty string, got {self.chunk_id!r}")
+        if not isinstance(self.score, (int, float)) or isinstance(self.score, bool):
+            raise TypeError(
+                f"RetrievalResult.score must be a number, got {type(self.score).__name__}"
+            )
+        if not isinstance(self.text, str):
+            raise TypeError(f"RetrievalResult.text must be a string, got {type(self.text).__name__}")
+        _require_metadata(self.metadata, "RetrievalResult")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "chunk_id": self.chunk_id,
+            "score": self.score,
+            "text": self.text,
+            "metadata": self.metadata,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> RetrievalResult:
+        """从 dict 反序列化；忽略未知字段以保证向后兼容。"""
+        return cls(
+            chunk_id=data["chunk_id"],
+            score=float(data["score"]),
+            text=data["text"],
+            metadata=dict(data.get("metadata") or {}),
+        )
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_dict(), ensure_ascii=False)
+
+    @classmethod
+    def from_json(cls, raw: str) -> RetrievalResult:
         return cls.from_dict(json.loads(raw))
 
 
