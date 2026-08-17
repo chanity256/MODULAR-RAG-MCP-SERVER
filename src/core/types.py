@@ -33,6 +33,7 @@ __all__ = [
     "Document",
     "Chunk",
     "ChunkRecord",
+    "ProcessedQuery",
     "IMAGE_PLACEHOLDER_TEMPLATE",
     "IMAGE_PLACEHOLDER_PATTERN",
     "image_placeholder",
@@ -310,6 +311,60 @@ class ChunkRecord:
 
     @classmethod
     def from_json(cls, raw: str) -> ChunkRecord:
+        return cls.from_dict(json.loads(raw))
+
+
+@dataclass
+class ProcessedQuery:
+    """``QueryProcessor`` 产出的查询预处理结果（阶段 D1）。
+
+    Attributes:
+        query: 原始查询文本（原样保留，供 Dense 路生成 embedding 使用）。
+        keywords: 关键词列表（去停用词、保序去重；供 D3 SparseRetriever
+            喂给 ``BM25Indexer.query(keywords, top_k)``）。
+        filters: 结构化过滤条件（如 ``collection`` / ``doc_type`` /
+            ``language`` 等；无约束时为空 dict，值语义由检索器负责）。
+    """
+
+    query: str
+    keywords: list[str] = field(default_factory=list)
+    filters: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.query, str) or not self.query.strip():
+            raise ValueError(
+                f"ProcessedQuery.query must be a non-empty string, got {self.query!r}"
+            )
+        if not isinstance(self.keywords, list):
+            raise TypeError(
+                f"ProcessedQuery.keywords must be a list, got {type(self.keywords).__name__}"
+            )
+        if not isinstance(self.filters, dict):
+            raise TypeError(
+                f"ProcessedQuery.filters must be a dict, got {type(self.filters).__name__}"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "query": self.query,
+            "keywords": list(self.keywords),
+            "filters": dict(self.filters),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ProcessedQuery:
+        """从 dict 反序列化；忽略未知字段以保证向后兼容。"""
+        return cls(
+            query=data["query"],
+            keywords=list(data.get("keywords") or []),
+            filters=dict(data.get("filters") or {}),
+        )
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_dict(), ensure_ascii=False)
+
+    @classmethod
+    def from_json(cls, raw: str) -> ProcessedQuery:
         return cls.from_dict(json.loads(raw))
 
 

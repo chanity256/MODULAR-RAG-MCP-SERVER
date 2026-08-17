@@ -90,7 +90,7 @@
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| D1 | QueryProcessor（关键词提取 + filters） | [ ] | | |
+| D1 | QueryProcessor（关键词提取 + filters） | [x] | 2026-08-17 | core/query_engine/query_processor.py QueryProcessor（规则关键词提取 + filters 结构解析，零外部依赖）：分词与 C9 SparseEncoder.default_tokenize 精确对齐（拉丁词 [a-z0-9]+ 小写化 + CJK 逐字 unigram，token 顺序拉丁在前 CJK 在后；core 层不 import ingestion，本地实现 + 单测 drift guard 双向锁死防漂移，保证 BM25 查询词与索引词同一 token 空间）；停用词过滤 DEFAULT_STOPWORDS（英文虚词 + 中文常用虚字保守集合，实体/动词一律保留），stopwords/tokenizer 均可注入整体替换；非空保证：全部 token 被过滤时回退原始 token（"the and of" 类整句虚词查询保底可用），保序去重（dict.fromkeys 按首次出现）确定性输出；filters 可空实现：process(query, *, filters=None) 不做自然语言约束抽取（后续演进），None→{}、类型校验（非 dict TypeError）后浅拷贝透传（键集合无白名单，值语义归 D2/D3 检索器），ProcessedQuery.filters 恒为 dict；fail-fast QueryProcessingError(ValueError)：空/纯空白查询、纯标点无可提取 token 查询，非 str 查询/非 dict filters 抛 TypeError（信息可读）；core/types.py 新增 ProcessedQuery dataclass（query 原样保留供 Dense 路用/keywords 供 D3 喂 BM25Indexer.query/filters），to_dict/from_dict（忽略未知字段）/to_json/from_json 契约与既有类型一致，core/__init__ 统一 re-export，query_engine/__init__ 导出 QueryProcessor；trace 打点 query_processing 阶段（method=query_processor，details 含 keywords/keyword_count/filter_keys/elapsed_ms，对齐 F3 约定）；无新增配置项（settings 参数保留给后续查询扩展如同义词表）；测试 tests/unit/test_query_processor.py 34 单测（英文/CJK/混合提取、小写化、保序去重、全停用词回退、实词保留、确定性、原文 verbatim 保留、空/空白/纯标点/非 str fail-fast、filters 默认空 dict/浅拷贝互不影响/非 dict 报错/任意值透传、序列化往返与未知键容忍、注入点、trace 打点、C9 分词 drift guard 参数化 6 样例、C9→C11 链路真 SparseEncoder+BM25Indexer 命中验证）；全套件 623 通过 2 跳过（既有门控）|
 | D2 | DenseRetriever（调用 VectorStore.query） | [ ] | | |
 | D3 | SparseRetriever（BM25 查询） | [ ] | | |
 | D4 | RRF Fusion | [ ] | | |
@@ -159,13 +159,13 @@
 | 阶段 A | 3 | 3 | 100% |
 | 阶段 B | 16 | 16 | 100% |
 | 阶段 C | 15 | 15 | 100% |
-| 阶段 D | 7 | 0 | 0% |
+| 阶段 D | 7 | 1 | 14% |
 | 阶段 E | 6 | 0 | 0% |
 | 阶段 F | 5 | 0 | 0% |
 | 阶段 G | 6 | 0 | 0% |
 | 阶段 H | 5 | 0 | 0% |
 | 阶段 I | 5 | 0 | 0% |
-| **总计** | **68** | **34** | **50%** |
+| **总计** | **68** | **35** | **51%** |
 
 
 ---
