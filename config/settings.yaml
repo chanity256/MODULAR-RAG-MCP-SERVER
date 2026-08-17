@@ -47,6 +47,7 @@ retrieval:
   top_k_dense: 20
   top_k_sparse: 20
   top_k_final: 10
+  rrf_k: 60                  # RRF 平滑常数（D4：k 参数，越大越平滑）
 
 # 重排配置
 rerank:
