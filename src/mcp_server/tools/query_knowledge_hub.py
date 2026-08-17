@@ -24,6 +24,7 @@ if __package__ in (None, ""):  # pragma: no cover - 直接运行兜底
     sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[2]))
 
 from core.response import ResponseBuilder
+from core.response.multimodal_assembler import MultimodalAssembler
 from core.trace.trace_context import TraceContext
 from mcp_server.protocol_handler import ToolDefinition, ToolInvalidParams
 
@@ -75,6 +76,7 @@ class QueryKnowledgeHubTool:
         settings: Any | None = None,
         response_builder: ResponseBuilder | None = None,
         rerank_enabled: bool = True,
+        multimodal_assembler: MultimodalAssembler | None = None,
     ) -> None:
         """Args:
             search: 具备 ``search(query, top_k, filters, trace=...)`` 签法的
@@ -84,12 +86,16 @@ class QueryKnowledgeHubTool:
             settings: 全局配置（构建默认检索栈用；缺省 ``load_settings()``）。
             response_builder: 响应构建器（缺省 ``ResponseBuilder()``）。
             rerank_enabled: False 时跳过精排（直接返回融合排名）。
+            multimodal_assembler: 多模态组装器（缺省
+                ``MultimodalAssembler()``；``None`` 之外的注入实例优先；
+                传 ``False`` 可禁用图像返回——见 ``_get_assembler``）。
         """
         self._search = search
         self._reranker = reranker
         self._settings = settings
         self._response_builder = response_builder or ResponseBuilder()
         self._rerank_enabled = rerank_enabled
+        self._multimodal_assembler = multimodal_assembler
 
     # ------------------------------------------------------------------ #
     # 懒初始化
@@ -132,7 +138,16 @@ class QueryKnowledgeHubTool:
         results = self._get_search().search(query, top_k=top_k, filters=filters, trace=trace)
         if self._rerank_enabled and results:
             results = self._get_reranker().rerank(query, results, trace=trace)
-        return self._response_builder.build(results, query)
+        tool_result = self._response_builder.build(results, query)
+        assembler = self._get_assembler()
+        if assembler is not None and results:
+            assembler.assemble(tool_result, results)
+        return tool_result
+
+    def _get_assembler(self) -> Any:
+        if self._multimodal_assembler is None:
+            self._multimodal_assembler = MultimodalAssembler()
+        return self._multimodal_assembler if self._multimodal_assembler is not False else None
 
     @staticmethod
     def _validate_arguments(arguments: dict[str, Any]) -> tuple[str, int | None, str | None]:

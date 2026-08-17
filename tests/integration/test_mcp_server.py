@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import subprocess
@@ -190,3 +191,68 @@ def test_shutdown_request_exits_cleanly(server):
     # shutdown 不产生响应，stdout 仅剩 initialize 响应。
     assert len(lines) == 1
     assert json.loads(lines[0])["id"] == 9
+
+
+def test_query_knowledge_hub_multimodal_image_return(tmp_path):
+    """E6：命中 chunk 含 image_refs 时返回 TextContent + ImageContent（Base64）。
+
+    进程内注入 stdin/stdout 运行 MCPServer（E1 支持流注入），检索栈用
+    fake（真实组件需凭据/持久化，超出本用例关注点）。
+    """
+    import base64
+
+    from core.types import RetrievalResult
+    from mcp_server.protocol_handler import ProtocolHandler
+    from mcp_server.server import MCPServer
+    from mcp_server.tools.query_knowledge_hub import create_query_knowledge_hub_definition
+
+    png = tmp_path / "arch.png"
+    png.write_bytes(base64.b64decode("iVBORw0KGgo=") + b"diagram-bytes")
+
+    class FakeSearch:
+        def search(self, query, top_k=None, filters=None, trace=None):
+            return [
+                RetrievalResult(
+                    chunk_id="c1",
+                    score=0.9,
+                    text="system architecture diagram [IMAGE: img1]",
+                    metadata={
+                        "source_path": "arch.pdf",
+                        "page": 5,
+                        "images": [{"id": "img1", "path": str(png), "page": 5}],
+                    },
+                )
+            ]
+
+    handler = ProtocolHandler()
+    handler.register_tool(
+        create_query_knowledge_hub_definition(search=FakeSearch(), rerank_enabled=False)
+    )
+    stdin = io.StringIO(
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "query_knowledge_hub", "arguments": {"query": "architecture"}},
+            }
+        )
+        + "\n"
+    )
+    stdout = io.StringIO()
+    exit_code = MCPServer(protocol_handler=handler).serve(stdin=stdin, stdout=stdout)
+    assert exit_code == 0
+
+    lines = [ln for ln in stdout.getvalue().splitlines() if ln.strip()]
+    assert len(lines) == 1
+    result = json.loads(lines[0])["result"]
+    content = result["content"]
+    assert content[0]["type"] == "text"
+    assert "[1]" in content[0]["text"]
+    image = content[1]
+    assert image["type"] == "image"
+    assert image["mimeType"] == "image/png"
+    assert base64.b64decode(image["data"]).endswith(b"diagram-bytes")
+    assert result["structuredContent"]["images"] == [
+        {"id": "img1", "chunk_id": "c1", "mimeType": "image/png"}
+    ]
