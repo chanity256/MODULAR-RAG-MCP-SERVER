@@ -128,6 +128,13 @@ class FakeVectorStore(BaseVectorStore):
 
         return [QueryResult(id=r.id, score=1.0, text=r.text, metadata=r.metadata) for r in results]
 
+    def get_by_ids(self, ids, *, trace=None, **kwargs):
+        return [
+            {"id": r.id, "text": r.text, "metadata": dict(r.metadata)}
+            for r in (self.records.get(i) for i in dict.fromkeys(ids))
+            if r is not None
+        ]
+
 
 class FakeLoader(BaseLoader):
     """可控 fake loader：产线内容确定性、可选图片/空文本/失败。"""

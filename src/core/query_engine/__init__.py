@@ -7,6 +7,7 @@ from core.query_engine.query_processor import (
     QueryProcessor,
     default_tokenize,
 )
+from core.query_engine.sparse_retriever import SparseRetriever
 
 __all__ = [
     "QueryProcessor",
@@ -15,4 +16,5 @@ __all__ = [
     "DEFAULT_STOPWORDS",
     "DenseRetriever",
     "DenseRetrievalError",
+    "SparseRetriever",
 ]

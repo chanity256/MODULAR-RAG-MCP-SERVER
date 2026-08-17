@@ -87,6 +87,18 @@ class _FakeVectorStore(BaseVectorStore):
         results.sort(key=lambda r: r.score, reverse=True)
         return results[:top_k]
 
+    def get_by_ids(self, ids, *, trace=None, **kwargs):
+        out = []
+        seen = set()
+        for rid in ids:
+            if rid in seen:
+                continue
+            seen.add(rid)
+            rec = self._store.get(rid)
+            if rec is not None:
+                out.append({"id": rec.id, "text": rec.text, "metadata": dict(rec.metadata)})
+        return out
+
 
 def _make_fake():
     def ctor(vs_config, **kwargs):

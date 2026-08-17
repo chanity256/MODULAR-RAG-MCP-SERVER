@@ -111,6 +111,13 @@ class _FakeVectorStore(BaseVectorStore):
     def query(self, vector, top_k=10, *, filters=None, trace=None, **kwargs):
         return []
 
+    def get_by_ids(self, ids, *, trace=None, **kwargs):
+        return [
+            {"id": r.id, "text": r.text, "metadata": dict(r.metadata)}
+            for r in (self.records.get(i) for i in dict.fromkeys(ids))
+            if r is not None
+        ]
+
 
 class _HashEmbedding(BaseEmbedding):
     """确定性 fake：按文本 sha256 派生固定维度向量（C8 链路测试用）。"""

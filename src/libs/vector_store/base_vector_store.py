@@ -103,3 +103,25 @@ class BaseVectorStore(ABC):
             按 score 降序的 ``QueryResult`` 列表，长度 <= ``top_k``。
         """
         raise NotImplementedError
+
+    @abstractmethod
+    def get_by_ids(
+        self,
+        ids: Sequence[str],
+        *,
+        trace: Any | None = None,
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        """按 id 批量获取记录（阶段 D3：SparseRetriever 组装 text/metadata）。
+
+        Args:
+            ids: 待获取的记录 id 序列（通常为 BM25 命中的 chunk_id 列表）。
+            trace: 可选的 ``TraceContext``（当前占位）。
+            **kwargs: 后端特定的扩展参数。
+
+        Returns:
+            命中记录的 dict 列表，每条形如 ``{"id", "text", "metadata"}``；
+            不存在的 id 直接跳过（不占位）；返回顺序与请求顺序一致
+            （重复 id 只返回一次），保证确定性合并。
+        """
+        raise NotImplementedError

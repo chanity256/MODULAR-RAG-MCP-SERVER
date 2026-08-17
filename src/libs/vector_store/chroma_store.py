@@ -106,6 +106,49 @@ class ChromaStore(BaseVectorStore):
 
     # -- 辅助 -------------------------------------------------------------
 
+    def get_by_ids(
+        self,
+        ids: Sequence[str],
+        *,
+        trace: Any | None = None,
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        """按 id 批量获取记录（D3 SparseRetriever 契约）。
+
+        Args:
+            ids: 待获取的记录 id 序列。
+
+        Returns:
+            命中记录的 ``{"id", "text", "metadata"}`` 列表；不存在的 id
+            跳过；顺序与请求顺序一致（重复 id 去重）。
+        """
+        if not isinstance(ids, (list, tuple)):
+            raise ValueError(f"ids must be a list, got {type(ids).__name__}")
+        requested: list[str] = []
+        for item in ids:
+            if not isinstance(item, str) or not item:
+                raise ValueError(f"ids must contain non-empty strings, got {item!r}")
+            requested.append(item)
+        if not requested:
+            return []
+        # Chroma 的 get 拒绝重复 id：先按首次出现顺序去重再请求。
+        unique_requested = list(dict.fromkeys(requested))
+        results = self._collection.get(ids=unique_requested, include=["documents", "metadatas"])
+        got_ids = results.get("ids") or []
+        documents = results.get("documents") or []
+        metadatas = results.get("metadatas") or []
+        by_id: dict[str, dict[str, Any]] = {}
+        for i, rid in enumerate(got_ids):
+            text = documents[i] if i < len(documents) and documents[i] else ""
+            metadata = metadatas[i] if i < len(metadatas) and metadatas[i] else {}
+            by_id[rid] = {"id": rid, "text": text, "metadata": metadata}
+        out: list[dict[str, Any]] = []
+        for rid in unique_requested:
+            record = by_id.get(rid)
+            if record is not None:
+                out.append(record)
+        return out
+
     def _distance_to_score(self, distance: float) -> float:
         """将 Chroma distance 转换为相似度 score（越高越相关）。
 

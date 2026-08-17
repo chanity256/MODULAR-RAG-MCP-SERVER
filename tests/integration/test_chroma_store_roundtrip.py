@@ -287,3 +287,46 @@ def test_query_results_include_text_with_filters(store):
     results = store.query([1.0, 0.0], top_k=5, filters={"collection": "x"})
     assert len(results) == 1
     assert results[0].text == "kept"
+
+
+# ---------------------------------------------------------------------------
+# 阶段 D3 验收：get_by_ids 按 chunk_id 批量取回 text/metadata
+# ---------------------------------------------------------------------------
+
+
+def test_get_by_ids_returns_text_and_metadata(store):
+    store.upsert([
+        VectorRecord(id="d3_c1", vector=[1.0, 0.0], text="azure 指南", metadata={"page": 1, "collection": "docs"}),
+        VectorRecord(id="d3_c2", vector=[0.0, 1.0], text="bm25 原理", metadata={"page": 2}),
+    ])
+    records = store.get_by_ids(["d3_c1", "d3_c2"])
+    assert records == [
+        {"id": "d3_c1", "text": "azure 指南", "metadata": {"page": 1, "collection": "docs"}},
+        {"id": "d3_c2", "text": "bm25 原理", "metadata": {"page": 2}},
+    ]
+
+
+def test_get_by_ids_preserves_request_order_and_skips_missing(store):
+    store.upsert([
+        VectorRecord(id="d3_a", vector=[1.0, 0.0], text="a"),
+        VectorRecord(id="d3_b", vector=[1.0, 0.0], text="b"),
+    ])
+    records = store.get_by_ids(["d3_b", "d3_missing", "d3_a"])
+    assert [r["id"] for r in records] == ["d3_b", "d3_a"]
+
+
+def test_get_by_ids_deduplicates_ids(store):
+    store.upsert([VectorRecord(id="d3_dup", vector=[1.0, 0.0], text="dup")])
+    records = store.get_by_ids(["d3_dup", "d3_dup"])
+    assert len(records) == 1
+
+
+def test_get_by_ids_empty_input_returns_empty(store):
+    assert store.get_by_ids([]) == []
+
+
+def test_get_by_ids_validates_input(store):
+    with pytest.raises(ValueError):
+        store.get_by_ids("not-a-list")  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        store.get_by_ids(["ok", ""])
