@@ -46,7 +46,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from core.settings import Settings
-from core.trace.trace_context import TraceContext
+from core.trace.trace_context import TRACE_TYPE_INGESTION, TraceContext
 from core.types import Chunk, Document
 from ingestion.chunking import DocumentChunker
 from ingestion.embedding import BatchProcessor, DenseEncoder, SparseEncoder
@@ -231,7 +231,8 @@ class IngestionPipeline:
         self._ensure_components()
         source = str(source_path)
         trace = trace if trace is not None else TraceContext(
-            metadata={"source_path": source, "collection": collection}
+            trace_type=TRACE_TYPE_INGESTION,
+            metadata={"source_path": source, "collection": collection},
         )
         started = time.perf_counter()
         file_hash: str | None = None
@@ -251,6 +252,7 @@ class IngestionPipeline:
                     "skip unchanged file %s (hash=%s..., collection=%s)",
                     source, file_hash[:12], collection,
                 )
+                trace.finish()
                 return IngestionResult(
                     source_path=source,
                     collection=collection,
@@ -340,6 +342,7 @@ class IngestionPipeline:
             with self._stage(STAGE_INTEGRITY, source):
                 self._integrity_checker.mark_success(file_hash, source)
 
+            trace.finish()
             elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
             self._logger.info(
                 "ingested %s: %d chunks (written=%d), %d images (%.1fms)",
@@ -358,6 +361,7 @@ class IngestionPipeline:
             )
         except Exception as exc:
             self._record_failure(file_hash, source, exc, trace)
+            trace.finish()
             raise
 
     # ------------------------------------------------------------------
@@ -536,7 +540,13 @@ class IngestionPipeline:
         total: int,
     ) -> None:
         if on_progress is not None:
-            on_progress(stage, current, total)
+            try:
+                on_progress(stage, current, total)
+            except Exception as exc:  # 进度回调失败不阻断摄取主链路
+                get_logger("modular-rag.ingestion.pipeline").warning(
+                    "on_progress callback failed at %s(%s/%s): %s: %s",
+                    stage, current, total, type(exc).__name__, exc,
+                )
 
 
 def _default_integrity_checker() -> FileIntegrityChecker:
