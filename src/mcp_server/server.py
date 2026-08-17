@@ -138,12 +138,14 @@ def build_default_protocol_handler() -> ProtocolHandler:
     Tools 懒初始化（见 ``tools/query_knowledge_hub``），注册本身
     不触发网络/凭据依赖；后续 tool（E4/E5）在此追加注册。
     """
+    from mcp_server.tools.get_document_summary import create_get_document_summary_definition
     from mcp_server.tools.list_collections import create_list_collections_definition
     from mcp_server.tools.query_knowledge_hub import create_query_knowledge_hub_definition
 
     handler = ProtocolHandler()
     handler.register_tool(create_query_knowledge_hub_definition())
     handler.register_tool(create_list_collections_definition())
+    handler.register_tool(create_get_document_summary_definition())
     return handler
 
 
