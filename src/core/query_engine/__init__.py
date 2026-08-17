@@ -9,6 +9,7 @@ from core.query_engine.query_processor import (
     QueryProcessor,
     default_tokenize,
 )
+from core.query_engine.reranker import Reranker
 from core.query_engine.sparse_retriever import SparseRetriever
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "DEFAULT_RRF_K",
     "HybridSearch",
     "HybridSearchError",
+    "Reranker",
 ]
