@@ -384,3 +384,43 @@ def test_hybrid_stage_details_recorded(components):
     assert stage["details"]["routes"]["dense"] > 0
     assert stage["details"]["routes"]["sparse"] > 0
     assert "elapsed_ms" in stage["details"]
+
+
+# ---------------------------------------------------------------------------
+# F3：查询链路 trace 打点
+# ---------------------------------------------------------------------------
+
+
+def test_query_link_trace_records_all_stages(components, settings):
+    from core.trace.trace_context import TraceContext
+
+    trace = TraceContext(trace_type="query", metadata={"query": "azure authentication"})
+    components.search("azure authentication", 5, trace=trace)
+
+    data = trace.to_dict()
+    assert data["trace_type"] == "query"
+    assert data["trace_id"]
+    assert data["finished_at"] is not None
+    assert data["total_elapsed_ms"] >= 0.0
+    stages = [s["stage"] for s in data["stages"]]
+    for expected in ("query_processing", "dense_retrieval", "sparse_retrieval", "fusion", "hybrid"):
+        assert expected in stages
+    for record in data["stages"]:
+        assert "elapsed_ms" in record, f"stage {record['stage']} missing elapsed_ms"
+        assert "method" in record, f"stage {record['stage']} missing method"
+
+
+def test_rerank_stage_recorded_with_trace(components, settings):
+    from core.query_engine.reranker import Reranker
+    from core.trace.trace_context import TraceContext
+
+    trace = TraceContext(trace_type="query")
+    results = components.search("azure authentication", 5, trace=trace)
+    reranker = Reranker(settings)
+    reranker.rerank("azure authentication", results, trace=trace)
+
+    record = trace.get_stage("rerank")
+    assert record is not None
+    assert record["method"] == "reranker"
+    assert "elapsed_ms" in record
+    assert trace.to_dict()["trace_type"] == "query"

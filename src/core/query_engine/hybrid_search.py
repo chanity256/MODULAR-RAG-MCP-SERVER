@@ -39,7 +39,7 @@ from core.query_engine.fusion import RRFFusion
 from core.query_engine.query_processor import QueryProcessor
 from core.query_engine.sparse_retriever import SparseRetriever
 from core.settings import Settings
-from core.trace.trace_context import TraceContext
+from core.trace.trace_context import TRACE_TYPE_QUERY, TraceContext
 from core.types import RetrievalResult
 from observability.logger import get_logger
 
@@ -131,7 +131,9 @@ class HybridSearch:
             top_k = self._settings.retrieval.top_k_final
         elif not isinstance(top_k, int) or isinstance(top_k, bool) or top_k < 1:
             raise ValueError(f"top_k must be a positive integer or None, got {top_k!r}")
-        trace = trace if trace is not None else TraceContext(metadata={"query": query})
+        trace = trace if trace is not None else TraceContext(
+            trace_type=TRACE_TYPE_QUERY, metadata={"query": query}
+        )
         self.last_dense_results = []
         self.last_sparse_results = []
         self.last_fused_results = []
@@ -208,6 +210,7 @@ class HybridSearch:
             query, len(dense_results), len(sparse_results), len(fused), len(results),
             elapsed_ms, ", degraded" if failures else "",
         )
+        trace.finish()
         return results
 
     # ------------------------------------------------------------------

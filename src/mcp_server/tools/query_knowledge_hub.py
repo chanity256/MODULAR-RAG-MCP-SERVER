@@ -25,7 +25,7 @@ if __package__ in (None, ""):  # pragma: no cover - 直接运行兜底
 
 from core.response import ResponseBuilder
 from core.response.multimodal_assembler import MultimodalAssembler
-from core.trace.trace_context import TraceContext
+from core.trace.trace_context import TRACE_TYPE_QUERY, TraceContext
 from mcp_server.protocol_handler import ToolDefinition, ToolInvalidParams
 
 __all__ = [
@@ -132,7 +132,10 @@ class QueryKnowledgeHubTool:
             ValueError: query 缺失/为空、top_k/collection 非法。
         """
         query, top_k, collection = self._validate_arguments(arguments)
-        trace = TraceContext(metadata={"query": query, "collection": collection})
+        trace = TraceContext(
+            trace_type=TRACE_TYPE_QUERY,
+            metadata={"query": query, "collection": collection},
+        )
         filters = {"collection": collection} if collection else None
 
         results = self._get_search().search(query, top_k=top_k, filters=filters, trace=trace)
