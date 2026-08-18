@@ -314,3 +314,75 @@ def test_get_collection_stats_counts_chunks_and_documents(tmp_path, clean_regist
     stats = vs.get_collection_stats()
     assert stats["chunk_count"] == 3
     assert stats["document_count"] == 2
+
+
+# ---------------------------------------------------------------------------
+# 契约补齐（I4）：delete_by_metadata / get_by_ids 边界
+# ---------------------------------------------------------------------------
+
+
+def test_delete_by_metadata_no_match_returns_zero(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    vs.upsert([VectorRecord(id="c1", vector=[1.0, 0.0], text="a", metadata={"source_path": "a.pdf"})])
+    assert vs.delete_by_metadata({"source_path": "missing.pdf"}) == 0
+    assert len(vs.get_by_metadata()) == 1
+
+
+def test_delete_by_metadata_removes_multiple_matches(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    vs.upsert([
+        VectorRecord(id=f"c{i}", vector=[1.0, 0.0], text=str(i), metadata={"source_path": "a.pdf"})
+        for i in range(3)
+    ])
+    assert vs.delete_by_metadata({"source_path": "a.pdf"}) == 3
+    assert vs.get_by_metadata() == []
+
+
+def test_delete_by_metadata_non_dict_filters_rejected(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    with pytest.raises(ValueError):
+        vs.delete_by_metadata(None)  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        vs.delete_by_metadata(["source_path"])  # type: ignore[arg-type]
+
+
+def test_delete_by_metadata_idempotent_second_call_zero(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    vs.upsert([VectorRecord(id="c1", vector=[1.0, 0.0], text="a", metadata={"collection": "x"})])
+    assert vs.delete_by_metadata({"collection": "x"}) == 1
+    assert vs.delete_by_metadata({"collection": "x"}) == 0
+
+
+def test_delete_by_metadata_accepts_trace_kwarg(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    vs.upsert([VectorRecord(id="c1", vector=[1.0, 0.0], text="a", metadata={"collection": "x"})])
+    assert vs.delete_by_metadata({"collection": "x"}, trace=None) == 1
+
+
+def test_query_after_delete_excludes_deleted(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    vs.upsert([
+        VectorRecord(id="c1", vector=[1.0, 0.0], text="a", metadata={"keep": True}),
+        VectorRecord(id="c2", vector=[1.0, 0.0], text="b", metadata={"drop": True}),
+    ])
+    vs.delete_by_metadata({"drop": True})
+    results = vs.query([1.0, 0.0], top_k=10)
+    assert [r.id for r in results] == ["c1"]
+
+
+def test_get_by_ids_after_delete_skips_missing(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    vs.upsert([
+        VectorRecord(id="c1", vector=[1.0, 0.0], text="a", metadata={"keep": True}),
+        VectorRecord(id="c2", vector=[1.0, 0.0], text="b", metadata={"drop": True}),
+    ])
+    vs.delete_by_metadata({"drop": True})
+    records = vs.get_by_ids(["c2", "c1"])  # c2 已删，缺失跳过不占位
+    assert [r["id"] for r in records] == ["c1"]

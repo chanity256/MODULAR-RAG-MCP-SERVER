@@ -53,8 +53,9 @@ class CustomEvaluator(BaseEvaluator):
                 mrr = 1.0 / rank
                 break
 
-        # hit_at_k：Top-K 内命中的 golden 数量 / golden 总数。
-        hits_in_k = sum(1 for rid in considered if rid in golden_set)
-        hit_at_k = hits_in_k / len(golden_set)
+        # hit_at_k：Top-K 内命中的 golden 数量 / golden 总数（golden 去重计数，
+        # retrieved 中的重复命中不重复计入）。
+        hit_goldens = {rid for rid in considered if rid in golden_set}
+        hit_at_k = len(hit_goldens) / len(golden_set)
 
         return {"hit_rate": hit_rate, "mrr": mrr, "hit_at_k": hit_at_k}

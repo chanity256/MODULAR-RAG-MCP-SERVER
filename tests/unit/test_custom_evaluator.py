@@ -188,3 +188,60 @@ def test_create_from_settings_unknown_raises(tmp_path, clean_registry):
     settings = _settings(tmp_path, backends=["nonexistent"])
     with pytest.raises(EvaluatorBackendError):
         clean_registry.create_from_settings(settings)
+
+
+# ---------------------------------------------------------------------------
+# 契约补齐（I4）：输入边界
+# ---------------------------------------------------------------------------
+
+
+def test_empty_retrieved_no_hit():
+    ev = CustomEvaluator()
+    m = ev.evaluate("q", [], ["c1"])
+    assert m == {"hit_rate": 0.0, "mrr": 0.0, "hit_at_k": 0.0}
+
+
+def test_duplicate_golden_ids_do_not_inflate_hit_at_k():
+    ev = CustomEvaluator()
+    # golden 去重语义：["c1","c1"] 等价 ["c1"]
+    m = ev.evaluate("q", ["c1"], ["c1", "c1"])
+    assert m["hit_at_k"] == 1.0
+    assert m["hit_rate"] == 1.0
+
+
+def test_duplicate_retrieved_ids_counted_once_for_hit_at_k():
+    ev = CustomEvaluator()
+    m = ev.evaluate("q", ["c1", "c1", "c2"], ["c1", "c2"])
+    # 命中 c1/c2 各一次（重复 c1 不重复计数）→ 2/2
+    assert m["hit_at_k"] == 1.0
+
+
+def test_top_k_zero_considered_empty():
+    ev = CustomEvaluator()
+    m = ev.evaluate("q", ["c1", "c2"], ["c2"], top_k=0)
+    # top_k=0 → considered 为空 → hit_rate/hit_at_k=0；mrr 按全量惯例仍计
+    assert m["hit_rate"] == 0.0
+    assert m["hit_at_k"] == 0.0
+    assert m["mrr"] == pytest.approx(0.5)
+
+
+def test_golden_later_than_top_k_only_mrr_counts():
+    ev = CustomEvaluator()
+    m = ev.evaluate("q", ["c1", "c2", "c3"], ["c3"], top_k=1)
+    assert m["hit_rate"] == 0.0
+    assert m["hit_at_k"] == 0.0
+    assert m["mrr"] == pytest.approx(1 / 3)
+
+
+def test_metrics_always_contain_exactly_three_keys():
+    ev = CustomEvaluator()
+    for args in (("q", ["c1"], ["c1"]), ("q", [], []), ("q", ["a"], ["z"])):
+        keys = ev.evaluate(*args).keys()
+        assert set(keys) == {"hit_rate", "mrr", "hit_at_k"}
+    assert set(ev.evaluate("q", ["c1"], ["c1"], top_k=3).keys()) == {"hit_rate", "mrr", "hit_at_k"}
+
+
+def test_trace_and_kwargs_ignored():
+    ev = CustomEvaluator()
+    m = ev.evaluate("q", ["c1"], ["c1"], top_k=None, trace=None, extra="ignored")
+    assert m["hit_rate"] == 1.0

@@ -167,3 +167,50 @@ def test_fake_reranker_changes_order(tmp_path, clean_registry):
     cands = [RerankCandidate(id="c1"), RerankCandidate(id="c2"), RerankCandidate(id="c3")]
     out = rr.rerank("q", cands)
     assert [c.id for c in out] == ["c3", "c2", "c1"]
+
+
+# ---------------------------------------------------------------------------
+# 契约补齐（I4）：rerank 输入边界
+# ---------------------------------------------------------------------------
+
+
+def test_none_reranker_single_candidate(tmp_path):
+    rr = NoneReranker()
+    out = rr.rerank("q", [RerankCandidate(id="only", text="t", score=1.0)])
+    assert [c.id for c in out] == ["only"]
+    assert out[0].score == 1.0
+
+
+def test_none_reranker_preserves_candidate_fields(tmp_path):
+    rr = NoneReranker()
+    cand = RerankCandidate(id="c1", text="hello", score=0.42)
+    out = rr.rerank("q", [cand])
+    assert out[0].id == "c1"
+    assert out[0].text == "hello"
+    assert out[0].score == 0.42
+
+
+def test_none_reranker_duplicate_ids_passthrough(tmp_path):
+    rr = NoneReranker()
+    cands = [RerankCandidate(id="c1", score=0.9), RerankCandidate(id="c1", score=0.5)]
+    out = rr.rerank("q", cands)
+    assert len(out) == 2  # none 后端不去重，保持原样
+
+
+def test_none_reranker_accepts_trace_and_kwargs(tmp_path):
+    rr = NoneReranker()
+    out = rr.rerank("q", [RerankCandidate(id="c1")], trace=None, extra="ignored")
+    assert [c.id for c in out] == ["c1"]
+
+
+def test_fake_reranker_empty_candidates(tmp_path, clean_registry):
+    clean_registry.register("cross_encoder")(_make_fake())
+    settings = _settings(tmp_path, backend="cross_encoder")
+    rr = clean_registry.create(settings)
+    assert rr.rerank("q", []) == []
+
+
+def test_factory_available_backends_sorted_unique(clean_registry):
+    backends = clean_registry.available_backends()
+    assert backends == sorted(set(backends))
+    assert "none" in backends
