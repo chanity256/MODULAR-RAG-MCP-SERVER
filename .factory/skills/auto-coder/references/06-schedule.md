@@ -123,12 +123,12 @@
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| G1 | Dashboard 基础架构与系统总览页 | [ ] | | |
-| G2 | DocumentManager 实现 | [ ] | | |
-| G3 | 数据浏览器页面 | [ ] | | |
-| G4 | Ingestion 管理页面 | [ ] | | |
-| G5 | Ingestion 追踪页面 | [ ] | | |
-| G6 | Query 追踪页面 | [ ] | | |
+| G1 | Dashboard 基础架构与系统总览页 | [x] | 2026-08-18 | Streamlit 六页导航 + ConfigService 组件卡片 + start_dashboard.py |
+| G2 | DocumentManager 实现 | [x] | 2026-08-18 | 跨 Chroma/BM25/ImageStorage/FileIntegrity 的 list/detail/delete/stats |
+| G3 | 数据浏览器页面 | [x] | 2026-08-18 | 文档列表/集合筛选/Chunk 详情/图片预览 |
+| G4 | Ingestion 管理页面 | [x] | 2026-08-18 | 上传触发摄取 + on_progress 进度条 + 文档删除 |
+| G5 | Ingestion 追踪页面 | [x] | 2026-08-18 | TraceService 解析 JSONL + 阶段耗时瀑布图 |
+| G6 | Query 追踪页面 | [x] | 2026-08-18 | Query 历史搜索 + Dense/Sparse 对比 + Rerank 前后变化 |
 
 #### 阶段 H：评估体系
 
@@ -162,10 +162,10 @@
 | 阶段 D | 7 | 7 | 100% |
 | 阶段 E | 6 | 6 | 100% |
 | 阶段 F | 5 | 5 | 100% |
-| 阶段 G | 6 | 0 | 0% |
+| 阶段 G | 6 | 6 | 100% |
 | 阶段 H | 5 | 0 | 0% |
 | 阶段 I | 5 | 0 | 0% |
-| **总计** | **68** | **46** | **68%** |
+| **总计** | **68** | **52** | **76%** |
 
 
 ---
