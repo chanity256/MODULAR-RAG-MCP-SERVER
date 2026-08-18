@@ -9,6 +9,7 @@
 - [项目概述](#-项目概述)
 - [分支说明](#-分支说明)
 - [快速开始](#-快速开始)
+- [运行手册（10 分钟跑通全链路）](#️-运行手册10-分钟跑通全链路)
 - [谁适合用这个项目 & 怎么用](#-谁适合用这个项目--怎么用)
 - [简历参考](#-简历参考)
 - [常见问题](#-常见问题)
@@ -121,6 +122,168 @@ setup
 Agent 会自动引导你完成全部配置流程。
 
 > 💡 如果不熟悉 Skill 的使用方式，请观看配套笔记中的 **Setup Skill 使用讲解视频**。
+
+---
+
+## 🛠️ 运行手册（10 分钟跑通全链路）
+
+> 本节面向想手动跑通 **ingest → query → dashboard → evaluate** 全流程的用户。以下所有命令均在仓库根目录执行，需先激活虚拟环境：
+>
+> ```bash
+> # macOS / Linux
+> source .venv/bin/activate
+> # Windows (PowerShell)
+> .\.venv\Scripts\Activate.ps1
+> ```
+
+### 1. 安装依赖
+
+```bash
+pip install -r requirements.txt
+# 或
+pip install -e .
+```
+
+### 2. 配置 API Key
+
+编辑 `config/settings.yaml`（或使用环境变量），至少配置：
+
+- `embedding`: provider（openai / azure / ollama）+ `api_key` + `model`
+- `llm`: provider + `api_key`（仅在使用 LLM 增强 / LLM Rerank / Ragas 时必需）
+
+```yaml
+embedding:
+  provider: openai
+  model: text-embedding-3-small
+  api_key: ${OPENAI_API_KEY}   # 支持环境变量占位符
+```
+
+> 想完全离线运行？把 `embedding.provider` 换成 `ollama` 并本地部署 `nomic-embed-text` 即可。
+
+### 3. 首次摄取
+
+把 PDF 文档放入 `data/documents/`（或任意目录），然后：
+
+```bash
+python scripts/ingest.py --path data/documents/ --collection default
+# 强制重摄取（内容变更后）
+python scripts/ingest.py --path data/documents/ --collection default --force
+# 查看逐阶段进度
+python scripts/ingest.py --path data/documents/ -v
+```
+
+摄取产物：Chroma 向量库（`data/db/chroma/`）、BM25 索引（`data/db/bm25/`）、图片索引（`data/db/image_index.db`）、SHA256 增量记录（`data/db/ingestion_history.db`）。
+
+### 4. 查询验证
+
+```bash
+python scripts/query.py --query "如何配置 Azure？" --verbose
+python scripts/query.py --query "bm25 scoring" --collection default --top-k 5
+python scripts/query.py --query "部署密钥" --no-rerank   # 跳过精排
+```
+
+### 5. 启动 MCP Server（stdio）
+
+```bash
+PYTHONPATH=src python -m mcp_server.server
+```
+
+Server 通过 stdin/stdout 收发 JSON-RPC（MCP 2025-06-18），暴露三个 tools：`query_knowledge_hub`、`list_collections`、`get_document_summary`。
+
+### 6. 启动 Dashboard
+
+```bash
+python scripts/start_dashboard.py
+# 或
+streamlit run src/observability/dashboard/app.py
+```
+
+浏览器打开 http://localhost:8501，六个页面：
+
+| 页面 | 功能 |
+|------|------|
+| 系统总览 | 组件配置卡片 + 数据资产统计 + 最近 trace 健康状态 |
+| 数据浏览器 | 文档/Chunk/图片浏览（按集合筛选、关键词搜索） |
+| Ingestion 管理 | 上传文件触发摄取（进度条）、删除文档 |
+| Ingestion 追踪 | 摄取历史、阶段耗时瀑布图 |
+| Query 追踪 | 查询历史、Dense/Sparse 对比、Rerank 前后变化 |
+| 评估面板 | 选择后端运行评估、指标卡片、历史趋势对比 |
+
+### 7. 运行评估
+
+```bash
+python scripts/evaluate.py                                   # 默认 golden set + composite 后端
+python scripts/evaluate.py --evaluator custom --top-k 5      # 纯离线指标
+python scripts/evaluate.py --test-set tests/fixtures/golden_test_set.json --collection default
+```
+
+### 8. 运行测试
+
+```bash
+pytest -q                          # 全量（默认全绿、离线、零网络）
+pytest tests/unit -q               # 单元测试
+pytest tests/integration -q        # 集成测试
+pytest tests/e2e -q                # E2E（MCP client 模拟 / Dashboard 冒烟 / Recall 回归）
+RAG_LLM_INTEGRATION=1 pytest tests/integration/test_chunk_refiner_llm.py -v   # 真实 LLM（可选，产生费用）
+```
+
+### 9. MCP Client 配置示例
+
+**GitHub Copilot（VS Code）** — `.vscode/mcp.json`：
+
+```json
+{
+  "servers": {
+    "modular-rag": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "mcp_server.server"],
+      "cwd": "/absolute/path/to/Modular-RAG-MCP-Server",
+      "env": { "PYTHONPATH": "/absolute/path/to/Modular-RAG-MCP-Server/src" }
+    }
+  }
+}
+```
+
+**Claude Desktop** — `claude_desktop_config.json`：
+
+```json
+{
+  "mcpServers": {
+    "modular-rag": {
+      "command": "python",
+      "args": ["-m", "mcp_server.server"],
+      "cwd": "/absolute/path/to/Modular-RAG-MCP-Server",
+      "env": { "PYTHONPATH": "/absolute/path/to/Modular-RAG-MCP-Server/src" }
+    }
+  }
+}
+```
+
+配置完成后，在 Copilot / Claude 中即可直接调用 `query_knowledge_hub` 检索私有知识库。
+
+### 配置说明（settings.yaml 关键字段）
+
+| 字段 | 含义 |
+|------|------|
+| `llm.provider / model / api_key` | LLM 后端（azure / openai / deepseek / ollama） |
+| `embedding.provider / model` | Embedding 后端（openai / azure / ollama） |
+| `vision_llm.*` | 图片描述用的 Vision LLM（azure / dashscope） |
+| `vector_store.backend / persist_path` | 向量库（chroma）与持久化目录 |
+| `splitter.chunk_size / chunk_overlap` | 分块大小与重叠 |
+| `ingestion.*` | Transform 开关（chunk_refiner / metadata_enricher / image_captioner 的 use_llm）与批大小 |
+| `retrieval.top_k_dense / top_k_sparse / top_k_final / rrf_k` | 混合检索各级候选数与 RRF 平滑常数 |
+| `rerank.backend / model / top_m` | 精排后端（none / cross_encoder / llm） |
+| `evaluation.backends / golden_test_set` | 评估后端组合与黄金测试集路径 |
+| `observability.log_file` | JSON Lines trace 日志路径（Dashboard 追踪页数据源） |
+
+### 常见问题排查
+
+- **API Key 报错**：确认 `settings.yaml` 中 `api_key` 字段或对应环境变量（`OPENAI_API_KEY` / `AZURE_OPENAI_API_KEY`）已设置；Ollama 场景确认 `base_url`（默认 `http://localhost:11434`）可达。
+- **依赖安装失败**：确认 Python ≥ 3.10；`pip install -r requirements.txt` 失败时可先升级 pip。Windows 下 `chromadb` / `pillow` 编译问题建议使用 Python 3.11+。
+- **查询无结果**：先确认已摄取（`python scripts/query.py --query ...` 提示先摄取则运行 `scripts/ingest.py`）；Dashboard「Ingestion 追踪」页可查看各阶段是否成功。
+- **MCP 连接问题**：确认配置中 `cwd` / `PYTHONPATH` 为绝对路径；手动运行 `PYTHONPATH=src python -m mcp_server.server` 验证 server 可启动。
+- **Ragas 未安装**：`ragas` 后端是可选依赖（`pip install ragas`），未安装时自动降级，`custom` 指标始终可用。
 
 ---
 
@@ -337,16 +500,15 @@ Skill 采用 **"写作原则 + 项目亮点 + 用户画像 = 定制化简历"** 
 
 > **原理说明**：项目的 `src/libs/` 下的 LLM、Embedding、Reranker 等模块都使用工厂模式，新增一个 Provider 只需要：① 新增一个 Provider 类；② 在工厂注册；③ 更新 `settings.yaml` 配置。AI 完全可以自动完成这些步骤。
 
-### 2. 项目评估（Custom Evaluator）与 Cross-Encoder Reranker 部分
+### 2. 评估体系与 Cross-Encoder Reranker
 
-这两个模块的**框架代码已经搭好，但尚未经过完整测试**，感兴趣的同学可以自行完善：
+评估体系（阶段 H）已完整落地：`CustomEvaluator`（hit_rate / mrr / hit_at_k）与 `RagasEvaluator`（faithfulness / answer_relevancy / context_precision，需 `pip install ragas`）经 `CompositeEvaluator` 组合，`scripts/evaluate.py` + golden test set 支持回归测试。
 
-| 模块 | 状态 | 需要做什么 |
+| 模块 | 状态 | 说明 |
 |------|------|-----------|
-| **自定义评估（Custom Evaluator）** | 框架已有，未测试 | 定义评估方法，准备对应的测试数据集 |
-| **Cross-Encoder Reranker** | 框架已有，未测试 | 需要下载本地重排模型（如 `cross-encoder/ms-marco-MiniLM-L-6-v2`） |
-
-**这些 AI 都能帮你写出来**。把需求描述清楚，AI 可以帮你实现评估方法、准备数据、下载模型并完成集成测试。完成这些扩展对面试也是加分项，体现了你的独立扩展能力。
+| **自定义评估（Custom Evaluator）** | 已完成 | 离线可用，`python scripts/evaluate.py --evaluator custom` |
+| **Ragas 评估** | 已完成 | 可选依赖 `pip install ragas`，未安装自动降级 |
+| **Cross-Encoder Reranker** | 已实现，默认未启用 | 需下载本地重排模型（如 `cross-encoder/ms-marco-MiniLM-L-6-v2`），`settings.yaml` 中 `rerank.backend: cross_encoder` 启用 |
 
 ### 3. 项目报错 / Bug 怎么办？
 
