@@ -14,6 +14,16 @@
       "query": "如何配置 Azure OpenAI？",
       "expected_chunk_ids": [],
       "expected_sources": ["config_guide.pdf"]
+    },
+    {
+      "query": "How does incremental ingestion skip unchanged files?",
+      "expected_chunk_ids": [],
+      "expected_sources": ["ingest_guide.pdf"]
+    },
+    {
+      "query": "How does RRF fusion combine dense and sparse rankings?",
+      "expected_chunk_ids": [],
+      "expected_sources": ["retrieval_guide.pdf"]
     }
   ]
 }
