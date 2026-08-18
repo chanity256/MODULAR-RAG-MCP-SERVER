@@ -19,7 +19,6 @@ from typing import Any, Callable
 from core.settings import Settings
 from libs.evaluator.base_evaluator import BaseEvaluator
 from libs.evaluator.custom_evaluator import CustomEvaluator
-from observability.evaluation.ragas_evaluator import RagasEvaluator
 
 __all__ = ["EvaluatorFactory", "EvaluatorBackendError"]
 
@@ -32,7 +31,10 @@ def _custom_ctor(**kwargs: Any) -> CustomEvaluator:
     return CustomEvaluator()
 
 
-def _ragas_ctor(**kwargs: Any) -> RagasEvaluator:
+def _ragas_ctor(**kwargs: Any) -> BaseEvaluator:
+    # 延迟导入避免与 observability.evaluation（H1/H2，引用本工厂）循环。
+    from observability.evaluation.ragas_evaluator import RagasEvaluator
+
     return RagasEvaluator(**kwargs)
 
 

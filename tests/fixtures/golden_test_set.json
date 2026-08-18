@@ -1,0 +1,19 @@
+{
+  "test_cases": [
+    {
+      "query": "How to configure Azure OpenAI?",
+      "expected_chunk_ids": [],
+      "expected_sources": ["azure_setup.pdf"]
+    },
+    {
+      "query": "What is BM25 scoring?",
+      "expected_chunk_ids": [],
+      "expected_sources": ["bm25_guide.pdf"]
+    },
+    {
+      "query": "如何配置 Azure OpenAI？",
+      "expected_chunk_ids": [],
+      "expected_sources": ["config_guide.pdf"]
+    }
+  ]
+}
