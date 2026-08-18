@@ -2055,10 +2055,10 @@ dashboard:
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
 | I1 | E2E：MCP Client 侧调用模拟 | [x] | 2026-08-18 | tests/e2e/test_mcp_client.py：子进程启动真 MCP server（stdio，cwd=临时 workspace 使 load_settings 读 tmp config），client 视角完整走通 initialize→notifications/initialized→tools/list（三 tool 断言）→tools/call query_knowledge_hub（返回 Markdown [1] 引用 + structuredContent.citations[0] chunk_id/source 断言）→tools/call list_collections（集合命中）→shutdown 干净退出（退出码 0、剩余 stdout 空无日志污染）；离线策略：测试预置真 ChromaStore（persist_path 转绝对防误写仓库 data/）+ 真 BM25Indexer（tmp index.json）产物，embedding base_url 指向本机关闭端口 → Dense 路快速失败按 D5 降级 Sparse 路真实检索，rerank=none；另覆盖空 query → -32602；2 e2e 用例，全套件 1016 通过 2 跳过 |
-| I2 | E2E：Dashboard 冒烟测试 | [ ] | | |
-| I3 | 完善 README（运行说明 + MCP + Dashboard） | [ ] | | |
-| I4 | 清理接口一致性（契约测试补齐） | [ ] | | |
-| I5 | 全链路 E2E 验收 | [ ] | | |
+| I2 | E2E：Dashboard 冒烟测试 | [x] | 2026-08-18 | tests/e2e/test_dashboard_smoke.py：Streamlit AppTest.from_file + 临时 driver 脚本（from_function 会剥离模块 globals，imports 不可见）；六页均可加载无异常（overview/data_browser/ingestion_manager/ingestion_traces/query_traces/evaluation_panel）；追踪页真 TraceService 读 tmp traces.jsonl；数据页 FakeDataService；评估页 fake run_eval；6 冒烟用例 |
+| I3 | 完善 README（运行说明 + MCP + Dashboard） | [x] | 2026-08-18 | README 新增「运行手册」：安装依赖/API Key/首次摄取/query/MCP stdio/Dashboard 六页说明/evaluate/分层 pytest/Copilot mcp.json + Claude Desktop 配置/settings.yaml 字段表/FAQ 排查；同步更新目录与评估体系 FAQ（H 阶段已落地，不再写「框架未测试」） |
+| I4 | 清理接口一致性（契约测试补齐） | [x] | 2026-08-18 | test_vector_store_contract 补 delete_by_metadata 边界（无匹配=0/多匹配全删/非 dict 拒绝/二次删除幂等/trace kwargs/删后 query 与 get_by_ids 跳过缺失）；test_reranker_factory 补 none 单候选/字段保留/重复 id 透传/kwargs/空候选；test_custom_evaluator 补空 retrieved/重复 golden/top_k=0/三键契约；CustomEvaluator.hit_at_k 改为 distinct golden 计数（重复 retrieved 不虚高） |
+| I5 | 全链路 E2E 验收 | [x] | 2026-08-18 | 验收走已有链路：ingest sample_documents（仅 sample.md，无 .pdf → no supported files found 退出码 0，PDF 全链路见 test_data_ingestion）；query --verbose --no-rerank 无数据友好提示退出码 0；evaluate.py --evaluator custom 输出 5/5 指标块退出码 0；Dashboard 冒烟 I2 + MCP client I1 + Recall H5 覆盖可视化/MCP/评估；全套件 1042 通过 2 跳过。阶段 I（I1-I5）全部完成 |
 
 ---
 
@@ -2073,9 +2073,9 @@ dashboard:
 | 阶段 E | 6 | 6 | 100% |
 | 阶段 F | 5 | 5 | 100% |
 | 阶段 G | 6 | 6 | 100% |
-| 阶段 H | 5 | 0 | 0% |
-| 阶段 I | 5 | 0 | 0% |
-| **总计** | **68** | **52** | **76%** |
+| 阶段 H | 5 | 5 | 100% |
+| 阶段 I | 5 | 5 | 100% |
+| **总计** | **68** | **68** | **100%** |
 
 
 ---
