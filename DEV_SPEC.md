@@ -2023,7 +2023,7 @@ dashboard:
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| F1 | TraceContext 增强（finish + 耗时统计 + trace_type） | [ ] | | |
+| F1 | TraceContext 增强（finish + 耗时统计 + trace_type） | [x] | 2026-08-17 | TraceContext 增强：trace_type(query/ingestion) 校验 + finish() 幂等计算总耗时 + elapsed_ms(stage?) + to_dict() JSON 可序列化（trace_id/trace_type/started_at/finished_at/total_elapsed_ms/stages）；TraceCollector.collect 自动 finish + 内存收集 + write_trace 持久化，写入失败仅告警不阻断主链路；16 单测全绿 |
 | F2 | 结构化日志 logger（JSON Lines） | [ ] | | |
 | F3 | 在 Query 链路打点 | [ ] | | |
 | F4 | 在 Ingestion 链路打点 | [ ] | | |
@@ -2070,12 +2070,12 @@ dashboard:
 | 阶段 B | 16 | 16 | 100% |
 | 阶段 C | 15 | 15 | 100% |
 | 阶段 D | 7 | 7 | 100% |
-| 阶段 E | 6 | 0 | 0% |
-| 阶段 F | 5 | 0 | 0% |
+| 阶段 E | 6 | 6 | 100% |
+| 阶段 F | 5 | 1 | 20% |
 | 阶段 G | 6 | 0 | 0% |
 | 阶段 H | 5 | 0 | 0% |
 | 阶段 I | 5 | 0 | 0% |
-| **总计** | **68** | **41** | **60%** |
+| **总计** | **68** | **42** | **62%** |
 
 
 ---
