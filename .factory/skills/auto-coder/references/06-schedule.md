@@ -117,7 +117,7 @@
 | F2 | 结构化日志 logger（JSON Lines） | [x] | 2026-08-17 | JSONFormatter 单行 JSON（time/level/logger/message + extra 合并）+ get_trace_logger（JSONFormatter+FileHandler，幂等，路径取 settings.observability.log_file 默认 logs/traces.jsonl）+ write_trace 追加 JSONL（含 trace_type）；父目录自动创建；5 单测全绿 |
 | F3 | 在 Query 链路打点 | [x] | 2026-08-17 | HybridSearch 默认创建 trace_type=query 并 finish；QueryProcessor/DenseRetriever/SparseRetriever/RRFFusion/Reranker 各阶段 record_stage（query_processing/dense_retrieval/sparse_retrieval/fusion/hybrid/rerank）含 elapsed_ms+method；集成测试断言 to_dict.trace_type==query 与全阶段；21 集成测试全绿 |
 | F4 | 在 Ingestion 链路打点 | [x] | 2026-08-17 | IngestionPipeline 默认创建 trace_type=ingestion 并 finish（成功/跳过/失败均收口）；pipeline 阶段 integrity/load/split/transform/embed/store 均 record_stage（method=pipeline+details+elapsed_ms），store 承载 BM25/向量/图片三路写入（spec upsert）；TraceCollector 写入 JSONL 含 trace_type=ingestion；2 集成测试全绿 |
-| F5 | Pipeline 进度回调 (on_progress) | [ ] | | |
+| F5 | Pipeline 进度回调 (on_progress) | [x] | 2026-08-17 | IngestionPipeline.run 可选 on_progress(stage,current,total)；load/split/transform(1..3)/embed(按批)/upsert(1..3) 均上报；None 不影响主链路；回调异常隔离不中断摄取；5 单测全绿 |
 
 #### 阶段 G：可视化管理平台 Dashboard
 
@@ -161,11 +161,11 @@
 | 阶段 C | 15 | 15 | 100% |
 | 阶段 D | 7 | 7 | 100% |
 | 阶段 E | 6 | 6 | 100% |
-| 阶段 F | 5 | 4 | 80% |
+| 阶段 F | 5 | 5 | 100% |
 | 阶段 G | 6 | 0 | 0% |
 | 阶段 H | 5 | 0 | 0% |
 | 阶段 I | 5 | 0 | 0% |
-| **总计** | **68** | **45** | **66%** |
+| **总计** | **68** | **46** | **68%** |
 
 
 ---
