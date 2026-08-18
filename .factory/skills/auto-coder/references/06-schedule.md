@@ -135,7 +135,7 @@
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
 | H1 | RagasEvaluator 实现 | [x] | 2026-08-18 | src/observability/evaluation/ragas_evaluator.py RagasEvaluator(BaseEvaluator)：faithfulness/answer_relevancy/context_precision 三指标；metrics_fn/evaluate_fn/llm/embeddings 全可注入（离线 mock 测试）；ragas 未安装时构造不报错、evaluate 抛带 `pip install ragas` 提示的 ImportError；evaluate(query,retrieved_ids,golden_ids,answer 必填, contexts 缺省回退 retrieved_ids, top_k 截断 contexts)；非数值结果过滤保持 float 契约；trace evaluation 阶段打点；EvaluatorFactory 注册 ragas backend（create/create_from_settings 可路由）；28 单测，全套件 962 通过 2 跳过 |
-| H2 | CompositeEvaluator 实现 | [ ] | | |
+| H2 | CompositeEvaluator 实现 | [x] | 2026-08-18 | src/observability/evaluation/composite_evaluator.py CompositeEvaluator(BaseEvaluator)：多 evaluator 线程池并行（单 evaluator 免池直跑）；指标合并 dict[str,float]（非数值过滤，跨 evaluator 重复键对称加 "{name}." 前缀消歧）；单 evaluator 异常隔离降级不阻断（last_errors 逐次重置）；from_settings 按 evaluation.backends 经 EvaluatorFactory 批量组合；trace evaluation 阶段打点（method=composite_evaluator，details 含 evaluators/metrics_by_evaluator/errors）且 trace 透传子评估器；构造 fail-fast（空列表 ValueError/非 BaseEvaluator TypeError）；15 单测（含真 CustomEvaluator 契约与仓库默认 settings [ragas, custom] 组合验证），全套件 977 通过 2 跳过 |
 | H3 | EvalRunner + Golden Test Set | [ ] | | |
 | H4 | 评估面板页面 | [ ] | | |
 | H5 | Recall 回归测试（E2E） | [ ] | | |
