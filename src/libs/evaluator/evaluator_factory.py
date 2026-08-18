@@ -19,6 +19,7 @@ from typing import Any, Callable
 from core.settings import Settings
 from libs.evaluator.base_evaluator import BaseEvaluator
 from libs.evaluator.custom_evaluator import CustomEvaluator
+from observability.evaluation.ragas_evaluator import RagasEvaluator
 
 __all__ = ["EvaluatorFactory", "EvaluatorBackendError"]
 
@@ -31,12 +32,17 @@ def _custom_ctor(**kwargs: Any) -> CustomEvaluator:
     return CustomEvaluator()
 
 
+def _ragas_ctor(**kwargs: Any) -> RagasEvaluator:
+    return RagasEvaluator(**kwargs)
+
+
 class EvaluatorFactory:
     """Evaluator 工厂：按名称路由到具体实现。"""
 
     # name -> 构造函数 (**kwargs) -> BaseEvaluator
     _registry: dict[str, Callable[..., BaseEvaluator]] = {
         "custom": _custom_ctor,
+        "ragas": _ragas_ctor,
     }
 
     @classmethod

@@ -2044,7 +2044,7 @@ dashboard:
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| H1 | RagasEvaluator 实现 | [ ] | | |
+| H1 | RagasEvaluator 实现 | [x] | 2026-08-18 | src/observability/evaluation/ragas_evaluator.py RagasEvaluator(BaseEvaluator)：faithfulness/answer_relevancy/context_precision 三指标；metrics_fn/evaluate_fn/llm/embeddings 全可注入（离线 mock 测试）；ragas 未安装时构造不报错、evaluate 抛带 `pip install ragas` 提示的 ImportError；evaluate(query,retrieved_ids,golden_ids,answer 必填, contexts 缺省回退 retrieved_ids, top_k 截断 contexts)；非数值结果过滤保持 float 契约；trace evaluation 阶段打点；EvaluatorFactory 注册 ragas backend（create/create_from_settings 可路由）；28 单测，全套件 962 通过 2 跳过 |
 | H2 | CompositeEvaluator 实现 | [ ] | | |
 | H3 | EvalRunner + Golden Test Set | [ ] | | |
 | H4 | 评估面板页面 | [ ] | | |
