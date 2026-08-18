@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pandas as pd
 import streamlit as st
 
 from observability.dashboard.services.trace_service import TraceService
@@ -40,9 +41,12 @@ def render(*, trace_service: TraceService | None = None) -> None:
     st.caption(f"trace_id=`{trace.get('trace_id')}` · {trace.get('total_elapsed_ms')} ms")
 
     timings = [item for item in trace_service.stage_timings(trace, _QUERY_STAGES) if item["elapsed_ms"] > 0]
+    if not timings:
+        timings = [item for item in trace_service.stage_timings(trace) if item["elapsed_ms"] > 0]
     if timings:
         st.subheader("耗时瀑布图")
-        st.bar_chart({item["stage"]: item["elapsed_ms"] for item in timings})
+        chart = pd.DataFrame(timings).set_index("stage")
+        st.bar_chart(chart, horizontal=True)
 
     dense = _preview(trace, "dense_retrieval")
     sparse = _preview(trace, "sparse_retrieval")
@@ -114,3 +118,7 @@ def _render_hits(hits: list[dict[str, Any]]) -> None:
             for index, item in enumerate(hits, start=1)
         ]
     )
+
+
+if __name__ == "__main__":
+    render()

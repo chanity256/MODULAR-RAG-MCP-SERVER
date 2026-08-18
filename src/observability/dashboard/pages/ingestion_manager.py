@@ -128,3 +128,7 @@ def _default_run_ingest(
         except Exception:
             failed += 1
     return f"{len(files)} files, chunks={chunks}, images={images}, failed={failed}"
+
+
+if __name__ == "__main__":
+    render()

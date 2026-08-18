@@ -77,3 +77,7 @@ def render(*, data_service: DataService | None = None) -> None:
                         continue
                     data, _mime = payload
                     st.image(data, caption=image["image_id"], width=240)
+
+
+if __name__ == "__main__":
+    render()

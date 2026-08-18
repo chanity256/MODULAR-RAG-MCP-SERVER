@@ -83,3 +83,7 @@ def _render_latest_trace(trace: dict[str, Any] | None, title: str) -> None:
     elapsed = trace.get("total_elapsed_ms")
     st.write(f"trace_id: `{trace.get('trace_id')}`")
     st.caption(f"started_at={trace.get('started_at')} · {elapsed} ms")
+
+
+if __name__ == "__main__":
+    render()

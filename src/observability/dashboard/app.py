@@ -30,19 +30,19 @@ st.set_page_config(page_title="Modular RAG Dashboard", layout="wide")
 
 pages = {
     "总览": [
-        st.Page(overview.render, title="系统总览", icon="📊", default=True),
+        st.Page(overview.render, title="系统总览", icon="📊", default=True, url_path="overview"),
     ],
     "数据与摄取": [
-        st.Page(data_browser.render, title="数据浏览器", icon="📁"),
-        st.Page(ingestion_manager.render, title="Ingestion 管理", icon="⬆️"),
+        st.Page(data_browser.render, title="数据浏览器", icon="📁", url_path="data-browser"),
+        st.Page(ingestion_manager.render, title="Ingestion 管理", icon="⬆️", url_path="ingestion"),
     ],
     "追踪": [
-        st.Page(ingestion_traces.render, title="Ingestion 追踪", icon="📈"),
-        st.Page(query_traces.render, title="Query 追踪", icon="🔍"),
+        st.Page(ingestion_traces.render, title="Ingestion 追踪", icon="📈", url_path="ingestion-traces"),
+        st.Page(query_traces.render, title="Query 追踪", icon="🔍", url_path="query-traces"),
     ],
     "评估": [
-        st.Page(evaluation_panel.render, title="评估面板", icon="🧪"),
+        st.Page(evaluation_panel.render, title="评估面板", icon="🧪", url_path="evaluation"),
     ],
 }
 
-st.navigation(pages).run()
+st.navigation(pages, position="top").run()
