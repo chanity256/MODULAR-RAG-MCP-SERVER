@@ -118,6 +118,29 @@ class _FakeVectorStore(BaseVectorStore):
             if r is not None
         ]
 
+    def delete_by_metadata(self, filters, *, trace=None, **kwargs):
+        if not isinstance(filters, dict) or not filters:
+            raise ValueError("filters must be a non-empty dict (refuse to wipe all)")
+        deleted = 0
+        for rid, rec in list(self.records.items()):
+            if all(rec.metadata.get(k) == v for k, v in filters.items()):
+                del self.records[rid]
+                deleted += 1
+        return deleted
+
+    def get_by_metadata(self, filters=None, *, trace=None, **kwargs):
+        records = []
+        for rec in self.records.values():
+            if filters and not all(rec.metadata.get(k) == v for k, v in filters.items()):
+                continue
+            records.append({"id": rec.id, "text": rec.text, "metadata": dict(rec.metadata)})
+        records.sort(key=lambda r: r["id"])
+        return records
+
+    def get_collection_stats(self, *, trace=None, **kwargs):
+        records = self.get_by_metadata()
+        return {"name": "fake", "chunk_count": len(records), "document_count": 0, "collections": []}
+
 
 class _HashEmbedding(BaseEmbedding):
     """确定性 fake：按文本 sha256 派生固定维度向量（C8 链路测试用）。"""

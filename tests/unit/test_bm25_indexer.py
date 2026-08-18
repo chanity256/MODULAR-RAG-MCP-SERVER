@@ -386,6 +386,25 @@ def test_consume_sparse_encoder_output_end_to_end(tmp_path):
     assert top[0]["chunk_id"] == "doc_0000_ab12cd34"
 
 
+def test_remove_document_by_doc_hash_prefix():
+    indexer = BM25Indexer().build([
+        _stats("abc123_0000_deadbeef", {"search": 1}, 1),
+        _stats("abc123_0001_feedface", {"engine": 1}, 1),
+        _stats("zzz999_0000_cafebabe", {"vector": 1}, 1),
+    ])
+    removed = indexer.remove_document("abc123")
+    assert removed == 2
+    assert indexer.num_docs == 1
+    assert indexer.query(["search"], 3) == []
+    assert indexer.query(["vector"], 1)[0]["chunk_id"] == "zzz999_0000_cafebabe"
+    assert indexer.remove_document("missing") == 0
+
+
+def test_remove_document_rejects_empty_source():
+    with pytest.raises(ValueError):
+        BM25Indexer().remove_document("")
+
+
 def test_build_and_add_record_storage_trace():
     trace = TraceContext()
     indexer = BM25Indexer()

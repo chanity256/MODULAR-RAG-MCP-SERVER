@@ -67,6 +67,23 @@ class FileIntegrityChecker(ABC):
         """标记处理失败（不阻塞后续重跑，记录失败原因）。"""
         raise NotImplementedError
 
+    def remove_record(self, file_hash: str) -> bool:
+        """删除一条处理记录，使文件可重新摄入（阶段 G2）。
+
+        Returns:
+            记录存在并已删除为 True；不存在为 False（无副作用）。
+        """
+        raise NotImplementedError
+
+    def list_processed(self) -> list[dict]:
+        """列出全部处理记录（阶段 G2：文档列表/摄入时间）。
+
+        Returns:
+            ``{file_hash, file_path, status, processed_at, error_msg}`` 列表，
+            按 ``processed_at`` 降序、``file_hash`` 升序保证确定性。
+        """
+        raise NotImplementedError
+
     def close(self) -> None:
         """释放底层连接（默认无操作，供具体实现覆盖）。"""
 
@@ -130,6 +147,45 @@ class SQLiteIntegrityChecker(FileIntegrityChecker):
     def mark_failed(self, file_hash: str, error_msg: str) -> None:
         """写入 failed 记录；保留已有 file_path（若此前记录过）。"""
         self._upsert(file_hash, file_path=None, status="failed", error_msg=error_msg)
+
+    def remove_record(self, file_hash: str) -> bool:
+        """按 file_hash 删除记录；不存在返回 False。"""
+        if not isinstance(file_hash, str) or not file_hash:
+            return False
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT file_hash FROM ingestion_history WHERE file_hash = ?",
+                (file_hash,),
+            ).fetchone()
+            if row is None:
+                return False
+            self._conn.execute(
+                "DELETE FROM ingestion_history WHERE file_hash = ?",
+                (file_hash,),
+            )
+            self._conn.commit()
+        return True
+
+    def list_processed(self) -> list[dict]:
+        """列出全部处理记录（processed_at 降序，file_hash 升序）。"""
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT file_hash, file_path, status, processed_at, error_msg
+                FROM ingestion_history
+                ORDER BY processed_at DESC, file_hash ASC
+                """
+            ).fetchall()
+        return [
+            {
+                "file_hash": row[0],
+                "file_path": row[1],
+                "status": row[2],
+                "processed_at": row[3],
+                "error_msg": row[4],
+            }
+            for row in rows
+        ]
 
     def close(self) -> None:
         with self._lock:

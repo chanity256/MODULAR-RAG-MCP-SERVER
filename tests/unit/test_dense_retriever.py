@@ -93,8 +93,17 @@ class _FakeStore(BaseVectorStore):
             raise self._error
         return list(self._hits)
 
-    def get_by_ids(self, ids):
+    def get_by_ids(self, ids, *, trace=None, **kwargs):
         return []
+
+    def delete_by_metadata(self, filters, *, trace=None, **kwargs):
+        return 0
+
+    def get_by_metadata(self, filters=None, *, trace=None, **kwargs):
+        return []
+
+    def get_collection_stats(self, *, trace=None, **kwargs):
+        return {"name": "fake", "chunk_count": 0, "document_count": 0, "collections": []}
 
 
 # ---------------------------------------------------------------------------

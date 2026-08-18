@@ -51,7 +51,8 @@ if str(_SRC_DIR) not in sys.path:
 from core.query_engine import HybridSearch, Reranker  # noqa: E402
 from core.query_engine.query_processor import QueryProcessingError  # noqa: E402
 from core.settings import ConfigError, Settings, load_settings  # noqa: E402
-from core.trace.trace_context import TraceContext  # noqa: E402
+from core.trace.persist import persist_trace  # noqa: E402
+from core.trace.trace_context import TRACE_TYPE_QUERY, TraceContext  # noqa: E402
 from core.types import RetrievalResult  # noqa: E402
 
 __all__ = [
@@ -197,6 +198,7 @@ def run_query(
     collection: str | None = None,
     verbose: bool = False,
     out: Emit | None = None,
+    log_file: str | None = None,
 ) -> QueryOutcome:
     """执行一次查询并渲染输出（组件可注入，离线可测）。
 
@@ -217,7 +219,10 @@ def run_query(
         :class:`QueryOutcome`（含最终结果与各阶段中间产物）。
     """
     emit = print if out is None else out
-    trace = TraceContext(metadata={"query": query, "collection": collection})
+    trace = TraceContext(
+        trace_type=TRACE_TYPE_QUERY,
+        metadata={"query": query, "collection": collection},
+    )
     filters = {"collection": collection} if collection else None
 
     results = search.search(query, top_k=top_k, filters=filters, trace=trace)
@@ -235,6 +240,8 @@ def run_query(
 
     outcome.results = list(results)
     outcome.trace_id = trace.trace_id
+    if log_file:
+        persist_trace(trace, log_file=log_file)
 
     if verbose:
         emit(render_verbose_sections(outcome))
@@ -366,6 +373,7 @@ def main(
             collection=args.collection,
             verbose=args.verbose,
             out=emit,
+            log_file=settings.observability.log_file if settings is not None else None,
         )
     except QueryProcessingError as exc:
         emit(f"[usage] 查询无效: {exc}")

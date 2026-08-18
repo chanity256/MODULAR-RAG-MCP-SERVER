@@ -25,6 +25,7 @@ if __package__ in (None, ""):  # pragma: no cover - 直接运行兜底
 
 from core.response import ResponseBuilder
 from core.response.multimodal_assembler import MultimodalAssembler
+from core.trace.persist import persist_trace
 from core.trace.trace_context import TRACE_TYPE_QUERY, TraceContext
 from mcp_server.protocol_handler import ToolDefinition, ToolInvalidParams
 
@@ -141,6 +142,8 @@ class QueryKnowledgeHubTool:
         results = self._get_search().search(query, top_k=top_k, filters=filters, trace=trace)
         if self._rerank_enabled and results:
             results = self._get_reranker().rerank(query, results, trace=trace)
+        if self._settings is not None:
+            persist_trace(trace, log_file=self._settings.observability.log_file)
         tool_result = self._response_builder.build(results, query)
         assembler = self._get_assembler()
         if assembler is not None and results:

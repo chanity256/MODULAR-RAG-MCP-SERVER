@@ -18,6 +18,7 @@ dependencies = [
     "langchain-text-splitters>=0.3.0",
     "chromadb>=0.5.0",
     "pypdf>=4.0",
+    "streamlit>=1.36",
 ]
 
 [project.optional-dependencies]

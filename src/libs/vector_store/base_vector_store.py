@@ -125,3 +125,59 @@ class BaseVectorStore(ABC):
             （重复 id 只返回一次），保证确定性合并。
         """
         raise NotImplementedError
+
+    def delete_by_metadata(
+        self,
+        filters: dict[str, Any],
+        *,
+        trace: Any | None = None,
+        **kwargs: Any,
+    ) -> int:
+        """按 metadata 等值条件批量删除（阶段 G2：DocumentManager）。
+
+        Args:
+            filters: 非空 metadata 过滤条件（如 ``{"source_path": "..."}``）。
+            trace: 可选的 ``TraceContext``。
+            **kwargs: 后端特定的扩展参数。
+
+        Returns:
+            实际删除的记录数。
+
+        Raises:
+            ValueError: ``filters`` 非 dict 或为空（拒绝全表误删）。
+        """
+        raise NotImplementedError
+
+    def get_by_metadata(
+        self,
+        filters: dict[str, Any] | None = None,
+        *,
+        trace: Any | None = None,
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        """按 metadata 等值条件批量读取（阶段 G1/G3：总览与数据浏览）。
+
+        Args:
+            filters: metadata 过滤条件；``None`` / ``{}`` 表示返回全部。
+            trace: 可选的 ``TraceContext``。
+            **kwargs: 后端特定的扩展参数。
+
+        Returns:
+            ``{"id", "text", "metadata"}`` 列表，按 id 升序保证确定性。
+        """
+        raise NotImplementedError
+
+    def get_collection_stats(
+        self,
+        *,
+        trace: Any | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """返回当前物理集合的统计（阶段 G1：系统总览）。
+
+        Returns:
+            至少包含 ``name`` / ``chunk_count``；若记录带
+            ``metadata.collection`` / ``source_path``，再附
+            ``document_count`` 与按逻辑集合拆分的 ``collections``。
+        """
+        raise NotImplementedError

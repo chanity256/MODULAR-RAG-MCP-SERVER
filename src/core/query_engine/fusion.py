@@ -148,6 +148,10 @@ class RRFFusion:
                     "sparse": len(sparse_list),
                     "fused": len(results),
                     "elapsed_ms": elapsed_ms,
+                    "preview": [
+                        {"chunk_id": item.chunk_id, "score": float(item.score)}
+                        for item in results[:8]
+                    ],
                 },
             )
         return results

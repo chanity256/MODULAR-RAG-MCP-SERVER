@@ -46,6 +46,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from core.settings import Settings
+from core.trace.persist import persist_trace
 from core.trace.trace_context import TRACE_TYPE_INGESTION, TraceContext
 from core.types import Chunk, Document
 from ingestion.chunking import DocumentChunker
@@ -252,7 +253,7 @@ class IngestionPipeline:
                     "skip unchanged file %s (hash=%s..., collection=%s)",
                     source, file_hash[:12], collection,
                 )
-                trace.finish()
+                persist_trace(trace, log_file=self._settings.observability.log_file)
                 return IngestionResult(
                     source_path=source,
                     collection=collection,
@@ -342,7 +343,7 @@ class IngestionPipeline:
             with self._stage(STAGE_INTEGRITY, source):
                 self._integrity_checker.mark_success(file_hash, source)
 
-            trace.finish()
+            persist_trace(trace, log_file=self._settings.observability.log_file)
             elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
             self._logger.info(
                 "ingested %s: %d chunks (written=%d), %d images (%.1fms)",
@@ -361,7 +362,7 @@ class IngestionPipeline:
             )
         except Exception as exc:
             self._record_failure(file_hash, source, exc, trace)
-            trace.finish()
+            persist_trace(trace, log_file=self._settings.observability.log_file)
             raise
 
     # ------------------------------------------------------------------

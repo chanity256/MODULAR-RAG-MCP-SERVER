@@ -133,6 +133,7 @@ class DenseRetriever:
                     "filter_keys": sorted(filters) if filters else [],
                     "hits": len(results),
                     "elapsed_ms": elapsed_ms,
+                    "preview": _preview_hits(results),
                 },
             )
         self._logger.info(
@@ -156,3 +157,11 @@ class DenseRetriever:
             raise ValueError(f"top_k must be a positive integer, got {top_k!r}")
         if filters is not None and not isinstance(filters, dict):
             raise TypeError(f"filters must be a dict or None, got {type(filters).__name__}")
+
+
+def _preview_hits(results: list[RetrievalResult], limit: int = 8) -> list[dict[str, Any]]:
+    """Dashboard Query 追踪页用的轻量预览（不改变既有计数契约）。"""
+    return [
+        {"chunk_id": item.chunk_id, "score": float(item.score)}
+        for item in results[:limit]
+    ]

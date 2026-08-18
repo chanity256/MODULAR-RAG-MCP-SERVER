@@ -83,6 +83,15 @@ class _FakeStore(BaseVectorStore):
                 out.append({"id": rid, "text": record[0], "metadata": dict(record[1])})
         return out
 
+    def delete_by_metadata(self, filters, *, trace=None, **kwargs):
+        return 0
+
+    def get_by_metadata(self, filters=None, *, trace=None, **kwargs):
+        return []
+
+    def get_collection_stats(self, *, trace=None, **kwargs):
+        return {"name": "fake", "chunk_count": 0, "document_count": 0, "collections": []}
+
 
 def _indexer(tmp_path: Path, docs: dict[str, str], k1: float = 1.5, b: float = 0.75) -> BM25Indexer:
     """构建含指定 chunk 文本的真 BM25 索引（default_tokenize 分词）。"""

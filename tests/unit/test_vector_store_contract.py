@@ -99,6 +99,30 @@ class _FakeVectorStore(BaseVectorStore):
                 out.append({"id": rec.id, "text": rec.text, "metadata": dict(rec.metadata)})
         return out
 
+    def delete_by_metadata(self, filters, *, trace=None, **kwargs):
+        if not isinstance(filters, dict) or not filters:
+            raise ValueError("filters must be a non-empty dict (refuse to wipe all)")
+        deleted = 0
+        for rid, rec in list(self._store.items()):
+            if all(rec.metadata.get(k) == v for k, v in filters.items()):
+                del self._store[rid]
+                deleted += 1
+        return deleted
+
+    def get_by_metadata(self, filters=None, *, trace=None, **kwargs):
+        records = []
+        for rec in self._store.values():
+            if filters and not all(rec.metadata.get(k) == v for k, v in filters.items()):
+                continue
+            records.append({"id": rec.id, "text": rec.text, "metadata": dict(rec.metadata)})
+        records.sort(key=lambda r: r["id"])
+        return records
+
+    def get_collection_stats(self, *, trace=None, **kwargs):
+        records = self.get_by_metadata()
+        sources = {r["metadata"].get("source_path") for r in records if r["metadata"].get("source_path")}
+        return {"name": "fake", "chunk_count": len(records), "document_count": len(sources), "collections": []}
+
 
 def _make_fake():
     def ctor(vs_config, **kwargs):
@@ -244,3 +268,49 @@ def test_query_empty_store_returns_empty_list(tmp_path, clean_registry):
     clean_registry.register("chroma")(_make_fake())
     vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
     assert vs.query([1.0, 0.0], top_k=5) == []
+
+
+def test_delete_by_metadata_removes_matching_records(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    vs.upsert([
+        VectorRecord(id="c1", vector=[1.0, 0.0], text="a", metadata={"source_path": "a.pdf", "collection": "docs"}),
+        VectorRecord(id="c2", vector=[1.0, 0.0], text="b", metadata={"source_path": "b.pdf", "collection": "docs"}),
+        VectorRecord(id="c3", vector=[1.0, 0.0], text="c", metadata={"source_path": "a.pdf", "collection": "other"}),
+    ])
+    deleted = vs.delete_by_metadata({"source_path": "a.pdf", "collection": "docs"})
+    assert deleted == 1
+    remaining = vs.get_by_metadata()
+    assert {r["id"] for r in remaining} == {"c2", "c3"}
+
+
+def test_delete_by_metadata_rejects_empty_filters(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    with pytest.raises(ValueError):
+        vs.delete_by_metadata({})
+
+
+def test_get_by_metadata_filters_and_sorts(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    vs.upsert([
+        VectorRecord(id="c2", vector=[1.0, 0.0], text="b", metadata={"collection": "docs"}),
+        VectorRecord(id="c1", vector=[1.0, 0.0], text="a", metadata={"collection": "docs"}),
+        VectorRecord(id="c3", vector=[1.0, 0.0], text="c", metadata={"collection": "other"}),
+    ])
+    records = vs.get_by_metadata({"collection": "docs"})
+    assert [r["id"] for r in records] == ["c1", "c2"]
+
+
+def test_get_collection_stats_counts_chunks_and_documents(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    vs.upsert([
+        VectorRecord(id="c1", vector=[1.0, 0.0], text="a", metadata={"source_path": "a.pdf"}),
+        VectorRecord(id="c2", vector=[1.0, 0.0], text="b", metadata={"source_path": "a.pdf"}),
+        VectorRecord(id="c3", vector=[1.0, 0.0], text="c", metadata={"source_path": "b.pdf"}),
+    ])
+    stats = vs.get_collection_stats()
+    assert stats["chunk_count"] == 3
+    assert stats["document_count"] == 2

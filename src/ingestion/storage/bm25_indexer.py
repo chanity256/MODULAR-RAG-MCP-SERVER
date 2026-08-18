@@ -454,3 +454,27 @@ class BM25Indexer:
                 scores[posting.chunk_id] = scores.get(posting.chunk_id, 0.0) + q * contribution
         ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
         return [{"chunk_id": chunk_id, "score": score} for chunk_id, score in ranked[:top_k]]
+
+    def remove_document(self, source: str) -> int:
+        """移除指定文档的倒排条目（阶段 G2：DocumentManager）。
+
+        ``source`` 按 chunk_id 前缀匹配：C4 确定性 ID 为
+        ``{doc_id}_{index:04d}_{hash8}``，而 ``doc_id`` 即文档 SHA256。
+        同时兼容直接传入单个 ``chunk_id``。
+
+        Returns:
+            实际移除的 chunk 数。不存在时返回 0（无副作用）。
+        """
+        if not isinstance(source, str) or not source:
+            raise ValueError(f"source must be a non-empty string, got {source!r}")
+        to_remove = [
+            chunk_id
+            for chunk_id in list(self._docs)
+            if chunk_id == source or chunk_id.startswith(f"{source}_")
+        ]
+        for chunk_id in to_remove:
+            self._remove_doc(self._docs[chunk_id])
+        if to_remove:
+            self._recompute_idf()
+            self._logger.info("bm25 removed %d chunks for source=%s", len(to_remove), source)
+        return len(to_remove)

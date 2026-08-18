@@ -138,6 +138,10 @@ class SparseRetriever:
                     "merged": len(results),
                     "skipped": len(skipped),
                     "elapsed_ms": elapsed_ms,
+                    "preview": [
+                        {"chunk_id": item.chunk_id, "score": float(item.score)}
+                        for item in results[:8]
+                    ],
                 },
             )
         self._logger.info(

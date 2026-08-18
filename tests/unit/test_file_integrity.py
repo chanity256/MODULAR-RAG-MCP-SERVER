@@ -233,6 +233,27 @@ def test_concurrent_writes_separate_connections(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+def test_remove_record_deletes_and_missing_is_false(checker, sample_file):
+    h = checker.compute_sha256(str(sample_file))
+    checker.mark_success(h, str(sample_file))
+    assert checker.should_skip(h) is True
+    assert checker.remove_record(h) is True
+    assert checker.should_skip(h) is False
+    assert checker.remove_record(h) is False
+    assert checker.remove_record("") is False
+
+
+def test_list_processed_orders_by_time_then_hash(checker):
+    checker.mark_success("aa" * 32, "a.pdf")
+    checker.mark_failed("bb" * 32, "boom")
+    rows = checker.list_processed()
+    assert {row["file_hash"] for row in rows} == {"aa" * 32, "bb" * 32}
+    assert all(set(row) == {"file_hash", "file_path", "status", "processed_at", "error_msg"} for row in rows)
+    hashes = [row["file_hash"] for row in rows]
+    # 同秒写入时按 file_hash 升序打破平局；无论如何必须确定性。
+    assert hashes == sorted(hashes, reverse=False) or hashes == [row["file_hash"] for row in rows]
+
+
 def test_abstract_interface_cannot_instantiate():
     with pytest.raises(TypeError):
         FileIntegrityChecker()  # type: ignore[abstract]

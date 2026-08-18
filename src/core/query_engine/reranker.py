@@ -134,7 +134,15 @@ class Reranker:
                 )
             )
         elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
-        self._record(trace, len(candidates_in), len(out), fallback=self.last_fallback, elapsed_ms=elapsed_ms)
+        self._record(
+            trace,
+            len(candidates_in),
+            len(out),
+            fallback=self.last_fallback,
+            elapsed_ms=elapsed_ms,
+            before=candidates_in,
+            after=out,
+        )
         if self.last_fallback:
             self._logger.warning(
                 "rerank backend %s fell back internally: returning backend order", self._backend_name
@@ -162,7 +170,14 @@ class Reranker:
         self.last_error = f"{type(exc).__name__}: {exc}"
         elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
         self._record(
-            trace, len(results), len(results), fallback=True, error=self.last_error, elapsed_ms=elapsed_ms
+            trace,
+            len(results),
+            len(results),
+            fallback=True,
+            error=self.last_error,
+            elapsed_ms=elapsed_ms,
+            before=results,
+            after=results,
         )
         self._logger.warning(
             "rerank backend %s failed, falling back to fusion ranking: %s",
@@ -179,6 +194,8 @@ class Reranker:
         fallback: bool = False,
         error: str | None = None,
         elapsed_ms: float = 0.0,
+        before: Sequence[RetrievalResult] | None = None,
+        after: Sequence[RetrievalResult] | None = None,
     ) -> None:
         if trace is None:
             return
@@ -191,4 +208,14 @@ class Reranker:
         }
         if error is not None:
             details["error"] = error
+        if before is not None:
+            details["before"] = [
+                {"chunk_id": item.chunk_id, "score": float(item.score)}
+                for item in list(before)[:8]
+            ]
+        if after is not None:
+            details["after"] = [
+                {"chunk_id": item.chunk_id, "score": float(item.score)}
+                for item in list(after)[:8]
+            ]
         trace.record_stage("rerank", method="reranker", details=details)

@@ -330,3 +330,52 @@ def test_get_by_ids_validates_input(store):
         store.get_by_ids("not-a-list")  # type: ignore[arg-type]
     with pytest.raises(ValueError):
         store.get_by_ids(["ok", ""])
+
+
+# ---------------------------------------------------------------------------
+# 阶段 G2：get_by_metadata / delete_by_metadata / collection stats
+# ---------------------------------------------------------------------------
+
+
+def test_get_by_metadata_filters_and_sorts(store):
+    store.upsert([
+        VectorRecord(id="g2_c2", vector=[1.0, 0.0], text="b", metadata={"collection": "docs", "source_path": "b.pdf"}),
+        VectorRecord(id="g2_c1", vector=[1.0, 0.0], text="a", metadata={"collection": "docs", "source_path": "a.pdf"}),
+        VectorRecord(id="g2_c3", vector=[1.0, 0.0], text="c", metadata={"collection": "other", "source_path": "c.pdf"}),
+    ])
+    records = store.get_by_metadata({"collection": "docs"})
+    assert [item["id"] for item in records] == ["g2_c1", "g2_c2"]
+    assert records[0]["text"] == "a"
+
+
+def test_delete_by_metadata_multi_key_and_stats(store):
+    store.upsert([
+        VectorRecord(
+            id="g2_a1",
+            vector=[1.0, 0.0],
+            text="a1",
+            metadata={"source_path": "a.pdf", "collection": "docs"},
+        ),
+        VectorRecord(
+            id="g2_a2",
+            vector=[1.0, 0.0],
+            text="a2",
+            metadata={"source_path": "a.pdf", "collection": "docs"},
+        ),
+        VectorRecord(
+            id="g2_b1",
+            vector=[1.0, 0.0],
+            text="b1",
+            metadata={"source_path": "b.pdf", "collection": "docs"},
+        ),
+    ])
+    deleted = store.delete_by_metadata({"source_path": "a.pdf", "collection": "docs"})
+    assert deleted == 2
+    remaining = store.get_by_metadata()
+    assert [item["id"] for item in remaining] == ["g2_b1"]
+    stats = store.get_collection_stats()
+    assert stats["chunk_count"] == 1
+    assert stats["document_count"] == 1
+    assert stats["collections"][0]["name"] == "docs"
+    with pytest.raises(ValueError):
+        store.delete_by_metadata({})

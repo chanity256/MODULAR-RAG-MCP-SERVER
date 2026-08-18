@@ -80,7 +80,7 @@ class ChromaStore(BaseVectorStore):
             raise ValueError(f"vector must be a list, got {type(vector).__name__}")
         if top_k <= 0:
             return []
-        where = filters if filters else None
+        where = self._where(filters)
         results = self._collection.query(
             query_embeddings=[vector],
             n_results=top_k,
@@ -148,6 +148,108 @@ class ChromaStore(BaseVectorStore):
             if record is not None:
                 out.append(record)
         return out
+
+    def delete_by_metadata(
+        self,
+        filters: dict[str, Any],
+        *,
+        trace: Any | None = None,
+        **kwargs: Any,
+    ) -> int:
+        """按 metadata 等值条件批量删除（G2 DocumentManager）。"""
+        where = self._where(self._require_filters(filters), allow_empty=False)
+        before = self._safe_count()
+        self._collection.delete(where=where)
+        deleted = max(0, before - self._safe_count())
+        return deleted
+
+    def get_by_metadata(
+        self,
+        filters: dict[str, Any] | None = None,
+        *,
+        trace: Any | None = None,
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        """按 metadata 等值条件批量读取（G1/G3 数据浏览）。"""
+        if filters is not None and not isinstance(filters, dict):
+            raise ValueError(f"filters must be a dict or None, got {type(filters).__name__}")
+        where = self._where(filters)
+        kwargs_get: dict[str, Any] = {"include": ["documents", "metadatas"]}
+        if where:
+            kwargs_get["where"] = where
+        results = self._collection.get(**kwargs_get)
+        ids = results.get("ids") or []
+        documents = results.get("documents") or []
+        metadatas = results.get("metadatas") or []
+        records: list[dict[str, Any]] = []
+        for i, rid in enumerate(ids):
+            text = documents[i] if i < len(documents) and documents[i] else ""
+            metadata = metadatas[i] if i < len(metadatas) and metadatas[i] else {}
+            records.append({"id": rid, "text": text, "metadata": dict(metadata)})
+        records.sort(key=lambda rec: rec["id"])
+        return records
+
+    def get_collection_stats(
+        self,
+        *,
+        trace: Any | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """返回当前物理集合统计（G1 系统总览）。"""
+        records = self.get_by_metadata()
+        sources = {
+            rec["metadata"].get("source_path")
+            for rec in records
+            if rec["metadata"].get("source_path")
+        }
+        by_collection: dict[str, dict[str, Any]] = {}
+        for rec in records:
+            name = rec["metadata"].get("collection") or self._collection_name
+            bucket = by_collection.setdefault(
+                name,
+                {"name": name, "chunk_count": 0, "sources": set()},
+            )
+            bucket["chunk_count"] += 1
+            source = rec["metadata"].get("source_path")
+            if source:
+                bucket["sources"].add(source)
+        collections = [
+            {
+                "name": name,
+                "chunk_count": bucket["chunk_count"],
+                "document_count": len(bucket["sources"]),
+            }
+            for name, bucket in sorted(by_collection.items())
+        ]
+        return {
+            "name": self._collection_name,
+            "chunk_count": len(records),
+            "document_count": len(sources),
+            "collections": collections,
+        }
+
+    def _safe_count(self) -> int:
+        try:
+            return int(self._collection.count())
+        except Exception:
+            return 0
+
+    @staticmethod
+    def _require_filters(filters: Any) -> dict[str, Any]:
+        if not isinstance(filters, dict) or not filters:
+            raise ValueError("filters must be a non-empty dict (refuse to wipe all)")
+        return filters
+
+    @staticmethod
+    def _where(filters: dict[str, Any] | None, *, allow_empty: bool = True) -> dict[str, Any] | None:
+        """把等值 dict 转成 Chroma where；多键使用 ``$and``。"""
+        if not filters:
+            if allow_empty:
+                return None
+            raise ValueError("filters must be a non-empty dict (refuse to wipe all)")
+        if len(filters) == 1:
+            return dict(filters)
+        return {"$and": [{key: value} for key, value in filters.items()]}
 
     def _distance_to_score(self, distance: float) -> float:
         """将 Chroma distance 转换为相似度 score（越高越相关）。

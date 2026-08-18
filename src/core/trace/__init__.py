@@ -1,5 +1,6 @@
 """Core Trace 模块。"""
 
+from core.trace.persist import persist_trace
 from core.trace.trace_collector import TraceCollector
 from core.trace.trace_context import (
     TRACE_TYPE_INGESTION,
@@ -12,4 +13,5 @@ __all__ = [
     "TRACE_TYPE_QUERY",
     "TraceCollector",
     "TraceContext",
+    "persist_trace",
 ]

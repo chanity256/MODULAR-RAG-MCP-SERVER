@@ -6,6 +6,13 @@
   ``storage``（C11-C13）。
 """
 
+from ingestion.document_manager import (
+    CollectionStats,
+    DeleteResult,
+    DocumentDetail,
+    DocumentInfo,
+    DocumentManager,
+)
 from ingestion.pipeline import (
     IngestionPipeline,
     IngestionPipelineError,
@@ -14,6 +21,11 @@ from ingestion.pipeline import (
 )
 
 __all__ = [
+    "CollectionStats",
+    "DeleteResult",
+    "DocumentDetail",
+    "DocumentInfo",
+    "DocumentManager",
     "IngestionPipeline",
     "IngestionPipelineError",
     "IngestionResult",
