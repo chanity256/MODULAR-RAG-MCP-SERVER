@@ -144,7 +144,7 @@
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| I1 | E2E：MCP Client 侧调用模拟 | [ ] | | |
+| I1 | E2E：MCP Client 侧调用模拟 | [x] | 2026-08-18 | tests/e2e/test_mcp_client.py：子进程启动真 MCP server（stdio，cwd=临时 workspace 使 load_settings 读 tmp config），client 视角完整走通 initialize→notifications/initialized→tools/list（三 tool 断言）→tools/call query_knowledge_hub（返回 Markdown [1] 引用 + structuredContent.citations[0] chunk_id/source 断言）→tools/call list_collections（集合命中）→shutdown 干净退出（退出码 0、剩余 stdout 空无日志污染）；离线策略：测试预置真 ChromaStore（persist_path 转绝对防误写仓库 data/）+ 真 BM25Indexer（tmp index.json）产物，embedding base_url 指向本机关闭端口 → Dense 路快速失败按 D5 降级 Sparse 路真实检索，rerank=none；另覆盖空 query → -32602；2 e2e 用例，全套件 1016 通过 2 跳过 |
 | I2 | E2E：Dashboard 冒烟测试 | [ ] | | |
 | I3 | 完善 README（运行说明 + MCP + Dashboard） | [ ] | | |
 | I4 | 清理接口一致性（契约测试补齐） | [ ] | | |
