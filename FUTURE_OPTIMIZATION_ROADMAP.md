@@ -170,6 +170,111 @@ P6 双轨验收与 Streamlit 退役
 - 页面不再直接创建核心 Pipeline；
 - 应用服务可在无 Streamlit 环境下独立测试。
 
+#### P1 任务拆解
+
+**P1.1：锁定现有行为基线**
+
+- 先运行 `tests/unit/test_dashboard_services.py`、`tests/unit/test_evaluation_panel.py` 和 `tests/e2e/test_dashboard_smoke.py`；
+- 记录文件上传、逐文件失败降级、进度回调、评估器选择和评估历史展示的现有行为；
+- 本阶段只重构职责边界，不改变用户可见行为、配置项和持久化格式。
+
+验收命令：
+
+```bash
+pytest -q tests/unit/test_dashboard_services.py tests/unit/test_evaluation_panel.py tests/e2e/test_dashboard_smoke.py
+```
+
+**P1.2：提取 IngestionService**
+
+新增 `src/observability/dashboard/services/ingestion_service.py`，集中负责：
+
+- 将上传文件安全地保存到指定目录，保留现有 basename 清理行为；
+- 按 `collection` 和 `force` 参数调用 `IngestionPipeline`；
+- 聚合总文件数、Chunk 数、图片数和失败数；
+- 接收框架无关的进度回调；
+- 支持注入 Pipeline 或 runner，使单元测试不访问真实 Provider 和持久化目录。
+
+新增 `tests/unit/test_ingestion_service.py`，至少覆盖：
+
+- 多文件保存及文件名清理；
+- Pipeline 参数透传；
+- 多文件结果聚合；
+- 单个文件失败不会阻断其他文件；
+- 进度回调透传；
+- 上传目录不存在时自动创建。
+
+**P1.3：简化 Ingestion 页面**
+
+修改 `src/observability/dashboard/pages/ingestion_manager.py`：
+
+- 删除页面内 `_default_run_ingest`；
+- 将文件保存和摄取执行委托给 `IngestionService`；
+- 将 Streamlit UploadedFile 转换为框架无关的文件名与 bytes 后再传入服务；
+- 页面只保留输入读取、Streamlit 进度组件适配和结果展示；
+- 保留当前 `data_service`、runner 和临时目录注入能力，避免破坏 Dashboard 冒烟测试。
+
+修改 `src/observability/dashboard/services/__init__.py`，导出新增服务。若外部代码需要从 `observability.dashboard` 导入，则同步更新 `src/observability/dashboard/__init__.py`。
+
+回归命令：
+
+```bash
+pytest -q tests/unit/test_ingestion_service.py tests/e2e/test_dashboard_smoke.py -k ingestion
+```
+
+**P1.4：提取 EvaluationService**
+
+新增 `src/observability/dashboard/services/evaluation_service.py`，迁移并封装：
+
+- `evaluator_for_backend` 的 custom、ragas、composite 路由；
+- Golden Test Set 相对路径解析；
+- `HybridSearch`、Evaluator 和 `EvalRunner` 的构建；
+- `test_set_path`、`top_k` 和 `filters` 参数校验及透传；
+- `EvalReport` 返回，不包含任何 Streamlit session state 操作。
+
+新增 `tests/unit/test_evaluation_service.py`，覆盖：
+
+- 三种评估后端选择；
+- 未知后端错误；
+- 相对路径和绝对路径解析；
+- Top-K 与 Collection filter 透传；
+- runner 异常继续向调用方传播，不在服务层转换为 UI 文案。
+
+**P1.5：简化 Evaluation 页面**
+
+修改 `src/observability/dashboard/pages/evaluation_panel.py`：
+
+- 删除评估器工厂和默认 EvalRunner 构建逻辑；
+- 通过 `EvaluationService` 执行评估；
+- 保留表单、spinner、错误展示和 session state 历史记录；
+- 将原 `tests/unit/test_evaluation_panel.py` 中的纯业务测试迁移到 `tests/unit/test_evaluation_service.py`；
+- 页面渲染继续由 Dashboard 冒烟测试覆盖。
+
+回归命令：
+
+```bash
+pytest -q tests/unit/test_evaluation_service.py tests/e2e/test_dashboard_smoke.py -k evaluation
+```
+
+**P1.6：P1 全量验收**
+
+- 确认 `streamlit` 只出现在页面层，不出现在新增服务；
+- 确认页面不再直接导入 `IngestionPipeline`、`HybridSearch` 或 `EvalRunner`；
+- 运行 Dashboard 服务、页面冒烟和完整测试；
+- 将 Ingestion 与 Evaluation 两次职责迁移分为独立提交，便于回滚和审查。
+
+验收命令：
+
+```bash
+! rg -n "import streamlit" src/observability/dashboard/services
+! rg -n "IngestionPipeline|HybridSearch|EvalRunner" \
+  src/observability/dashboard/pages
+pytest -q tests/unit/test_dashboard_services.py \
+  tests/unit/test_ingestion_service.py \
+  tests/unit/test_evaluation_service.py \
+  tests/e2e/test_dashboard_smoke.py
+pytest -q
+```
+
 ### P2：新增 FastAPI 只读接口
 
 目标：优先形成可被独立客户端调用的低风险只读接口。
