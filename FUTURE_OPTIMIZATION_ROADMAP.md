@@ -106,19 +106,24 @@ MCP Server 与 Dashboard API 服务于不同调用场景：MCP 面向 Agent/AI H
 | Query 追踪 | Query Traces | 查询筛选、召回详情、Rerank 对比 |
 | 评估面板 | Evaluation | 启动评估、任务状态、指标和历史趋势 |
 
-第一阶段 API 可以围绕现有能力设计：
+候选 API 可以围绕现有能力设计，并按实施包分批交付。
+
+P2 先提供只读接口：
 
 - `GET /api/overview`
 - `GET /api/collections`
 - `GET /api/documents`
 - `GET /api/documents/{document_id}`
-- `DELETE /api/documents/{document_id}`
 - `GET /api/images/{image_id}`
+- `GET /api/traces`
+- `GET /api/traces/{trace_id}`
+
+P4 再提供写操作和任务接口：
+
+- `DELETE /api/documents/{document_id}`
 - `POST /api/ingestions`
 - `GET /api/tasks/{task_id}`
 - `GET /api/tasks/{task_id}/events`
-- `GET /api/traces`
-- `GET /api/traces/{trace_id}`
 - `POST /api/evaluations`
 - `GET /api/evaluations/history`
 
@@ -126,7 +131,23 @@ MCP Server 与 Dashboard API 服务于不同调用场景：MCP 面向 Agent/AI H
 
 ## 5. 推荐迁移阶段
 
-### 阶段 1：稳定应用服务边界
+为避免同时重写 UI、API 和长任务机制，迁移工作拆分为六个可独立验收的实施包。依赖顺序如下：
+
+```text
+P1 服务边界整理
+        ↓
+P2 FastAPI 只读接口
+        ↓
+P3 Vue 基础框架与只读页面
+        ↓
+P4 写接口与后台任务
+        ↓
+P5 完整页面迁移
+        ↓
+P6 双轨验收与 Streamlit 退役
+```
+
+### P1：稳定应用服务边界
 
 目标：确保 Streamlit 页面与未来 FastAPI 路由可以复用同一套业务能力。
 
@@ -135,72 +156,122 @@ MCP Server 与 Dashboard API 服务于不同调用场景：MCP 面向 Agent/AI H
 - 为应用服务补充输入、输出和异常契约；
 - 保持 Streamlit 行为不变。
 
+重点范围：
+
+- `src/observability/dashboard/pages/ingestion_manager.py`；
+- `src/observability/dashboard/pages/evaluation_panel.py`；
+- `src/observability/dashboard/services/`；
+- `tests/unit/` 中对应的服务测试；
+- `tests/e2e/test_dashboard_smoke.py`。
+
 验收标准：
 
 - 六个 Streamlit 页面继续通过现有冒烟测试；
 - 页面不再直接创建核心 Pipeline；
 - 应用服务可在无 Streamlit 环境下独立测试。
 
-### 阶段 2：新增 FastAPI API
+### P2：新增 FastAPI 只读接口
 
-目标：形成可被独立客户端调用的后端接口。
+目标：优先形成可被独立客户端调用的低风险只读接口。
 
 - 增加 API 入口和版本前缀；
 - 使用 Pydantic 定义请求与响应；
 - 提供统一错误格式；
-- 实现文档、Trace、配置等只读接口；
-- 再实现上传、删除、摄取、评估等写接口；
+- 实现健康检查、配置摘要、文档、Collection、图片和 Trace 接口；
 - 生成并校验 OpenAPI 文档。
+
+建议新增：
+
+- `src/api/app.py`：FastAPI 应用入口；
+- `src/api/routes/`：按资源划分路由；
+- `src/api/schemas/`：Pydantic 请求与响应模型；
+- `src/api/errors.py`：统一异常映射；
+- `tests/integration/api/`：HTTP 接口集成测试。
 
 验收标准：
 
-- API 集成测试覆盖主要成功和失败路径；
+- API 集成测试覆盖正常、空数据、非法参数和资源不存在；
 - API 不直接依赖 Streamlit；
 - MCP Server 的 stdio 行为和测试保持不变。
 
-### 阶段 3：搭建 Vue 3 Dashboard
+### P3：搭建 Vue 3 Dashboard 与只读页面
 
 目标：先完成只读页面，验证技术栈和接口设计。
 
-建议迁移顺序：
-
-1. 系统总览；
-2. Ingestion Trace；
-3. Query Trace；
-4. 数据浏览器；
-5. Ingestion 管理；
-6. 评估面板。
-
-前三个页面以读取和可视化为主，风险较低；后三个页面涉及文件上传、写操作和长任务，应在 API 契约稳定后迁移。
+- 建立独立 `frontend/` 工程；
+- 配置 Vue 3、TypeScript、Vite、Vue Router 和 Pinia；
+- 封装 API Client 和统一错误处理；
+- 建立通用布局、导航、加载、空数据和错误状态组件；
+- 依次迁移系统总览、Ingestion Trace 和 Query Trace。
 
 验收标准：
 
-- 页面具备加载、空数据、错误和重试状态；
+- 三个页面的数据含义与 Streamlit 一致；
 - 关键筛选条件可通过 URL 或前端状态恢复；
-- 图表与现有 Trace 数据含义一致；
-- 前端单元测试覆盖关键组件和数据转换。
+- 图表正确表达现有 Trace 数据；
+- 前端构建、类型检查和单元测试通过。
 
-### 阶段 4：长任务与实时进度
+### P4：写接口与后台任务
 
-目标：避免长时间操作绑定单个 HTTP 请求。
+目标：支持文件、摄取和评估等写操作，并避免长时间任务绑定单个 HTTP 请求。
 
-- Ingestion 和 Evaluation 改为任务提交模式；
-- API 返回 `task_id`；
-- 后端持久化任务状态；
-- 前端通过 SSE 获取阶段、进度和错误；
-- 页面刷新后可以恢复任务状态。
+- 增加文件上传和文档删除接口；
+- 增加 Ingestion 与 Evaluation 任务提交接口；
+- API 创建任务后返回 `task_id`；
+- 使用 `pending → running → succeeded / failed` 状态模型；
+- 持久化任务状态，使页面刷新后可以恢复；
+- 通过 SSE 推送任务阶段、进度、结果和错误；
+- 对写操作增加参数校验和冲突处理。
 
-初期可以采用进程内任务队列，只有在确实需要多实例部署时再引入 Redis、Celery、RQ 等外部组件。
+验收标准：
 
-### 阶段 5：双轨验收与 Streamlit 退役
+- 上传、删除、摄取和评估接口具备集成测试；
+- 请求断开不会导致任务状态丢失；
+- 同一个 `task_id` 可以查询最终结果；
+- SSE 中断后可以通过任务查询接口恢复状态。
+
+初期可以采用进程内任务执行器和轻量持久化，只有在确实需要多实例部署时再引入 Redis、Celery、RQ 等外部组件。
+
+### P5：完成剩余页面迁移
+
+目标：在写接口和任务模型稳定后覆盖全部 Streamlit Dashboard 能力。
+
+建议迁移顺序：
+
+1. 数据浏览器；
+2. Ingestion 管理；
+3. 评估面板。
+
+- 数据浏览器支持 Collection 筛选、文档详情、Chunk 和图片预览；
+- Ingestion 管理支持上传、删除、任务进度和结果展示；
+- 评估面板支持参数选择、运行状态、指标明细和历史趋势；
+- 使用 Playwright 覆盖关键用户流程。
+
+验收标准：
+
+- Vue Dashboard 覆盖全部六个现有页面；
+- 上传、删除、摄取和评估主流程 E2E 测试通过；
+- 所有页面具备加载、空数据、错误和重试状态；
+- 写操作具有明确的确认、成功和失败反馈。
+
+### P6：双轨验收与 Streamlit 退役
 
 目标：在确认 Vue Dashboard 覆盖现有能力后再移除旧 UI。
 
 - 一段时间内同时保留 Streamlit 和 Vue；
 - 对比六个页面的数据和操作结果；
+- 核对 API 与 MCP 两条调用链互不影响；
 - 为 Vue 主流程增加 E2E 测试；
 - 更新启动脚本、README 和部署说明；
 - 明确无用户依赖旧界面后再删除 Streamlit 页面和依赖。
+
+退役门槛：
+
+- 六个页面达到功能等价；
+- Python、API 和前端测试全部通过；
+- 本地启动和部署流程已有替代方案；
+- Streamlit 不再承担独有的业务逻辑；
+- 删除 Streamlit 后不影响 MCP stdio 服务。
 
 不建议在 FastAPI 与 Vue 页面尚未达到功能等价前直接删除 Streamlit。
 
