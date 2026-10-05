@@ -61,84 +61,9 @@ def _load_cli():
 
 cli = _load_cli()
 
-# ---------------------------------------------------------------------------
-# 极简 PDF 构造器（与 tests/unit/test_loader_pdf_contract.py 同法：正确计算
-# xref 偏移的最小合法 PDF，pypdf 可解析；仓库无预置 PDF fixture）
-# ---------------------------------------------------------------------------
-
-_FONT = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
-_IMAGE_PIXELS = b"\xff\x00\x00\x00\xff\x00\x00\x00\xff\xff\xff\xff"
-
-
-def _build_pdf(objects: list[bytes]) -> bytes:
-    out = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
-    offsets: list[int] = []
-    for i, body in enumerate(objects, start=1):
-        offsets.append(len(out))
-        out += f"{i} 0 obj\n".encode("latin-1") + body + b"\nendobj\n"
-    xref_pos = len(out)
-    out += f"xref\n0 {len(objects) + 1}\n".encode("latin-1")
-    out += b"0000000000 65535 f \n"
-    for off in offsets:
-        out += f"{off:010d} 00000 n \n".encode("latin-1")
-    out += (
-        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
-        f"startxref\n{xref_pos}\n%%EOF"
-    ).encode("latin-1")
-    return bytes(out)
-
-
-def _content_stream(text: str) -> bytes:
-    payload = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode("latin-1")
-    return b"<< /Length %d >>\nstream\n" % len(payload) + payload + b"\nendstream"
-
-
-def _page(parent: int, contents: int, resources: bytes) -> bytes:
-    return (
-        f"<< /Type /Page /Parent {parent} 0 R /MediaBox [0 0 612 792] "
-        f"/Contents {contents} 0 R /Resources {resources.decode('latin-1')} >>"
-    ).encode("latin-1")
-
-
-def _image_xobject() -> bytes:
-    return (
-        b"<< /Type /XObject /Subtype /Image /Width 2 /Height 2 "
-        b"/ColorSpace /DeviceRGB /BitsPerComponent 8 /Length 12 >>\n"
-        b"stream\n" + _IMAGE_PIXELS + b"\nendstream"
-    )
-
-
-def _write_simple_pdf(path: Path) -> Path:
-    path.write_bytes(
-        _build_pdf(
-            [
-                b"<< /Type /Catalog /Pages 2 0 R >>",
-                b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-                _page(2, 4, b"<< /Font << /F1 5 0 R >> >>"),
-                _content_stream("Hello ingestion e2e simple document"),
-                _FONT,
-            ]
-        )
-    )
-    return path
-
-
-def _write_pdf_with_images(path: Path) -> Path:
-    path.write_bytes(
-        _build_pdf(
-            [
-                b"<< /Type /Catalog /Pages 2 0 R >>",
-                b"<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>",
-                _page(2, 4, b"<< /Font << /F1 5 0 R >> /XObject << /Im0 7 0 R >> >>"),
-                _content_stream("First page about system architecture overview"),
-                _FONT,
-                _page(2, 8, b"<< /Font << /F1 5 0 R >> >>"),
-                _image_xobject(),
-                _content_stream("Second page conclusion with embedded figure"),
-            ]
-        )
-    )
-    return path
+# 极简 PDF 构造器已抽为公共 helper（G1 收口）：tests/fixtures/pdf_minimal.py
+from tests.fixtures.pdf_minimal import write_pdf_with_images as _write_pdf_with_images
+from tests.fixtures.pdf_minimal import write_simple_pdf as _write_simple_pdf
 
 
 # ---------------------------------------------------------------------------
