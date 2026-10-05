@@ -213,6 +213,34 @@ class IngestionConfig:
 
 
 @dataclass
+class AgenticSearchConfig:
+    """Agentic 检索（Sirchmunk HTTP sidecar）配置（可选节，S1.1）。
+
+    默认 ``enabled=False``：零加载、``tools/list`` 不出现 agentic 工具，
+    保证向后兼容。``base_url`` 指向独立进程 ``sirchmunk serve``（绑定
+    127.0.0.1 + Bearer Token）；主 venv 永不 import sirchmunk
+    （SIRCHMUNK_INTEGRATION_SPEC 第 3/4 章）。
+    """
+
+    enabled: bool = False
+    backend: str = "sirchmunk_http"
+    base_url: str = "http://127.0.0.1:8584"
+    api_token: str | None = None
+    mode: str = "FAST"  # FAST | DEEP（DEEP 另受 allow_deep 门控）
+    allow_deep: bool = False
+    # httpx 总超时（秒）；须低于 MCP 客户端的工具超时。
+    timeout_s: float = 30.0
+    top_k_files: int = 5
+    max_loops: int = 6
+    max_token_budget: int = 32000
+    # PathGuard 白名单根目录（同时是证据过滤边界；enabled 时必须非空）。
+    allowed_roots: list[str] = field(default_factory=list)
+    # 白名单内的强制排除子串（fail-closed，宁可误拒）。
+    denied_substrings: list[str] = field(default_factory=lambda: [".env", ".git", "data/db"])
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class Settings:
     """全局配置聚合，供各工厂/模块读取。"""
 
@@ -227,6 +255,7 @@ class Settings:
     observability: ObservabilityConfig
     dashboard: DashboardConfig
     ingestion: IngestionConfig = field(default_factory=IngestionConfig)
+    agentic_search: AgenticSearchConfig = field(default_factory=AgenticSearchConfig)
     # 原始配置（便于后续模块读取未显式建模的字段）
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
@@ -460,6 +489,76 @@ def _build_ingestion(sec: dict[str, Any]) -> IngestionConfig:
     )
 
 
+def _build_agentic_search(sec: dict[str, Any]) -> AgenticSearchConfig:
+    """agentic_search 为可选节，缺失时由调用方传空 dict 走默认值。"""
+    enabled = bool(_opt(sec, "enabled", False))
+    backend = _opt(sec, "backend", "sirchmunk_http")
+    if not isinstance(backend, str) or not backend.strip():
+        raise ConfigError("config field 'agentic_search.backend' must be a non-empty string")
+    base_url = _opt(sec, "base_url", "http://127.0.0.1:8584")
+    if not isinstance(base_url, str) or not base_url.startswith(("http://", "https://")):
+        raise ConfigError(
+            "config field 'agentic_search.base_url' must be an http(s) URL, got %r" % (base_url,)
+        )
+    mode = _opt(sec, "mode", "FAST")
+    if not isinstance(mode, str) or mode.upper() not in {"FAST", "DEEP"}:
+        raise ConfigError(
+            f"config field 'agentic_search.mode' must be FAST or DEEP, got {mode!r}"
+        )
+    timeout_s = _opt(sec, "timeout_s", 30.0)
+    if isinstance(timeout_s, bool) or not isinstance(timeout_s, (int, float)) or timeout_s <= 0:
+        raise ConfigError("config field 'agentic_search.timeout_s' must be a positive number")
+    allowed_roots_raw = _opt(sec, "allowed_roots", [])
+    if not isinstance(allowed_roots_raw, list) or any(
+        not isinstance(r, str) or not r.strip() for r in allowed_roots_raw
+    ):
+        raise ConfigError(
+            "config field 'agentic_search.allowed_roots' must be a list of non-empty strings"
+        )
+    denied_raw = _opt(sec, "denied_substrings", [".env", ".git", "data/db"])
+    if not isinstance(denied_raw, list) or any(not isinstance(d, str) for d in denied_raw):
+        raise ConfigError(
+            "config field 'agentic_search.denied_substrings' must be a list of strings"
+        )
+
+    def _positive_int(key: str, default: int) -> int:
+        value = _opt(sec, key, default)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ConfigError(f"config field 'agentic_search.{key}' must be a positive integer")
+        return value
+
+    top_k_files = _positive_int("top_k_files", 5)
+    max_loops = _positive_int("max_loops", 6)
+    max_token_budget = _positive_int("max_token_budget", 32000)
+
+    # 跨字段要求放最后：先保证各字段自身格式合法，再校验组合约束。
+    if enabled and not allowed_roots_raw:
+        raise ConfigError(
+            "config field 'agentic_search.allowed_roots' must be non-empty when enabled=true"
+        )
+
+    known = {
+        "enabled", "backend", "base_url", "api_token", "mode", "allow_deep",
+        "timeout_s", "top_k_files", "max_loops", "max_token_budget",
+        "allowed_roots", "denied_substrings",
+    }
+    return AgenticSearchConfig(
+        enabled=enabled,
+        backend=backend,
+        base_url=base_url,
+        api_token=_opt(sec, "api_token"),
+        mode=mode.upper(),
+        allow_deep=bool(_opt(sec, "allow_deep", False)),
+        timeout_s=float(timeout_s),
+        top_k_files=top_k_files,
+        max_loops=max_loops,
+        max_token_budget=max_token_budget,
+        allowed_roots=list(allowed_roots_raw),
+        denied_substrings=list(denied_raw),
+        extra=_extra(sec, known),
+    )
+
+
 def validate_settings(settings: Settings) -> None:
     """集中化的必填字段检查。
 
@@ -524,6 +623,7 @@ def load_settings(path: str | os.PathLike[str] = "config/settings.yaml") -> Sett
     obs_sec = data.get("observability") or {}
     dashboard_sec = data.get("dashboard") or {}
     ingestion_sec = data.get("ingestion") or {}
+    agentic_sec = data.get("agentic_search") or {}
     if not isinstance(splitter_sec, dict):
         raise ConfigError("config section 'splitter' must be a mapping")
     if not isinstance(obs_sec, dict):
@@ -532,10 +632,13 @@ def load_settings(path: str | os.PathLike[str] = "config/settings.yaml") -> Sett
         raise ConfigError("config section 'dashboard' must be a mapping")
     if not isinstance(ingestion_sec, dict):
         raise ConfigError("config section 'ingestion' must be a mapping")
+    if not isinstance(agentic_sec, dict):
+        raise ConfigError("config section 'agentic_search' must be a mapping")
     splitter = _build_splitter(splitter_sec)
     observability = _build_observability(obs_sec)
     dashboard = _build_dashboard(dashboard_sec)
     ingestion = _build_ingestion(ingestion_sec)
+    agentic_search = _build_agentic_search(agentic_sec)
 
     settings = Settings(
         llm=llm,
@@ -549,6 +652,7 @@ def load_settings(path: str | os.PathLike[str] = "config/settings.yaml") -> Sett
         observability=observability,
         dashboard=dashboard,
         ingestion=ingestion,
+        agentic_search=agentic_search,
         raw=data,
     )
     validate_settings(settings)

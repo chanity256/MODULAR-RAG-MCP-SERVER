@@ -49,6 +49,26 @@ retrieval:
   top_k_final: 10
   rrf_k: 60                  # RRF 平滑常数（D4：k 参数，越大越平滑）
 
+# Agentic 检索（Sirchmunk HTTP sidecar，可选；enabled=false 时零加载、
+# tools/list 不出现 agentic_search 工具）。详见 SIRCHMUNK_INTEGRATION_SPEC.md。
+agentic_search:
+  enabled: false                 # true 需先启动 sidecar（scripts/sirchmunk/）
+  backend: sirchmunk_http        # 唯一生产后端（fake 仅供测试注入）
+  base_url: http://127.0.0.1:8584
+  api_token: ${SIRCHMUNK_API_TOKEN}  # 从环境变量解析，不落盘
+  mode: FAST                     # FAST | DEEP（DEEP 另受 allow_deep 门控）
+  allow_deep: false              # DEEP 单次可达数十秒，默认禁止工具选择
+  timeout_s: 30                  # httpx 总超时（须低于 MCP 客户端工具超时）
+  top_k_files: 5
+  max_loops: 6
+  max_token_budget: 32000
+  allowed_roots:                 # PathGuard 白名单（enabled 时必须非空）
+    - ./data/documents
+  denied_substrings:             # 白名单内仍强制排除（fail-closed）
+    - .env
+    - .git
+    - data/db
+
 # 重排配置
 rerank:
   backend: cross_encoder    # none | cross_encoder | llm
