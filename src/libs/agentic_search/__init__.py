@@ -22,6 +22,7 @@ from libs.agentic_search.agentic_search_factory import (
     AgenticSearchFactory,
 )
 from libs.agentic_search.fake_backend import FakeAgenticSearch
+from libs.agentic_search.path_guard import PathGuard, PathGuardError
 
 __all__ = [
     "VALID_MODES",
@@ -36,4 +37,6 @@ __all__ = [
     "AgenticSearchFactory",
     "AgenticSearchBackendRouteError",
     "FakeAgenticSearch",
+    "PathGuard",
+    "PathGuardError",
 ]
