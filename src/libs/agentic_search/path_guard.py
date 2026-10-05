@@ -102,7 +102,10 @@ class PathGuard:
         """返回落在白名单内且不命中排除子串的路径（保序去重）。
 
         与 :meth:`validate_paths` 不同：越权条目**静默剔除**而非报错
-        （调用已发生，过滤即第二层防线）。
+        （调用已发生，过滤即第二层防线）。相对证据路径按 sidecar 进程
+        的 CWD 回显（spec 4.6：paths 缺省解析链含 sidecar CWD），本侧
+        尝试常见解析基准（当前 CWD / 各允许根及其父目录），仅当解析到
+        **存在且落在白名单内**的文件才放行，否则剔除（fail-closed）。
         """
         kept: list[str] = []
         for raw in paths:
@@ -115,13 +118,26 @@ class PathGuard:
                 if raw not in kept:
                     kept.append(raw)
                 continue
-            resolved = Path(raw).expanduser().resolve()
+            resolved = self._resolve_evidence_path(raw)
+            if resolved is None:
+                continue
             if not self._under_any_root(resolved) or self._denied_match(resolved):
                 continue
             normalized = str(resolved)
             if normalized not in kept:
                 kept.append(normalized)
         return kept
+
+    def _resolve_evidence_path(self, raw: str) -> Path | None:
+        """把证据路径解析为绝对路径；解析不到存在文件时返回 None。"""
+        path = Path(raw).expanduser()
+        if path.is_absolute():
+            return path.resolve()
+        for base in [Path.cwd(), *(root for r in self._roots for root in (r, r.parent))]:
+            candidate = (base / path).resolve()
+            if candidate.exists():
+                return candidate
+        return None
 
     # ------------------------------------------------------------------
     # 内部

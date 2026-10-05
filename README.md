@@ -188,7 +188,41 @@ python scripts/query.py --query "部署密钥" --no-rerank   # 跳过精排
 PYTHONPATH=src python -m mcp_server.server
 ```
 
-Server 通过 stdin/stdout 收发 JSON-RPC（MCP 2025-06-18），暴露三个 tools：`query_knowledge_hub`、`list_collections`、`get_document_summary`。
+Server 通过 stdin/stdout 收发 JSON-RPC（MCP 2025-06-18），暴露三个 tools：`query_knowledge_hub`、`list_collections`、`get_document_summary`。开启 `agentic_search.enabled` 后会多出第四个工具 `agentic_search`（见下一节）。
+
+### 5.1 Agentic 检索（sidecar，可选）
+
+`agentic_search` 工具把查询转发给独立进程中的 [sirchmunk](https://github.com/modelscope/sirchmunk)（无索引 Agentic 检索：rg/rga 词法召回 + LLM 迭代探索），与 Dense + BM25 主链路互补，不替换它。sirchmunk 装在独立 venv 里，主项目 venv 永远不 import 它，只通过 HTTP 调用 `POST /api/v1/search`。完整设计与注意事项见 [`SIRCHMUNK_INTEGRATION_SPEC.md`](SIRCHMUNK_INTEGRATION_SPEC.md)。
+
+**启动 sidecar**
+
+```bash
+brew install ripgrep ripgrep-all                     # 必须预装 rg / rga（否则 sirchmunk 会自行从 GitHub 下载）
+bash scripts/sirchmunk/setup_venv.sh                 # 独立 venv + 锁定上游 commit b314e11
+cp scripts/sirchmunk/env.example .env-sirchmunk      # 填入 LLM_API_KEY / SIRCHMUNK_API_TOKEN 等
+bash scripts/sirchmunk/start_sidecar.sh              # 绑定 127.0.0.1:8584 + Bearer 鉴权
+bash scripts/sirchmunk/preflight.sh                  # 健康检查：rg / rga / /api/v1/search/status
+```
+
+sirchmunk 只支持 OpenAI 兼容的 LLM 端点（无原生 Azure）。
+
+**主项目配置**（`config/settings.yaml`）
+
+```yaml
+agentic_search:
+  enabled: true
+  base_url: http://127.0.0.1:8584
+  api_token: ${SIRCHMUNK_API_TOKEN}   # 与 sidecar 使用同一 token
+  mode: FAST                          # DEEP 单次可达数十秒，需同时设置 allow_deep: true
+  allowed_roots: [./data/documents]   # enabled 时必须非空
+  denied_substrings: [.env, .git, data/db]
+```
+
+**工具参数**：`query`（必填）、`mode`（FAST / DEEP）、`paths`（可选，缺省为 `allowed_roots`）、`top_k`。返回带出处的答案与证据片段；证据不含页码（`page` 恒为空）。
+
+**安全边界**：sirchmunk 的 `paths` 参数本身不是安全边界（其 ReAct `file_read` 可读任意绝对路径）。本项目用 PathGuard 做两层防护：调用前校验 `paths`，越出白名单或命中 `denied_substrings` 直接返回 `-32602`；调用后丢弃白名单外的证据。sidecar 只应监听 127.0.0.1，并始终开启 Bearer 鉴权。sidecar 不可达时工具返回 `isError: true` 的友好提示，不影响其他工具。
+
+**旁路对比**：`python scripts/sirchmunk/compare.py --base-url http://127.0.0.1:8584 --token "$SIRCHMUNK_API_TOKEN" --repo-root .` 用 `tests/fixtures/agentic/golden_questions.json` 逐条调用 sidecar，输出命中文件、耗时与 Token 用量表（真实 LLM 调用，产生费用）。
 
 ### 6. 启动 Dashboard
 
@@ -225,6 +259,7 @@ pytest tests/unit -q               # 单元测试
 pytest tests/integration -q        # 集成测试
 pytest tests/e2e -q                # E2E（MCP client 模拟 / Dashboard 冒烟 / Recall 回归）
 RAG_LLM_INTEGRATION=1 pytest tests/integration/test_chunk_refiner_llm.py -v   # 真实 LLM（可选，产生费用）
+RAG_AGENTIC_INTEGRATION=1 pytest tests/e2e/test_agentic_mcp.py -v               # 真实 sirchmunk sidecar 冒烟（需先启动 sidecar）
 ```
 
 ### 9. MCP Client 配置示例
@@ -276,6 +311,7 @@ RAG_LLM_INTEGRATION=1 pytest tests/integration/test_chunk_refiner_llm.py -v   # 
 | `rerank.backend / model / top_m` | 精排后端（none / cross_encoder / llm） |
 | `evaluation.backends / golden_test_set` | 评估后端组合与黄金测试集路径 |
 | `observability.log_file` | JSON Lines trace 日志路径（Dashboard 追踪页数据源） |
+| `agentic_search.*` | 可选 sirchmunk sidecar 检索（默认关闭；`base_url` / `api_token` / `mode` / `allowed_roots`，见 5.1 节） |
 
 ### 常见问题排查
 

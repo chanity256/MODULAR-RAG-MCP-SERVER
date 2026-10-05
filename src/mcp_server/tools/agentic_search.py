@@ -227,15 +227,20 @@ class AgenticSearchTool:
     ) -> dict[str, Any]:
         guard = self._get_path_guard()
         # 调用后第二层防线：剔除越权来源的证据与文件引用（spec 4.4）。
-        # URL 证据（http(s)://）由 PathGuard.filter_evidence_paths 保留。
-        allowed_files = set(guard.filter_evidence_paths(response.source_files))
-        evidence_paths = [e.source_path for e in response.evidences]
-        allowed_evidence_paths = set(guard.filter_evidence_paths(evidence_paths))
+        # 证据路径可能为相对形式（sidecar 按其 CWD 回显，spec 4.6）——
+        # 先归一化为绝对路径再比对，保留路径同时让 citations 可定位。
+        normalized_files = guard.filter_evidence_paths(response.source_files)
+        kept_evidences = []
+        for evidence in response.evidences:
+            normalized = guard.filter_evidence_paths([evidence.source_path])
+            if normalized:
+                evidence.source_path = normalized[0]
+                kept_evidences.append(evidence)
         filtered = type(response)(
             answer=response.answer,
-            evidences=[e for e in response.evidences if e.source_path in allowed_evidence_paths],
+            evidences=kept_evidences,
             mode=response.mode,
-            source_files=[f for f in response.source_files if f in allowed_files],
+            source_files=normalized_files,
             confidence=response.confidence,
             llm_call_count=response.llm_call_count,
             total_llm_tokens=response.total_llm_tokens,
