@@ -29,6 +29,7 @@ class PathGuardError(ValueError):
     """路径白名单校验失败（fail-closed）。"""
 
 
+# Note: 为何在调用方做白名单、为何要调用前+调用后两层 — 见 .agents/notes/implemented/feature/2026-10-05-agentic-search-path-guard.md
 class PathGuard:
     """路径白名单守卫（双层防线，spec 4.4）。
 

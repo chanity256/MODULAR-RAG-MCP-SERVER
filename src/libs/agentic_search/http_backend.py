@@ -38,6 +38,7 @@ from libs.agentic_search.converter import parse_search_context
 __all__ = ["SirchmunkHttpBackend"]
 
 
+# Note: 为何走 HTTP sidecar 而非进程内 import / 官方 MCP / CLI 子进程 — 见 .agents/notes/implemented/architecture/2026-10-05-sirchmunk-http-sidecar.md
 @AgenticSearchFactory.register("sirchmunk_http")
 class SirchmunkHttpBackend(BaseAgenticSearch):
     """通过 HTTP 调用 sirchmunk sidecar 的同步后端。"""

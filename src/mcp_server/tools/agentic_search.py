@@ -90,6 +90,7 @@ TOOL_INPUT_SCHEMA: dict[str, Any] = {
 }
 
 
+# Note: 调用前 -32602 / 调用后静默过滤证据、DEEP 门控、isError 降级 — 见 .agents/notes/implemented/feature/2026-10-05-agentic-search-path-guard.md
 class AgenticSearchTool:
     """agentic_search 的可调用实现（协议无关，直接吃 arguments dict）。"""
 

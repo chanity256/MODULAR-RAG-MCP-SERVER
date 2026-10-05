@@ -58,6 +58,7 @@ _SETTINGS_YAML = dedent(
 )
 
 
+# Note: 为何 stdout 走 pump 线程 + 超时、stderr 写文件、通知不等响应 — 见 .agents/notes/implemented/testing/2026-10-05-e2e-stdio-rpc-hang-guard.md
 _RPC_TIMEOUT_S = 15.0
 
 
