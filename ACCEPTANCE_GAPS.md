@@ -121,6 +121,54 @@
 | G11 | 3.1.1 Loader「多种文档」 | 只有 `PdfLoader` | 先做 Markdown（成本最低，且和 G1/G6 重叠） |
 | G12 | I4 DocumentManager 契约 | `tests/unit/test_document_manager.py` 已有实现测试；I4 备注未单列 DocumentManager contract | 若要严格对齐 I4 原文，补一份跨存储 delete 契约测试 |
 | G13 | 第 7 章展望 | 容器化 / 云端 / 多租户 / Agentic RAG | 保持在未来章节，不要写进当前进度表 |
+| G14 | 3.3.2 Vision LLM（`vision_llm.provider: azure \| dashscope`） | Vision provider 只注册了 `azure`（AzureVisionLLM，与 Azure URL/认证硬耦合） | 新增 OpenAI-compatible Vision provider，接入智谱 GLM 等（详细方案见下） |
+| G15 | 3.1.1 Splitter / C4 图片分发 | `[IMAGE: {id}]` 占位符可能被切分器从中间切断，图片引用静默丢失（详见下） | 切分时对占位符做原子保护 + 纯占位符 chunk 合并 |
+
+### G14. OpenAI-compatible Vision LLM provider（GLM 等）——详细方案
+
+- 状态：`[x]`
+- 背景：G1 收口后，真实数据需要 Vision LLM 生成图片描述，但手头只有智谱 API key（无 Azure key、未装 Ollama）。已实测（2026-10-05）`glm-5.3-flash` 与 `glm-4v-flash` 均支持 OpenAI Vision 消息格式（`image_url` + data URL），经 `https://open.bigmodel.cn/api/paas/v4/chat/completions` 正确识图。
+- 结论：**模型能力可用，但不能塞进 AzureVisionLLM**——后者与 Azure 协议硬耦合：
+  - URL：`{endpoint}/openai/deployments/{deployment}/chat/completions?api-version=...`（GLM 需要 `{base_url}/chat/completions`）
+  - 认证：`api-key: {key}` 请求头（GLM 需要 `Authorization: Bearer {key}`）
+  - 请求体格式完全一致（都是 OpenAI Vision 格式），payload 构建可原样复用
+- 改动清单：
+  1. **新增 `src/libs/llm/openai_vision_llm.py`**（核心，约 40 行）：
+     - `OpenAICompatibleVisionLLM(AzureVisionLLM)`，仅覆盖 `_build_url()`（`base_url + /chat/completions`，复用 VisionLLMConfig 已有的 `base_url` 字段）与 `_build_headers()`（Bearer 认证）
+     - 图片预处理 / `chat_with_image` / 响应解析全部继承，零改动
+     - `@LLMFactory.register_vision("openai")` 注册——注册名用 `openai` 而非 `zai`，任何 OpenAI 兼容视觉端点（智谱 / DashScope 兼容模式 / Ollama OpenAI 路由）都走这一个实现
+  2. **`config/settings.yaml`** 切换 vision 配置（key 走 `${ZAI_API_KEY}` 环境变量引用，不落盘）：
+     ```yaml
+     vision_llm:
+       provider: openai
+       model: glm-5.3-flash
+       base_url: https://open.bigmodel.cn/api/paas/v4
+       api_key: ${ZAI_API_KEY}
+     ```
+  3. **测试**：`tests/unit/test_openai_vision_llm.py`，仿照 `test_azure_vision_llm.py` 的 mock HTTP 手法，覆盖 URL 拼接、Bearer 头、payload 格式、错误分支（约 8-10 用例）
+  4. **（可选）开启 captioner**：`ingestion.image_captioner.enabled: true` 后重新摄取，图片描述进正文；摄取时每张图一次 LLM 调用（Flash 价位，成本可控）
+- 验收：
+  - `pytest -q tests/unit/test_openai_vision_llm.py` 全绿（离线 mock）
+  - 全量回归不回退
+  - 开启 captioner 后真实重新摄取：含图 chunk 的正文出现图片描述、`has_unprocessed_images` 标记消失
+- 关联：G10（其他后端）同类思路；与「占位符被切碎」问题正交——那是 splitter 健壮性问题（占位符原子保护，见 G15），另行立项
+
+### G15. 图片占位符被切分器切碎（图片引用静默丢失）——详细方案
+
+- 状态：`[ ]`
+- 背景：G1 收口时发现。`[IMAGE: {image_id}]` 占位符是一段 28+ 字符的连续文本，当 chunk_size 较小（如 e2e 测试的 60）时，`RecursiveCharacterTextSplitter` 可能从占位符中间切断。C4 DocumentChunker 靠正则扫描**完整**占位符分发 `image_refs`，占位符残缺则扫描不到，该 chunk 的图片元数据静默消失，E6 多模态返回链路断裂。
+- 次生问题：
+  - 残缺占位符文本（如 `[IMAGE: c4e62af...`）留在 chunk 正文，对向量检索是噪声；
+  - 极端情况下 chunk 只含占位符、无正文，独立成 chunk 无检索价值。
+  - e2e 测试未暴露此问题，正是因为 chunk_size=60 恰好把占位符切碎、图片元数据从未到达 upsert（测试照常通过）——属于**测试盲区掩盖真实 bug**。
+- 改动清单：
+  1. **`src/libs/splitter/recursive_splitter.py`**：切分前先把占位符提取为占位 token（如不可分字符锚），切分后回填；或等效机制保证占位符完整性不因 chunk_size 而破坏
+  2. **`src/ingestion/chunking/document_chunker.py`**：扫描后发现纯占位符（无正文或正文过短）的 chunk，与相邻 chunk 合并（优先前一个）
+  3. **测试**：
+     - `test_document_chunker.py` 补「小 chunk_size 下占位符不被切断」回归用例
+     - `test_data_ingestion.py` 的 with_images 场景改用不会恰好切碎占位符的断言（当前测试依赖了碎片化这个偶然行为）
+- 验收：任意 chunk_size（含 60）下，含 `[IMAGE: {id}]` 的 Document 切分后，每个完整占位符恰好归属一个 chunk，`image_refs` 与占位符一一对应
+- 关联：G14 落地后 captioner 会把占位符替换为描述文本，可缓解正文污染，但占位符完整性仍是分发 `image_refs` 的前提，两个都做
 
 ---
 
@@ -158,3 +206,4 @@
 | 2026-10-05 | G6 | README 简历示例改为「当前默认支持 PDF 文档解析（Loader 可插拔，可扩展 Markdown / Word）」 |
 | 2026-10-05 | G7 | `sample.md` 改为说明文件：注明非 ingest 输入、PDF 由 e2e 生成器即时构造 |
 | 2026-10-05 | 附注 | 真实 embedding 走智谱 OpenAI-compatible 端点（`embedding-3`，`base_url=https://open.bigmodel.cn/api/paas/v4`，key 经 `${ZAI_API_KEY}` 环境变量引用）；config/settings.yaml 已切换，drift guard 测试同步更新。全量回归 1044 passed / 2 skipped（+2 为 chroma 修复回归） |
+| 2026-10-05 | G14 | 新增 `OpenAICompatibleVisionLLM`（继承 AzureVisionLLM，仅覆盖 `_build_url`/`_build_headers`，注册名 `openai`）；`VisionLLMConfig` 补 `base_url` 字段；settings.yaml vision 切换到智谱 `glm-5.3-flash`（key 走 `${ZAI_API_KEY}`）；新增 14 个 mock HTTP 单测。真实图片验收：用真实照片（虎斑猫）经 `LLMFactory.create_vision_llm` 识图，描述准确（621 tokens）。全量回归 1058 passed / 2 skipped |

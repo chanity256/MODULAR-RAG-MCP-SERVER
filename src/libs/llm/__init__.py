@@ -1,7 +1,7 @@
 """LLM 抽象层包。
 
 导入本包即触发各 provider 的注册（``openai`` / ``azure`` / ``deepseek`` / ``ollama``）。
-Vision LLM 的 ``azure`` provider 同样在导入时注册。
+Vision LLM 的 ``azure`` 与 ``openai``（OpenAI 兼容端点，G14）provider 同样在导入时注册。
 """
 
 from libs.llm.base_llm import BaseLLM, ChatMessage, ChatResponse
@@ -14,11 +14,13 @@ from libs.llm import azure_vision_llm as _azure_vision_llm  # noqa: F401
 from libs.llm import deepseek_llm as _deepseek_llm  # noqa: F401
 from libs.llm import ollama_llm as _ollama_llm  # noqa: F401
 from libs.llm import openai_llm as _openai_llm  # noqa: F401
+from libs.llm import openai_vision_llm as _openai_vision_llm  # noqa: F401
 
 _azure_llm.register_azure_provider()
 _azure_vision_llm.register_azure_vision_provider()
 _deepseek_llm.register_deepseek_provider()
 _ollama_llm.register_ollama_provider()
 _openai_llm.register_openai_provider()
+_openai_vision_llm.register_openai_vision_provider()
 
 __all__ = ["BaseLLM", "BaseVisionLLM", "ChatMessage", "ChatResponse", "LLMFactory"]
