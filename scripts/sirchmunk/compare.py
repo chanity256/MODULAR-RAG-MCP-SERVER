@@ -78,8 +78,9 @@ def run(base_url: str, token: str | None, fixture_path: str, repo_root: str, mod
                         "mode": mode,
                         "response_format": "context",
                         "paths": [str((Path(repo_root) / r).resolve()) for r in DEFAULT_ROOTS],
-                        # 排除 golden 问题集自身等 fixtures：问题/期望来源在语料中会污染召回（泄题）
-                        "exclude": ["tests/fixtures/**"],
+                        # 排除 golden 问题集自身等 fixtures：问题/期望来源在语料中会污染召回（泄题）。
+                        # 字段名必须是 exclude_patterns（上游 SearchRequest），FastAPI 会静默丢弃未知字段。
+                        "exclude_patterns": ["tests/fixtures/**"],
                     },
                     headers=headers,
                 )

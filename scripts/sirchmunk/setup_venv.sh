@@ -27,6 +27,8 @@ echo "== install sirchmunk (pinned) into sidecar venv =="
 "$VENV_DIR/bin/pip" install --upgrade pip
 # kreuzberg 依赖预发布版本（spec 4.8），如解析失败可加 --pre 重试。
 "$VENV_DIR/bin/pip" install -e "$SIRCHMUNK_REPO" || "$VENV_DIR/bin/pip" install --pre -e "$SIRCHMUNK_REPO"
+# 上游未声明 python-multipart，但 FastAPI 文件上传路由在 import 期即要求它，缺失时 sirchmunk serve 启动崩溃。
+"$VENV_DIR/bin/pip" install python-multipart
 
 echo "== verify import =="
 "$VENV_DIR/bin/python" -c "import sirchmunk; print('sirchmunk', sirchmunk.__version__)"

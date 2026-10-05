@@ -122,7 +122,8 @@
 
 ### 3.2 对接契约（POST /api/v1/search）
 
-- 请求（本项目发送）：`{"query": str, "paths": [abs_path, ...], "mode": "FAST"|"DEEP", "response_format": "context", "max_loops": int, "max_token_budget": int, "top_k_files": int, "include"/"exclude": [...]}`。
+- 请求（本项目发送）：`{"query": str, "paths": [abs_path, ...], "mode": "FAST"|"DEEP", "response_format": "context", "max_loops": int, "max_token_budget": int, "top_k_files": int, "include_patterns"/"exclude_patterns": [...]}`。
+  - ⚠️ 过滤字段名必须是 `include_patterns` / `exclude_patterns`（上游 `api/search.py:84-91` `SearchRequest`）；FastAPI 对未知字段**静默丢弃不报错**，写成 `include`/`exclude` 会导致过滤完全不生效。上游将其转为 rg/rga 的 `-g '<glob>'` / `-g '!<glob>'`（`retrieve/text_retriever.py:834-840`），glob 相对检索根匹配。
 - 响应（`response_format="context"` 经 FastAPI `_format_result` 序列化）：`{"success": true, "data": {"type": "context", **context.to_dict()}}`，其中 `data.answer`、`data.cluster.evidences[]`（`file_or_url`/`summary`/`snippets`）、`data.total_llm_tokens`、`data.llm_usages`、`data.telemetry` 为本项目消费的字段。
 - 失败：HTTP 500（`Search failed`）或连接失败 → 映射为 `AgenticSearchBackendError`，由 tool 层转为友好 `isError` 响应。
 - 鉴权：`SIRCHMUNK_API_TOKEN` 设置后上游对 `/api/` 路由强制 Bearer；本项目恒带 `Authorization: Bearer ${SIRCHMUNK_API_TOKEN}`。
@@ -323,10 +324,10 @@ LENS_HARD_TOKEN_BUDGET=true            # 超预算硬失败，防客户端断连
 
 **环境落地（S0.1）**：`brew install ripgrep-all`（rga 0.10.10）→ `setup_venv.sh`（Python 3.12，`sirchmunk 0.2.1+main` 导入验证通过）→ `.env-sirchmunk` 生成（gitignored）→ sidecar 启动成功 → preflight 三连全绿。过程中发现的偏差：
 
-1. 上游未声明 `python-multipart` 依赖，FastAPI 文件上传路由 import 即崩（已手动补装 sidecar venv）；
+1. 上游未声明 `python-multipart` 依赖，FastAPI 文件上传路由 import 即崩（已手动补装 sidecar venv；后续已固化进 `setup_venv.sh`，见下方「S0 遗留问题修复」）；
 2. `preflight.sh` 健康检查原本不带 Bearer，`/api/` 强制鉴权下必然失败（已修复为读 `.env-sirchmunk` 携带 token）；
 3. 无 token 实测返回 **500 而非 401**：上游在 `auth_middleware`（BaseHTTPMiddleware）内抛 `HTTPException` 不被转成 401 响应——鉴权仍然生效（拒绝访问），仅状态码口径与验收标准不符，不改上游源码、记录偏差；
-4. `compare.py` 原以 `data/documents`（空目录）为检索根，与 golden 问题集（期望来源在 `src/` 与根文档）不匹配（已修正为仓库根并排除 `tests/fixtures/**`）。
+4. `compare.py` 原以 `data/documents`（空目录）为检索根，与 golden 问题集（期望来源在 `src/` 与根文档）不匹配（已修正为仓库根并排除 `tests/fixtures/**`；但排除字段名当时写错，第 2 轮实际未排除，见下方「S0 遗留问题修复」）。
 
 **旁路对比（S0.2，6 条 golden 问题，2 轮运行）**：
 
@@ -344,12 +345,28 @@ LENS_HARD_TOKEN_BUDGET=true            # 超预算硬失败，防客户端断连
 **闸门 G0 结论：未通过。**依据：
 - 干净口径命中率 1/6；两轮结果非确定性翻转（Q2 第 1 轮命中、第 2 轮未命中），无可辨稳定增益；
 - FAST 实测延迟 77–256s/条，远超规格预估的 2–5s（全仓首扫 + 真实 LLM 延迟未计入原估计）；
-- Token 成本 6.5k–42k/条（glm-5.3-flash）；Q6 在 `exclude=tests/fixtures/**` 下仍把问题集文件列为首个证据——上游 exclude 语义未完全生效，语料污染无法从调用方根除；
+- Token 成本 6.5k–42k/条（glm-5.3-flash）；Q6 第 2 轮仍把问题集文件列为首个证据——~~上游 exclude 语义未完全生效，语料污染无法从调用方根除~~（**勘误**：根因是 `compare.py` 字段名写错，排除规则从未送达上游，属本项目 bug，已修复，见下方「S0 遗留问题修复」；因此第 2 轮并非真正的干净口径）；
 - 唯一命中的 Q4（format 类）问题主链路经 MarkdownLoader 扩展后本可覆盖，不构成引入重依赖 sidecar 的决定性理由。
 
 **处置**：按 G0 约定**止步于旁路方案**——`agentic_search` MCP 工具（S1 已交付）保持 `enabled: false` 默认关闭，**S2/S3 不启动**；sidecar 环境与脚本保留，供后续以 DEEP 模式、更换语料或校准 exclude 后重测（重测即重开 G0）。
 
-> **进度备注（2026-10-05，S0 收口后更新）**：S0 侧车环境与旁路对比已在真实 sidecar 上完成（见上方执行记录），**闸门 G0 未通过**，S2/S3 维持不启动。S1 离线交付保持已完成状态（1128 passed / 3 skipped）；`agentic_search` 工具保留为可选能力（`enabled: false`），其真实 sidecar 冒烟门控 `RAG_AGENTIC_INTEGRATION` 继续默认跳过。G1 复测因 G0 未通过而无执行意义，一并搁置。
+#### S0 遗留问题修复（2026-10-05）
+
+**修复原则**：全部在本项目调用方/环境脚本侧修复，**不迁移、不修改 sirchmunk 源码**。理由：①问题根因均不在上游代码；②进程内嵌入会重新引入 4.1–4.3 的构造期副作用、stdout 污染与事件循环绑定问题，违背 3.1 的 sidecar 决策与 2.2 的 Out of Scope 约定；③上游依赖重且 0.x 演进快，迁移等于自维护分叉。
+
+| # | 问题 | 根因归属 | 处置 | 验证 |
+|---|------|---------|------|------|
+| F1 | 排除 `tests/fixtures/**` 不生效，Q6 引用问题集文件（泄题） | **本项目 bug**：`scripts/sirchmunk/compare.py` 传 `"exclude"`，上游 `SearchRequest` 字段为 `exclude_patterns`，FastAPI 静默丢弃未知字段 | 改为 `"exclude_patterns": ["tests/fixtures/**"]` | ①直跑 `rg -l -g '!tests/fixtures/**' <仓库根>`，fixtures 文件全部消失（`rga` 同）；②真实 sidecar 单跑 Q6（FAST）：**命中**，首个证据 `src/libs/loader/pdf_loader.py`，sidecar 日志中证据文件仅 `pdf_loader.py`、`DEV_SPEC.md`，无 `tests/fixtures/*`；耗时 473,461 ms，LLM 调用 2 次，Token 38,649 |
+| F2 | sidecar 启动崩溃（缺 `python-multipart`） | 上游未声明依赖 | `setup_venv.sh` 在安装 sirchmunk 后显式 `pip install python-multipart`（不改上游 `pyproject`） | `bash -n` 语法检查通过；现有 venv 已含该包，sidecar 启动 + preflight 三连全绿；未从零重建 venv 实测 |
+| F3 | 无 token 返回 500 而非 401 | 上游 `auth_middleware` 写法 | **不修复，记录偏差**：拒绝访问本身生效；本项目 `http_backend.py` 对任何非 2xx 一律映射为 `AgenticSearchBackendError`，不受状态码口径影响 | — |
+| F4 | FAST 延迟 77–473 s/条 | 模型速度 + 全仓扫描 | 非代码缺陷，属重开 G0 的配置决策（换更快 LLM 端点/缩小检索根） | — |
+| F5 | 结果非确定性、样本仅 6 题 | 测试方法学 | 属重开 G0 的方法学改进（每类 ≥5 题、多轮运行、裸 rg 基准线对照） | — |
+
+**生产链路核查**：`src/libs/agentic_search/http_backend.py:123,125` 已正确使用 `include_patterns` / `exclude_patterns`，`agentic_search` MCP 工具不受 F1 影响。
+
+**对 G0 结论的影响**：F1 修复使第 2 轮「干净口径」失效（当时排除并未生效），G0 的命中率数据需在修复后的口径下重测才有效；但单题复测 1 次不足以重开 G0，且延迟（F4）进一步恶化。**G0 结论维持「未通过」**，`agentic_search` 保持 `enabled: false`，S2/S3 不启动；重开 G0 的前置条件为 F4/F5 的决策与重测预算确认。
+
+> **进度备注（2026-10-05，S0 收口后更新）**：S0 侧车环境与旁路对比已在真实 sidecar 上完成（见上方执行记录），**闸门 G0 未通过**，S2/S3 维持不启动。S1 离线交付保持已完成状态（1128 passed / 3 skipped）；`agentic_search` 工具保留为可选能力（`enabled: false`），其真实 sidecar 冒烟门控 `RAG_AGENTIC_INTEGRATION` 继续默认跳过。G1 复测因 G0 未通过而无执行意义，一并搁置。S0 遗留问题已在调用方侧修复（F1 exclude 字段名、F2 python-multipart），G0 结论维持不变。
 
 
 
