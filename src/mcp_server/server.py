@@ -132,11 +132,16 @@ class _ShutdownSentinel:
 _SHUTDOWN = _ShutdownSentinel()
 
 
-def build_default_protocol_handler() -> ProtocolHandler:
+def build_default_protocol_handler(settings: Any | None = None) -> ProtocolHandler:
     """构建注册了 E3+ tools 的缺省 ProtocolHandler。
 
     Tools 懒初始化（见 ``tools/query_knowledge_hub``），注册本身
-    不触发网络/凭据依赖；后续 tool（E4/E5）在此追加注册。
+    不触发网络/凭据依赖；``agentic_search`` 仅当配置
+    ``agentic_search.enabled=true`` 时追加注册（S1.6，缺省关闭）。
+
+    Args:
+        settings: 全局配置（缺省尝试 ``load_settings()``；配置缺失时
+            agentic 工具按禁用处理，其余 tool 保持懒初始化语义）。
     """
     from mcp_server.tools.get_document_summary import create_get_document_summary_definition
     from mcp_server.tools.list_collections import create_list_collections_definition
@@ -146,6 +151,21 @@ def build_default_protocol_handler() -> ProtocolHandler:
     handler.register_tool(create_query_knowledge_hub_definition())
     handler.register_tool(create_list_collections_definition())
     handler.register_tool(create_get_document_summary_definition())
+
+    agentic_enabled = False
+    if settings is not None:
+        agentic_enabled = settings.agentic_search.enabled
+    else:
+        try:
+            from core.settings import ConfigError, load_settings
+
+            agentic_enabled = load_settings().agentic_search.enabled
+        except (ConfigError, FileNotFoundError, OSError):
+            agentic_enabled = False  # 无配置时按禁用处理，维持既有 tools/list 契约
+    if agentic_enabled:
+        from mcp_server.tools.agentic_search import create_agentic_search_definition
+
+        handler.register_tool(create_agentic_search_definition())
     return handler
 
 
