@@ -1,17 +1,19 @@
 # 验收缺口清单
 
 > 对照 `DEV_SPEC.md` 第 6 章排期：A1–I5 共 68/68 已完成。  
-> 本文件记录「主工程已落地」之后的补强、候选扩展与展望事项。  
+> 本文件记录「主工程已落地」后收口补强的**完成情况**（P0–P2 均已完成）。  
 > 更新时间：2026-10-05（G1–G7 收口、G14–G15 补强完成；同日按状态重组分区）
 >
-> **分区说明**：G 编号全局稳定（git 提交与完成记录均引用），分区只按当前状态组织：
-> P0/P1/P2 = 已完成；P3 = 候选扩展 backlog（未立项）；P4 = 展望项（明确不做）；P5 = 集成门控说明。
+> **分区说明**：G 编号全局稳定（git 提交与完成记录均引用）。
+> 候选扩展（G8–G12）、展望项（G13）与集成门控说明已移交
+> [FUTURE_OPTIMIZATION_ROADMAP.md](FUTURE_OPTIMIZATION_ROADMAP.md)（6.7/6.8 节）——
+> **后续开发排期、流程与候选内容以该文档为基准**，本文档只管理已完成事项与完成记录。
 
 ## 怎么用
 
-- 每项独立，做完把状态改成 `[x]`，并在「完成记录」补一行。
-- 不改 DEV_SPEC 排期表。这些不是未完成的阶段任务，是收口后的补强与扩展。
-- 需要 API Key / 费用的项单独标了，默认离线套件不要打开。
+- 已完成项的状态标记为 `[x]`，完成详情见文末「完成记录」。
+- 不改 DEV_SPEC 排期表。这些不是未完成的阶段任务，是收口后的补强。
+- 后续如再有收口类补强事项，在本文件新增条目；扩展与展望类内容直接进 ROADMAP。
 
 ---
 
@@ -65,7 +67,7 @@
 
 - 状态：`[x]`
 - 实施记录：采用文档收口路线——简历示例改为「当前默认支持 PDF 文档解析（Loader 可插拔，
-  可扩展 Markdown / Word）」；补 Markdown 实现见 P3 的 G11。
+  可扩展 Markdown / Word）」；补 Markdown 实现候选见 FUTURE_OPTIMIZATION_ROADMAP.md 6.8 节（G11）。
 
 ### G7. `sample.md` 自身过期
 
@@ -116,55 +118,16 @@
   - 全量回归 1066 passed / 2 skipped
 - 关联：G14 落地后 captioner 会把占位符替换为描述文本，可缓解正文污染，但占位符完整性仍是分发 `image_refs` 的前提，两个都做
 
----
+## 后续开发基准
 
-## P3：候选扩展 backlog（规格正文有、排期未单独立项，未立项）
+后续开发排期、开发流程与候选开发内容以 [FUTURE_OPTIMIZATION_ROADMAP.md](FUTURE_OPTIMIZATION_ROADMAP.md) 为基准（2026-10-05 起），包含：
 
-这些不是验收失败，是「正文愿景 vs MVP 裁剪」。**立项原则：由真实使用中的坏 case 驱动，
-先在 Dashboard Query 追踪页确认失败原因，再立项**；不要无证据地预先实现。
+- Dashboard 迁移 Vue 3 + FastAPI 的六个实施包（P1–P6）与迁移范围；
+- 6.8 节候选扩展 backlog（G8–G12，含立项原则：坏 case 驱动）与展望项（G13）；
+- 6.7 节真实 Provider 集成门控说明（`RAG_LLM_INTEGRATION` / `RAG_E2E_INTEGRATION`）；
+- 两份深度调研：Sirchmunk 整合（`SIRCHMUNK_INTEGRATION_ANALYSIS.md`）、微服务演进（`MICROSERVICES_ANALYSIS.md`）。
 
-| ID | 规格出处 | 现状 | 若要做 |
-|----|----------|------|--------|
-| G8 | 3.1.2 Query Expansion / 同义词扩展 | QueryProcessor 只做分词 + 停用词 + filters 透传 | 新增同义词表，仅扩 Sparse 路，Dense 保持单次。注意：Dense 路已语义兜底同义词，边际价值待真实坏 case 验证 |
-| G9 | 3.2.4 扩展 Tool | 只有 `query_knowledge_hub` / `list_collections` / `get_document_summary` | 按需加 `search_by_keyword` / `search_by_semantic` |
-| G10 | 3.3 其他后端 | VectorStore 只有 Chroma；Embedding 无 BGE；Evaluator 无 DeepEval | 新 adapter + factory 注册 + 契约测试（G14 的 OpenAI-compatible Vision 是同类先例） |
-| G11 | 3.1.1 Loader「多种文档」 | 只有 `PdfLoader` | 先做 Markdown（成本最低，且和 G1/G6 重叠） |
-| G12 | I4 DocumentManager 契约 | `tests/unit/test_document_manager.py` 已有实现测试；I4 备注未单列 DocumentManager contract | 若要严格对齐 I4 原文，补一份跨存储 delete 契约测试 |
-
----
-
-## P4：展望项（明确不做，防止误入进度表）
-
-| ID | 规格出处 | 内容 | 定位 |
-|----|----------|------|------|
-| G13 | 第 7 章展望 | 容器化 / 云端 / 多租户 / Agentic RAG | 保持在未来章节，不要写进当前进度表。若做属于新立项（如简历驱动的 Dockerfile），不在本清单管理 |
-
----
-
-## P5：真实 Provider / 集成门控
-
-默认 `pytest -q`：**1066 passed, 2 skipped**（2026-10-05）。跳过的是付费/网络路径，不是失败。
-
-| 环境变量 | 覆盖 | 打开前确认 |
-|----------|------|------------|
-| `RAG_LLM_INTEGRATION=1` | 真实 LLM Transform / Vision 等 | `settings.yaml` 里的 API Key 可用（当前 vision 已配智谱 GLM） |
-| `RAG_E2E_INTEGRATION=1` | 真 `python scripts/ingest.py` 子进程 + 真 Embedding | 会产生网络调用和费用；cwd 必须切到临时目录，避免写进仓库 `data/` |
-
-说明：收口期间已多次真实调用智谱 embedding 与 vision（见完成记录 G1/G2/G14），
-但两个门控测试套件本身仍未带 Key 完整跑过，如需「带 Key 手工验收」按上表操作，
-不要默认开在 CI。
-
----
-
-## 推荐后续顺序（2026-10-05 更新）
-
-1. ~~G1–G4 真实数据全链路~~（已完成）
-2. ~~G5–G7 文档对齐~~（已完成）
-3. ~~G14 / G15 多模态链路补强~~（已完成）
-4. 可选：P5 带 Key 手工验收两个门控套件
-5. 有真实坏 case 或新需求时，从 P3 backlog 立项（G8–G12）
-6. Sirchmunk 整合、Dashboard Vue 迁移等大方向见独立文档
-   （`SIRCHMUNK_INTEGRATION_ANALYSIS.md` / `FUTURE_OPTIMIZATION_ROADMAP.md`）
+本文件仅记录已完成事项与完成记录。
 
 ## 完成记录
 

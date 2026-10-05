@@ -4,7 +4,15 @@
 
 本文记录项目后续可能的优化方向，重点讨论将现有 Streamlit Dashboard 逐步迁移为 **Vue 3 + Vite + FastAPI** 前后端分离架构，同时补充 RAG、MCP、部署、安全、可观测性和测试方面的演进建议。
 
-这些内容是候选路线，而不是必须一次完成的需求。实施时应继续遵循“小步迁移、保持主链路可用、每个阶段独立验收”的原则。
+**本文是后续开发的基准文档**：开发排期、开发流程与候选内容以本文为准（2026-10-05 起，承接 `ACCEPTANCE_GAPS.md` 的候选扩展与展望项）。
+
+这些内容是候选路线，而不是必须一次完成的需求。实施时应继续遵循"小步迁移、保持主链路可用、每个阶段独立验收"的原则。
+
+**相关文档**：
+
+- [SIRCHMUNK_INTEGRATION_ANALYSIS.md](SIRCHMUNK_INTEGRATION_ANALYSIS.md) — 无索引 Agentic 检索（Sirchmunk）整合可行性，对应 6.3 的 Agentic RAG 与 6.2 多格式方向，含 P0–P3 分阶段实施路线；
+- [MICROSERVICES_ANALYSIS.md](MICROSERVICES_ANALYSIS.md) — 模块化单体到微服务的演进路径，对应 6.5 部署与运维方向（HTTP 传输 / ingestion 拆离 / 向量库服务化三个最可落地点）；
+- [ACCEPTANCE_GAPS.md](ACCEPTANCE_GAPS.md) — 收口验收完成记录（P0–P2 已完成项），候选扩展已移交本文 6.8 节。
 
 ## 2. 当前架构与主要限制
 
@@ -444,6 +452,27 @@ pytest -q
 - 使用 Playwright 覆盖上传、查询 Trace、运行评估等关键流程；
 - CI 分别执行 Python 与前端检查；
 - 对 OpenAPI schema 进行版本变更检查，避免前后端契约静默破坏。
+
+**真实 Provider 集成门控**（承接自 ACCEPTANCE_GAPS.md P5）：
+
+- 真实 Provider 集成测试由环境变量门控，默认跳过（不进 CI）：
+  - `RAG_LLM_INTEGRATION=1` — 真实 LLM Transform / Vision 等，需 `settings.yaml` 里的 API Key 可用；
+  - `RAG_E2E_INTEGRATION=1` — 真 `python scripts/ingest.py` 子进程 + 真 Embedding，会产生网络调用与费用；cwd 必须切到临时目录，避免写进仓库 `data/`。
+- 当前基线：**1066 passed, 2 skipped**（2026-10-05）。跳过的是付费/网络路径，不是失败。
+- 收口期间已多次真实调用智谱 embedding 与 vision，但两个门控套件本身尚未带 Key 完整跑过；如需「带 Key 手工验收」按上述开关操作。
+
+### 6.8 候选扩展 Backlog（承接自 ACCEPTANCE_GAPS.md P3/P4）
+
+规格正文有、排期未单独立项的裁剪项。**立项原则：由真实使用中的坏 case 驱动，先在 Dashboard Query 追踪页确认失败原因，再立项**；不要无证据地预先实现。
+
+| ID | 规格出处 | 现状 | 若要做 |
+|----|----------|------|--------|
+| G8 | 3.1.2 Query Expansion / 同义词扩展 | QueryProcessor 只做分词 + 停用词 + filters 透传 | 新增同义词表，仅扩 Sparse 路，Dense 保持单次。Dense 路已语义兜底同义词，边际价值待真实坏 case 验证 |
+| G9 | 3.2.4 扩展 Tool | 只有 `query_knowledge_hub` / `list_collections` / `get_document_summary` | 按需加 `search_by_keyword` / `search_by_semantic`（6.3 Agentic RAG tools 的一部分） |
+| G10 | 3.3 其他后端 | VectorStore 只有 Chroma；Embedding 无 BGE；Evaluator 无 DeepEval | 新 adapter + factory 注册 + 契约测试（G14 的 OpenAI-compatible Vision 是同类先例） |
+| G11 | 3.1.1 Loader「多种文档」 | 只有 `PdfLoader` | 先做 Markdown Loader（成本最低；检索侧的多格式诉求短期可由 Sirchmunk 整合覆盖，见第 1 节引用文档） |
+| G12 | I4 DocumentManager 契约 | 实现测试已覆盖；I4 备注未单列 DocumentManager contract | 若要严格对齐 I4 原文，补跨存储 delete 契约测试 |
+| G13 | 第 7 章展望 | 容器化 / 云端 / 多租户 / Agentic RAG | 保持展望定位，不进当前进度表；若做属于新立项（与 6.5 / 第 7 章长期项合并管理） |
 
 ## 7. 优先级建议
 
