@@ -209,6 +209,24 @@ streamlit run src/observability/dashboard/app.py
 | Query 追踪 | 查询历史、Dense/Sparse 对比、Rerank 前后变化 |
 | 评估面板 | 选择后端运行评估、指标卡片、历史趋势对比 |
 
+**界面截图**（真实摄取/查询数据）：
+
+**系统总览**（组件配置 + 数据资产统计）：
+
+![系统总览](docs/images/01_overview.png)
+
+**数据浏览器**（已摄入文档列表，按集合筛选）：
+
+![数据浏览器](docs/images/02_data_browser.png)
+
+**Query 追踪**（查询历史 + 各阶段耗时瀑布图）：
+
+![Query 追踪](docs/images/03_query_traces.png)
+
+**Ingestion 追踪**（摄取历史 + 阶段耗时瀑布图）：
+
+![Ingestion 追踪](docs/images/04_ingestion_traces.png)
+
 ### 7. 运行评估
 
 ```bash
@@ -437,7 +455,7 @@ Skill 采用 **"写作原则 + 项目亮点 + 用户画像 = 定制化简历"** 
 
 **过程**：
 - 设计 Agent + RAG 分层架构，Agent 端负责意图识别与 Tool Calling，RAG 端提供 BM25 + Dense Embedding 混合召回 + Cross-Encoder 精排的两段式检索能力，通过 MCP 协议暴露标准化工具接口供 Agent 调用
-- 实现全链路 Ingestion Pipeline，支持 PDF / Markdown 多格式文档解析，集成 Vision LLM 自动生成图片描述（架构图、截图等），解决"搜文字出图"的多模态检索需求
+- 实现全链路 Ingestion Pipeline，当前默认支持 PDF 文档解析（Loader 可插拔，可扩展 Markdown / Word），集成 Vision LLM 自动生成图片描述（架构图、截图等），解决"搜文字出图"的多模态检索需求
 - 构建可插拔后端架构，LLM / Embedding / Reranker / VectorStore 均定义抽象接口，支持 Azure OpenAI ↔ DeepSeek ↔ Ollama 一键切换，适配团队不同网络环境
 - 搭建 Streamlit Dashboard 管理平台，提供数据浏览、Ingestion 追踪、查询追踪、评估面板六大功能页，实现全链路白盒化可观测
 - 集成 Ragas 评估框架 + Golden Test Set 回归测试，在版本迭代中持续监控检索质量，Faithfulness 评分稳定在 0.85 以上

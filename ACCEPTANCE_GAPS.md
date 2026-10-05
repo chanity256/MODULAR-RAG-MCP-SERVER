@@ -2,7 +2,7 @@
 
 > 对照 `DEV_SPEC.md` 第 6 章排期：A1–I5 共 68/68 已完成。  
 > 本文件只记录「主工程已落地，但验收/文档/真实数据仍不完整」的后续事项。  
-> 更新时间：2026-08-18
+> 更新时间：2026-08-18（G1–G7 收口完成于 2026-10-05，见文末完成记录）
 
 ## 怎么用
 
@@ -16,7 +16,7 @@
 
 ### G1. 样例目录没有可摄取 PDF
 
-- 状态：`[ ]`
+- 状态：`[x]`
 - 规格：I5 要求  
   `python scripts/ingest.py --path tests/fixtures/sample_documents/ --collection test` **成功**
 - 现状：目录里只有 `tests/fixtures/sample_documents/sample.md`。  
@@ -37,7 +37,7 @@
 
 ### G2. query 在空库上只返回友好提示
 
-- 状态：`[ ]`
+- 状态：`[x]`
 - 规格：I5 要求  
   `python scripts/query.py --query "测试查询" --verbose` **返回结果**
 - 现状：无索引时退出码 0，输出「未找到相关文档」。这是正确的空库行为，不是检索成功。
@@ -51,7 +51,7 @@
 
 ### G3. evaluate 指标全是 0，golden set 未回填
 
-- 状态：`[ ]`
+- 状态：`[x]`
 - 规格：H3 / H5 / I5。`tests/fixtures/golden_test_set.json` 应在真实摄取后回填 `expected_chunk_ids`。
 - 现状：5 条用例的 `expected_chunk_ids` 都是 `[]`，`expected_sources` 指向仓库里不存在的  
   `azure_setup.pdf` / `bm25_guide.pdf` / `config_guide.pdf` / `ingest_guide.pdf` / `retrieval_guide.pdf`。  
@@ -69,7 +69,7 @@
 
 ### G4. Dashboard 追踪页没有真实 ingest/query trace
 
-- 状态：`[ ]`
+- 状态：`[x]`
 - 规格：I5「Dashboard 可展示摄取与查询追踪」；I2 冒烟用的是临时 `traces.jsonl` + FakeDataService。
 - 现状：六页能加载（I2 已覆盖）。仓库默认 `logs/traces.jsonl` 不一定有本次验收产生的记录。
 - 建议：G1 + G2 之后打开 Dashboard，人工确认：
@@ -86,14 +86,14 @@
 
 ### G5. README 缺 Dashboard 截图
 
-- 状态：`[ ]`
+- 状态：`[x]`
 - 规格：I3 验收要求「Dashboard 使用指南：启动命令、各页面功能说明、**截图示例**」。
 - 现状：运行手册有启动命令和六页文字说明，没有图片。
 - 建议：在 `docs/images/` 放 6 张（或至少 3 张：总览 / 数据浏览 / Query 追踪），README 对应章节嵌入。
 
 ### G6. README 写了「PDF / Markdown 多格式」，实现只有 PDF
 
-- 状态：`[ ]`
+- 状态：`[x]`
 - 现状：`SUPPORTED_EXTENSIONS = {".pdf"}`，`IngestionPipeline` Loader 路由也只有 `.pdf`。  
   README 简历示例仍写「支持 PDF / Markdown 多格式文档解析」。同一份 README 的 FAQ 又正确写了「目前默认实现了 PDF Loader」。
 - 建议：二选一。
@@ -102,7 +102,7 @@
 
 ### G7. `sample.md` 自身过期
 
-- 状态：`[ ]`
+- 状态：`[x]`
 - 现状：文件仍写「C3 会补充 simple.pdf / with_images.pdf；C14 会补充 complex_technical_doc.pdf」。  
   这些 PDF 从未进仓库，只在 e2e 测试的 `tmp_path` 里生成。
 - 建议：G1 落地后改这段说明，避免后人按注释去找不存在的文件。
@@ -150,4 +150,11 @@
 
 | 日期 | ID | 说明 |
 |------|----|------|
-| | | |
+| 2026-10-05 | G1 | 放入 3 个真实 PDF（个人票据：佳明电子发票 + Raycast/Readwise 收据，gitignore 不入库）到 `tests/fixtures/sample_documents/`；真实摄取 3 ingested / 5 chunks / 4 images 退出码 0。过程中发现并修复真实 bug：Chroma 1.x 拒绝 list-of-dict metadata（`metadata.images`），`ChromaStore` 新增 `__json` 键后缀序列化 + 读取对称还原，补 2 个 roundtrip 回归测试（test_chroma_store_roundtrip.py）。顺带把 e2e 的极简 PDF 生成器抽为公共 helper `tests/fixtures/pdf_minimal.py` |
+| 2026-10-05 | G2 | `query.py --query "发票" --collection test --verbose --no-rerank` Top-1 命中佳明发票 chunk，Dense（真实 embedding）/ Sparse 双路召回 + RRF 融合正常 |
+| 2026-10-05 | G3 | golden set 重写为 5 条真实用例（中英文，锚定真实 chunk_id/source）；`evaluate.py --evaluator custom --collection test` 5/5 evaluated，hit_rate=1.0 / mrr=1.0 / hit_at_k=1.0 |
+| 2026-10-05 | G4 | Dashboard 四页（总览/数据浏览器/Ingestion 追踪/Query 追踪）经真实数据人工+浏览器验证，trace/资产统计均渲染真实产物 |
+| 2026-10-05 | G5 | 截图 4 张（总览/数据浏览/Query 追踪/Ingestion 追踪）落 `docs/images/`，README「启动 Dashboard」章节嵌入 |
+| 2026-10-05 | G6 | README 简历示例改为「当前默认支持 PDF 文档解析（Loader 可插拔，可扩展 Markdown / Word）」 |
+| 2026-10-05 | G7 | `sample.md` 改为说明文件：注明非 ingest 输入、PDF 由 e2e 生成器即时构造 |
+| 2026-10-05 | 附注 | 真实 embedding 走智谱 OpenAI-compatible 端点（`embedding-3`，`base_url=https://open.bigmodel.cn/api/paas/v4`，key 经 `${ZAI_API_KEY}` 环境变量引用）；config/settings.yaml 已切换，drift guard 测试同步更新。全量回归 1044 passed / 2 skipped（+2 为 chroma 修复回归） |
