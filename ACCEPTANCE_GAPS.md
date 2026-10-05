@@ -155,19 +155,21 @@
 
 ### G15. 图片占位符被切分器切碎（图片引用静默丢失）——详细方案
 
-- 状态：`[ ]`
+- 状态：`[x]`
 - 背景：G1 收口时发现。`[IMAGE: {image_id}]` 占位符是一段 28+ 字符的连续文本，当 chunk_size 较小（如 e2e 测试的 60）时，`RecursiveCharacterTextSplitter` 可能从占位符中间切断。C4 DocumentChunker 靠正则扫描**完整**占位符分发 `image_refs`，占位符残缺则扫描不到，该 chunk 的图片元数据静默消失，E6 多模态返回链路断裂。
 - 次生问题：
   - 残缺占位符文本（如 `[IMAGE: c4e62af...`）留在 chunk 正文，对向量检索是噪声；
   - 极端情况下 chunk 只含占位符、无正文，独立成 chunk 无检索价值。
   - e2e 测试未暴露此问题，正是因为 chunk_size=60 恰好把占位符切碎、图片元数据从未到达 upsert（测试照常通过）——属于**测试盲区掩盖真实 bug**。
-- 改动清单：
-  1. **`src/libs/splitter/recursive_splitter.py`**：切分前先把占位符提取为占位 token（如不可分字符锚），切分后回填；或等效机制保证占位符完整性不因 chunk_size 而破坏
-  2. **`src/ingestion/chunking/document_chunker.py`**：扫描后发现纯占位符（无正文或正文过短）的 chunk，与相邻 chunk 合并（优先前一个）
-  3. **测试**：
-     - `test_document_chunker.py` 补「小 chunk_size 下占位符不被切断」回归用例
-     - `test_data_ingestion.py` 的 with_images 场景改用不会恰好切碎占位符的断言（当前测试依赖了碎片化这个偶然行为）
-- 验收：任意 chunk_size（含 60）下，含 `[IMAGE: {id}]` 的 Document 切分后，每个完整占位符恰好归属一个 chunk，`image_refs` 与占位符一一对应
+- 改动清单（**已实现，2026-10-05**；实现时方案从"事后修复"演进为"混合保护"）：
+  1. **`src/ingestion/chunking/document_chunker.py`**（修复落在 chunker 而非 splitter——对 recursive/semantic/fixed_length 所有切分后端生效）：
+     - **混合策略**：默认原样切分零改动；仅当检测到碎片（chunk 以未闭合 `[` 片段结尾，或占位符独占 chunk）时，退化为**提取式切分**——占位符先提取（切分器看不到它，构造上不可能切断）、切分后按文本段落归属回填（占位符附着前邻文本段最后一段，图随文走；无前邻顺延后邻；全占位符文档保留独立 chunk）
+     - 演进原因：初版"事后修复"（未闭合片段合并 + 后缀去重）在重复字符边界（长 id 的 `hhh...`）会误删真实文本；初版"无条件提取式"会把段内多占位符段落无谓切开。混合策略两者兼顾
+  2. **测试**：`test_document_chunker.py` 新增 8 个用例（纯占位符并入前邻/开头并入后邻/连续占位符/全占位符文档/尾段附着/常规输入零改动/真 RecursiveSplitter 小 chunk_size 端到端 ×2）
+- 验收（已达成）：
+  - `test_document_chunker.py` 22/22 全绿（含真 RecursiveSplitter chunk_size=30 < 占位符长度的端到端回归）
+  - 真实组件复现：chunk_size=60 的带图 PDF 从 5 个碎片 chunk 变为 2 个完整 chunk，`image_refs` 正确写入 chunk metadata（修复前静默丢失）
+  - 全量回归 1066 passed / 2 skipped
 - 关联：G14 落地后 captioner 会把占位符替换为描述文本，可缓解正文污染，但占位符完整性仍是分发 `image_refs` 的前提，两个都做
 
 ---
@@ -207,3 +209,4 @@
 | 2026-10-05 | G7 | `sample.md` 改为说明文件：注明非 ingest 输入、PDF 由 e2e 生成器即时构造 |
 | 2026-10-05 | 附注 | 真实 embedding 走智谱 OpenAI-compatible 端点（`embedding-3`，`base_url=https://open.bigmodel.cn/api/paas/v4`，key 经 `${ZAI_API_KEY}` 环境变量引用）；config/settings.yaml 已切换，drift guard 测试同步更新。全量回归 1044 passed / 2 skipped（+2 为 chroma 修复回归） |
 | 2026-10-05 | G14 | 新增 `OpenAICompatibleVisionLLM`（继承 AzureVisionLLM，仅覆盖 `_build_url`/`_build_headers`，注册名 `openai`）；`VisionLLMConfig` 补 `base_url` 字段；settings.yaml vision 切换到智谱 `glm-5.3-flash`（key 走 `${ZAI_API_KEY}`）；新增 14 个 mock HTTP 单测。真实图片验收：用真实照片（虎斑猫）经 `LLMFactory.create_vision_llm` 识图，描述准确（621 tokens）。全量回归 1058 passed / 2 skipped |
+| 2026-10-05 | G15 | `DocumentChunker` 占位符原子保护（混合策略：默认零改动，检测到碎片时退化为提取式切分）；8 个新单测含真 RecursiveSplitter chunk_size=30 端到端；真实组件复现 chunk_size=60 带图 PDF 从 5 碎片变 2 完整 chunk 且 `image_refs` 不再丢失。全量回归 1066 passed / 2 skipped |
