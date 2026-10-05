@@ -1,29 +1,41 @@
 {
   "test_cases": [
     {
-      "query": "How to configure Azure OpenAI?",
-      "expected_chunk_ids": [],
-      "expected_sources": ["azure_setup.pdf"]
+      "query": "发票",
+      "expected_chunk_ids": [
+        "c4e62af785b560d91185b29052b19512fecb3a01292fc4fd921205867ff7679e_0000_c382749c",
+        "c4e62af785b560d91185b29052b19512fecb3a01292fc4fd921205867ff7679e_0001_15ec3c9e"
+      ],
+      "expected_sources": ["佳明955电子发票.pdf"]
     },
     {
-      "query": "What is BM25 scoring?",
-      "expected_chunk_ids": [],
-      "expected_sources": ["bm25_guide.pdf"]
+      "query": "佳明 Forerunner 955 手表订单",
+      "expected_chunk_ids": [
+        "c4e62af785b560d91185b29052b19512fecb3a01292fc4fd921205867ff7679e_0001_15ec3c9e"
+      ],
+      "expected_sources": ["佳明955电子发票.pdf"]
     },
     {
-      "query": "如何配置 Azure OpenAI？",
-      "expected_chunk_ids": [],
-      "expected_sources": ["config_guide.pdf"]
+      "query": "Raycast receipt invoice number",
+      "expected_chunk_ids": [
+        "70ceab7151fbc6c3cb925ef94623bd47fc8f64b8f4f2ad619066096f6892bea1_0000_6650736b"
+      ],
+      "expected_sources": ["Receipt-2052-1057.pdf"]
     },
     {
-      "query": "How does incremental ingestion skip unchanged files?",
-      "expected_chunk_ids": [],
-      "expected_sources": ["ingest_guide.pdf"]
+      "query": "Readwise receipt December 2025",
+      "expected_chunk_ids": [
+        "fee9ad4b81d2fc1a4e5ee49743d3d6f8e88f8e17e48123d111f1610e23763283_0000_33ea6315"
+      ],
+      "expected_sources": ["Receipt-2298-8249.pdf"]
     },
     {
-      "query": "How does RRF fusion combine dense and sparse rankings?",
-      "expected_chunk_ids": [],
-      "expected_sources": ["retrieval_guide.pdf"]
+      "query": "Invoice number",
+      "expected_chunk_ids": [
+        "70ceab7151fbc6c3cb925ef94623bd47fc8f64b8f4f2ad619066096f6892bea1_0000_6650736b",
+        "fee9ad4b81d2fc1a4e5ee49743d3d6f8e88f8e17e48123d111f1610e23763283_0000_33ea6315"
+      ],
+      "expected_sources": ["Receipt-2052-1057.pdf", "Receipt-2298-8249.pdf"]
     }
   ]
 }

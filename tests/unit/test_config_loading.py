@@ -78,7 +78,7 @@ def test_load_settings_from_repo_config() -> None:
     repo_config = Path(__file__).resolve().parents[2] / "config" / "settings.yaml"
     settings = load_settings(repo_config)
     assert settings.llm.provider == "azure"
-    assert settings.embedding.model == "text-embedding-3-small"
+    assert settings.embedding.model == "embedding-3"  # 智谱 OpenAI-compatible 端点（G1 收口切换）
     assert settings.vector_store.backend == "chroma"
     assert settings.retrieval.fusion_algorithm == "rrf"
     assert settings.rerank.backend == "cross_encoder"
