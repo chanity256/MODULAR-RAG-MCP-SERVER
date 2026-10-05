@@ -25,7 +25,9 @@ import time
 from pathlib import Path
 
 DEFAULT_FIXTURE = Path(__file__).resolve().parents[2] / "tests/fixtures/agentic/golden_questions.json"
-DEFAULT_ROOTS = ["data/documents"]
+# Golden 问题的期望来源覆盖 src/ 与根目录文档（仓库自身代码语料，spec S0.2 三类问题），
+# 故旁路对比以仓库根为检索根；rg/rga 遵循 .gitignore，自动排除 .venv*/data/db 等非语料目录。
+DEFAULT_ROOTS = ["."]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -76,6 +78,8 @@ def run(base_url: str, token: str | None, fixture_path: str, repo_root: str, mod
                         "mode": mode,
                         "response_format": "context",
                         "paths": [str((Path(repo_root) / r).resolve()) for r in DEFAULT_ROOTS],
+                        # 排除 golden 问题集自身等 fixtures：问题/期望来源在语料中会污染召回（泄题）
+                        "exclude": ["tests/fixtures/**"],
                     },
                     headers=headers,
                 )

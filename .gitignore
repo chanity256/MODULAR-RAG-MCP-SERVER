@@ -106,3 +106,7 @@ traces.jsonl
 secrets.yaml
 nonexistent_traces.jsonl/
 .zed/
+
+# sirchmunk sidecar env (SIRCHMUNK_INTEGRATION_SPEC 6.2, 密钥不入主仓库)
+.env-sirchmunk
+.venv-sirchmunk/

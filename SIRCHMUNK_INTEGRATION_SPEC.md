@@ -304,8 +304,8 @@ LENS_HARD_TOKEN_BUDGET=true            # 超预算硬失败，防客户端断连
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 验收标准 |
 |---------|---------|------|---------|---------|
-| S0.1 | Sidecar 环境搭建 runbook + 启动脚本 | [~] | | 独立 venv（Python 3.11/3.12）+ 锁定 commit `b314e11` 安装成功；手动预装 `rg`/`rga`（preflight 检查脚本三连：`rg --version`/`rga --version`/`GET /api/v1/search/status` 200）；`.env` 模板落位（6.2）；`sirchmunk serve --host 127.0.0.1` 启动且 Bearer 鉴权生效（无 token 401）；脚本入 `scripts/sirchmunk/`，步骤写入 README 增补节 |
-| S0.2 | Golden 问题旁路对比（5–10 条） | [~] | | 问题集覆盖三类：精确标识符（错误码/函数名）、非 PDF 格式（md/docx/xlsx）、多跳跨文档；每类 ≥2 条；curl 直调 `/api/v1/search`（response_format=context）记录 命中文件(source 级)/耗时/llm_call_count/total_llm_tokens；避开打招呼型措辞（4.6）；结果表回填本节下方；**闸门 G0：至少一类问题存在明确增益（命中率或证据质量可辨）才进入 S1**，否则止步于旁路方案并在文档记录结论 |
+| S0.1 | Sidecar 环境搭建 runbook + 启动脚本 | [x] | 2026-10-05 | 独立 venv（Python 3.11/3.12）+ 锁定 commit `b314e11` 安装成功；手动预装 `rg`/`rga`（preflight 检查脚本三连：`rg --version`/`rga --version`/`GET /api/v1/search/status` 200）；`.env` 模板落位（6.2）；`sirchmunk serve --host 127.0.0.1` 启动且 Bearer 鉴权生效（无 token 401）；脚本入 `scripts/sirchmunk/`，步骤写入 README 增补节 |
+| S0.2 | Golden 问题旁路对比（5–10 条） | [x] | 2026-10-05 | 问题集覆盖三类：精确标识符（错误码/函数名）、非 PDF 格式（md/docx/xlsx）、多跳跨文档；每类 ≥2 条；curl 直调 `/api/v1/search`（response_format=context）记录 命中文件(source 级)/耗时/llm_call_count/total_llm_tokens；避开打招呼型措辞（4.6）；结果表回填本节下方；**闸门 G0：至少一类问题存在明确增益（命中率或证据质量可辨）才进入 S1**，否则止步于旁路方案并在文档记录结论 |
 
 #### 阶段 S1：适配层与 MCP Tool（P1，承诺）
 
@@ -319,7 +319,39 @@ LENS_HARD_TOKEN_BUDGET=true            # 超预算硬失败，防客户端断连
 | S1.6 | MCP Tool `agentic_search` | [x] | 2026-10-05 | schema：`query` 必填、`mode`（FAST/DEEP，DEEP 受 `allow_deep` 门控拒绝）、`paths`（可选，缺省用 `allowed_roots`；传入值全过 PathGuard，越权抛 ToolInvalidParams → -32602）、`top_k`；懒初始化（首调才建 backend）；TraceContext 记录 `agentic_search` 阶段（method/backend/mode/llm_call_count/total_llm_tokens/elapsed_ms + persist_trace）；输出复用 `ResponseBuilder`（Markdown 引用 + structuredContent.citations + answer 摘要）；sidecar 不可用 → `isError:true` 友好内容（资源缺失不误报 -32603，对齐 E5 语义）；`build_default_protocol_handler` 仅 `enabled` 时注册；单测覆盖校验矩阵/门控/降级/trace |
 | S1.7 | 集成 + E2E + 文档收口 | [x] | 2026-10-05 | 集成：本地线程 HTTP server 模拟 sidecar，tools/list 两态注册断言、tools/call 全链路、-32602/isError 路由；E2E：子进程 MCP server（对齐 I1 手法）+ **stdout 纯净断言**（每行合法 JSON-RPC）；真实 sidecar 冒烟走 `RAG_AGENTIC_INTEGRATION=1` 门控默认跳过；README 增补「Agentic 检索（sidecar）」小节（启动/配置/工具说明/安全边界）；`pytest -q` 全套件离线全绿（新增跳过仅本门控）；**闸门 G1：用 S0 问题集经 MCP tool 复测并复记指标，据此决定是否启动 S2** |
 
-> **进度备注（2026-10-05）**：S1 离线交付已完成，全套件离线全绿（1128 passed / 3 skipped，新增跳过仅 `RAG_AGENTIC_INTEGRATION` 门控）。S0.1 脚本与 S0.2 问题集/对比脚本已入库，但真实 sidecar 尚未启动（本机缺 `rga`），**闸门 G0 与 G1 均待真实 sidecar 运行 `scripts/sirchmunk/compare.py` 后回填**；S1 按用户指示先于 G0 实施，S2 仍须等 G1 结论。
+#### S0 执行记录（2026-10-05，sidecar `b314e11`，mode=FAST，检索根=仓库根）
+
+**环境落地（S0.1）**：`brew install ripgrep-all`（rga 0.10.10）→ `setup_venv.sh`（Python 3.12，`sirchmunk 0.2.1+main` 导入验证通过）→ `.env-sirchmunk` 生成（gitignored）→ sidecar 启动成功 → preflight 三连全绿。过程中发现的偏差：
+
+1. 上游未声明 `python-multipart` 依赖，FastAPI 文件上传路由 import 即崩（已手动补装 sidecar venv）；
+2. `preflight.sh` 健康检查原本不带 Bearer，`/api/` 强制鉴权下必然失败（已修复为读 `.env-sirchmunk` 携带 token）；
+3. 无 token 实测返回 **500 而非 401**：上游在 `auth_middleware`（BaseHTTPMiddleware）内抛 `HTTPException` 不被转成 401 响应——鉴权仍然生效（拒绝访问），仅状态码口径与验收标准不符，不改上游源码、记录偏差；
+4. `compare.py` 原以 `data/documents`（空目录）为检索根，与 golden 问题集（期望来源在 `src/` 与根文档）不匹配（已修正为仓库根并排除 `tests/fixtures/**`）。
+
+**旁路对比（S0.2，6 条 golden 问题，2 轮运行）**：
+
+| id | 类别 | 第1轮命中（未排除fixtures） | 第2轮命中（干净口径） | 耗时 ms | LLM 调用 | Token |
+|----|------|------|------|---------|----------|-------|
+| Q1 | identifier | ❌ | ❌ | 175,347 | 2 | 30,760 |
+| Q2 | identifier | ✅ | ❌ | 256,110 | 2 | 42,219 |
+| Q3 | format | ❌ | ❌ | 100,056 | 2 | 39,634 |
+| Q4 | format | ✅ | ✅ | 120,925 | 2 | 40,011 |
+| Q5 | multihop | ❌ | ❌ | 158,439 | 2 | 40,292 |
+| Q6 | multihop | ❌ | ❌ | 189,785 | 2 | 6,514 |
+
+分类汇总（第 2 轮干净口径）：identifier 0/2，format 1/2，multihop 0/2。
+
+**闸门 G0 结论：未通过。**依据：
+- 干净口径命中率 1/6；两轮结果非确定性翻转（Q2 第 1 轮命中、第 2 轮未命中），无可辨稳定增益；
+- FAST 实测延迟 77–256s/条，远超规格预估的 2–5s（全仓首扫 + 真实 LLM 延迟未计入原估计）；
+- Token 成本 6.5k–42k/条（glm-5.3-flash）；Q6 在 `exclude=tests/fixtures/**` 下仍把问题集文件列为首个证据——上游 exclude 语义未完全生效，语料污染无法从调用方根除；
+- 唯一命中的 Q4（format 类）问题主链路经 MarkdownLoader 扩展后本可覆盖，不构成引入重依赖 sidecar 的决定性理由。
+
+**处置**：按 G0 约定**止步于旁路方案**——`agentic_search` MCP 工具（S1 已交付）保持 `enabled: false` 默认关闭，**S2/S3 不启动**；sidecar 环境与脚本保留，供后续以 DEEP 模式、更换语料或校准 exclude 后重测（重测即重开 G0）。
+
+> **进度备注（2026-10-05，S0 收口后更新）**：S0 侧车环境与旁路对比已在真实 sidecar 上完成（见上方执行记录），**闸门 G0 未通过**，S2/S3 维持不启动。S1 离线交付保持已完成状态（1128 passed / 3 skipped）；`agentic_search` 工具保留为可选能力（`enabled: false`），其真实 sidecar 冒烟门控 `RAG_AGENTIC_INTEGRATION` 继续默认跳过。G1 复测因 G0 未通过而无执行意义，一并搁置。
+
+
 
 #### 阶段 S2：HybridSearch 条件第三路（P2，门控：G1 通过后启动）
 

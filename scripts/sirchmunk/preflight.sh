@@ -28,8 +28,18 @@ else
 fi
 
 # 3. sidecar 健康检查（未启动时提示而非失败，便于分步搭建）
+# sidecar 对 /api/ 路由强制 Bearer 鉴权（spec 3.2），须携带 token；
+# token 从 env 文件读取（与 start_sidecar.sh 同源），缺失时按未鉴权探测。
+ENV_FILE="${SIRCHMUNK_ENV_FILE:-.env-sirchmunk}"
+AUTH_HEADER=()
+if [ -z "${SIRCHMUNK_API_TOKEN:-}" ] && [ -f "$ENV_FILE" ]; then
+  SIRCHMUNK_API_TOKEN="$(grep -E '^SIRCHMUNK_API_TOKEN=' "$ENV_FILE" | head -1 | cut -d= -f2-)"
+fi
+if [ -n "${SIRCHMUNK_API_TOKEN:-}" ]; then
+  AUTH_HEADER=(-H "Authorization: Bearer ${SIRCHMUNK_API_TOKEN}")
+fi
 echo "-- health: GET ${BASE_URL}/api/v1/search/status"
-if curl -sf --max-time 5 "${BASE_URL}/api/v1/search/status" >/dev/null 2>&1; then
+if curl -sf --max-time 5 "${AUTH_HEADER[@]}" "${BASE_URL}/api/v1/search/status" >/dev/null 2>&1; then
   echo "[ok] sidecar is up at ${BASE_URL}"
 else
   echo "[warn] sidecar not reachable at ${BASE_URL} (start with scripts/sirchmunk/start_sidecar.sh)"
