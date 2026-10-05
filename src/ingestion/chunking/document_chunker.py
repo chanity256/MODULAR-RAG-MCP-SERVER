@@ -78,6 +78,7 @@ class DocumentChunker:
     # 占位符原子保护（G15）
     # ------------------------------------------------------------------
 
+    # Note: 混合守卫 vs 纯后修补 vs 无条件提取式的取舍 — 见 .agents/notes/implemented/bug-fix/2026-10-05-image-placeholder-atomic-guard.md
     def _split_preserving_placeholders(self, text: str) -> list[str]:
         """切分文本并保证 ``[IMAGE: {id}]`` 占位符完整归属单个 chunk。
 

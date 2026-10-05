@@ -41,6 +41,7 @@ def _openai_vision_transport(
 class OpenAICompatibleVisionLLM(AzureVisionLLM):
     """OpenAI 兼容 Vision LLM 实现（GLM / DashScope 兼容端点 / 本地网关等）。"""
 
+    # Note: 为何继承 AzureVisionLLM 而非独立实现 — 见 .agents/notes/implemented/feature/2026-10-05-openai-compatible-vision-provider.md
     provider = "openai"
 
     def __init__(self, vision_config: Any, *, transport: Transport | None = None, **kwargs: Any):
