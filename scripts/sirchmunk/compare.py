@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""S0.2 Golden 问题旁路对比脚本（SIRCHMUNK_INTEGRATION_SPEC 第 7 章）。
+
+对 ``tests/fixtures/agentic/golden_questions.json`` 逐条调用 sidecar
+``POST /api/v1/search``（``response_format=context``），记录：
+命中文件（source 级）、耗时、``llm_call_count``、``total_llm_tokens``，
+输出 Markdown 结果表（回填规格文档进度跟踪表用）。
+
+用法:
+    python scripts/sirchmunk/compare.py \
+        --base-url http://127.0.0.1:8584 \
+        --token "$SIRCHMUNK_API_TOKEN" \
+        --repo-root /path/to/this/repo
+
+退出码: 0=全部成功 / 1=存在失败调用。
+需要 sidecar 已启动且 LLM_API_KEY 可用（真实调用，不在离线测试套件内）。
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import time
+from pathlib import Path
+
+DEFAULT_FIXTURE = Path(__file__).resolve().parents[2] / "tests/fixtures/agentic/golden_questions.json"
+DEFAULT_ROOTS = ["data/documents"]
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run golden questions against the sirchmunk sidecar.")
+    parser.add_argument("--base-url", default="http://127.0.0.1:8584")
+    parser.add_argument("--token", default=None, help="Bearer token (SIRCHMUNK_API_TOKEN)")
+    parser.add_argument("--fixture", default=str(DEFAULT_FIXTURE))
+    parser.add_argument("--repo-root", default=".", help="Resolve relative expected_sources against this root")
+    parser.add_argument("--mode", default="FAST", choices=["FAST", "DEEP"])
+    parser.add_argument("--out", default=None, help="Write Markdown report to this file")
+    return parser
+
+
+def source_hit(expected: list[str], evidence_files: list[str], repo_root: str) -> bool:
+    """source 级命中：期望来源的**文件名**出现在证据文件路径中（spec S3.1 口径）。"""
+    root = Path(repo_root).resolve()
+    for exp in expected:
+        exp_name = Path(exp).name
+        for ev in evidence_files:
+            ev_path = Path(ev)
+            if ev_path.name == exp_name:
+                try:  # 同名还需同树（相对 repo_root 比对），避免跨库同名误判
+                    ev_path.resolve().relative_to(root)
+                except (ValueError, OSError):
+                    continue
+                return True
+    return False
+
+
+def run(base_url: str, token: str | None, fixture_path: str, repo_root: str, mode: str) -> list[dict]:
+    import httpx
+
+    fixture = json.loads(Path(fixture_path).read_text(encoding="utf-8"))
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    rows: list[dict] = []
+    with httpx.Client(timeout=600.0) as client:  # 旁路对比不走 30s 工具超时（spec S0.2）
+        for question in fixture["questions"]:
+            started = time.perf_counter()
+            error = None
+            answer = ""
+            evidence_files: list[str] = []
+            llm_calls = tokens = None
+            try:
+                resp = client.post(
+                    f"{base_url.rstrip('/')}/api/v1/search",
+                    json={
+                        "query": question["query"],
+                        "mode": mode,
+                        "response_format": "context",
+                        "paths": [str((Path(repo_root) / r).resolve()) for r in DEFAULT_ROOTS],
+                    },
+                    headers=headers,
+                )
+                resp.raise_for_status()
+                data = resp.json().get("data") or {}
+                answer = str(data.get("answer") or "")
+                cluster = data.get("cluster") or {}
+                evidence_files = [
+                    e.get("file_or_url") for e in (cluster.get("evidences") or []) if isinstance(e, dict)
+                ]
+                usages = data.get("llm_usages")
+                llm_calls = len(usages) if isinstance(usages, list) else None
+                tokens = data.get("total_llm_tokens")
+            except Exception as exc:  # 旁路对比逐条隔离
+                error = f"{type(exc).__name__}: {exc}"
+            elapsed = round((time.perf_counter() - started) * 1000, 1)
+            rows.append(
+                {
+                    "id": question["id"],
+                    "category": question["category"],
+                    "query": question["query"],
+                    "hit": source_hit(question.get("expected_sources", []), evidence_files, repo_root),
+                    "evidence_files": [str(e) for e in evidence_files],
+                    "llm_call_count": llm_calls,
+                    "total_llm_tokens": tokens,
+                    "elapsed_ms": elapsed,
+                    "answer_preview": answer[:160],
+                    "error": error,
+                }
+            )
+    return rows
+
+
+def render_markdown(rows: list[dict], mode: str) -> str:
+    lines = [
+        f"## S0.2 旁路对比结果（mode={mode}）",
+        "",
+        "| id | 类别 | source 级命中 | 耗时 ms | LLM 调用 | Token | 首个证据文件 |",
+        "|----|------|--------------|---------|----------|-------|--------------|",
+    ]
+    for r in rows:
+        first_ev = r["evidence_files"][0] if r["evidence_files"] else (r["error"] or "-")
+        lines.append(
+            f"| {r['id']} | {r['category']} | {'✅' if r['hit'] else '❌'} "
+            f"| {r['elapsed_ms']} | {r['llm_call_count'] if r['llm_call_count'] is not None else '-'} "
+            f"| {r['total_llm_tokens'] if r['total_llm_tokens'] is not None else '-'} | {first_ev} |"
+        )
+    by_cat: dict[str, list[dict]] = {}
+    for r in rows:
+        by_cat.setdefault(r["category"], []).append(r)
+    lines += ["", "分类命中汇总："]
+    for cat, items in sorted(by_cat.items()):
+        hits = sum(1 for i in items if i["hit"])
+        lines.append(f"- {cat}: {hits}/{len(items)}")
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    rows = run(args.base_url, args.token, args.fixture, args.repo_root, args.mode)
+    report = render_markdown(rows, args.mode)
+    print(report)
+    if args.out:
+        Path(args.out).write_text(report + "\n", encoding="utf-8")
+    return 1 if any(r["error"] for r in rows) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
