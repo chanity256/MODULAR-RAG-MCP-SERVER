@@ -379,3 +379,50 @@ def test_delete_by_metadata_multi_key_and_stats(store):
     assert stats["collections"][0]["name"] == "docs"
     with pytest.raises(ValueError):
         store.delete_by_metadata({})
+
+
+# ---------------------------------------------------------------------------
+# G1 收口：复杂 metadata（dict / list-of-dict）序列化 roundtrip
+# ---------------------------------------------------------------------------
+
+
+def test_complex_metadata_survives_roundtrip(store):
+    """Chroma 1.x 拒绝 dict / list-of-dict metadata；适配器需 JSON 序列化
+    落库并在读取时对称还原（真实 PDF 的 metadata.images 为 list-of-dict）。"""
+    images = [
+        {"id": "doc_0_0", "path": "data/images/doc_0_0.png", "page": 0,
+         "position": {"width": 100, "height": 80}},
+    ]
+    store.upsert([
+        VectorRecord(
+            id="meta_c1",
+            vector=[1.0, 0.0],
+            text="带图 chunk",
+            metadata={
+                "source_path": "a.pdf",
+                "image_refs": ["doc_0_0"],  # list[str]：Chroma 原生支持
+                "images": images,           # list[dict]：需序列化
+                "position": {"page": 0},    # dict：需序列化
+            },
+        ),
+    ])
+    expected = {
+        "source_path": "a.pdf",
+        "image_refs": ["doc_0_0"],
+        "images": images,
+        "position": {"page": 0},
+    }
+    assert store.get_by_ids(["meta_c1"])[0]["metadata"] == expected
+    assert store.get_by_metadata({"source_path": "a.pdf"})[0]["metadata"] == expected
+    hits = store.query([1.0, 0.0], top_k=1)
+    assert hits[0].id == "meta_c1"
+    assert hits[0].metadata == expected
+
+
+def test_plain_string_metadata_not_corrupted_by_json_restore(store):
+    """普通字符串值不被误还原（json 能解析的字符串也保持原样）。"""
+    store.upsert([
+        VectorRecord(id="meta_s1", vector=[1.0, 0.0], text="s",
+                     metadata={"note": "[1, 2]", "title": "hello world"}),
+    ])
+    assert store.get_by_ids(["meta_s1"])[0]["metadata"] == {"note": "[1, 2]", "title": "hello world"}

@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, Sequence
 
 import chromadb
@@ -25,6 +26,12 @@ __all__ = ["ChromaStore", "register_chroma_provider"]
 
 
 _DEFAULT_COLLECTION = "knowledge_hub"
+
+#: 不被 Chroma 原生支持的 metadata 值（dict / 非 str 元素 list）序列化后的
+#: 键名后缀（如 ``images`` → ``images__json``，值为 JSON 字符串）；读取时
+#: 对称还原为原始结构，对上层契约透明（G1 收口：真实 PDF 的
+#: ``metadata.images`` 为 list-of-dict，Chroma 1.x 校验拒绝 list-of-dict）。
+_JSON_KEY_SUFFIX = "__json"
 
 
 class ChromaStore(BaseVectorStore):
@@ -57,8 +64,9 @@ class ChromaStore(BaseVectorStore):
         ids = [r.id for r in records]
         embeddings = [r.vector for r in records]
         documents = [r.text for r in records]
-        # Chroma 拒绝空 dict metadata，用 None 替代。
-        metadatas = [r.metadata if r.metadata else None for r in records]
+        # Chroma 拒绝空 dict metadata，用 None 替代；非原生支持的值
+        # （dict / list-of-dict 等）序列化为 JSON 字符串（读取时还原）。
+        metadatas = [self._sanitize_metadata(r.metadata) if r.metadata else None for r in records]
         self._collection.upsert(
             ids=ids,
             embeddings=embeddings,
@@ -101,7 +109,7 @@ class ChromaStore(BaseVectorStore):
             score = self._distance_to_score(dist)
             text = documents[i] if i < len(documents) else ""
             meta = metadatas[i] if i < len(metadatas) and metadatas[i] else {}
-            out.append(QueryResult(id=rid, score=score, text=text, metadata=meta))
+            out.append(QueryResult(id=rid, score=score, text=text, metadata=self._restore_metadata(meta)))
         return out
 
     # -- 辅助 -------------------------------------------------------------
@@ -141,7 +149,7 @@ class ChromaStore(BaseVectorStore):
         for i, rid in enumerate(got_ids):
             text = documents[i] if i < len(documents) and documents[i] else ""
             metadata = metadatas[i] if i < len(metadatas) and metadatas[i] else {}
-            by_id[rid] = {"id": rid, "text": text, "metadata": metadata}
+            by_id[rid] = {"id": rid, "text": text, "metadata": self._restore_metadata(metadata)}
         out: list[dict[str, Any]] = []
         for rid in unique_requested:
             record = by_id.get(rid)
@@ -185,7 +193,7 @@ class ChromaStore(BaseVectorStore):
         for i, rid in enumerate(ids):
             text = documents[i] if i < len(documents) and documents[i] else ""
             metadata = metadatas[i] if i < len(metadatas) and metadatas[i] else {}
-            records.append({"id": rid, "text": text, "metadata": dict(metadata)})
+            records.append({"id": rid, "text": text, "metadata": self._restore_metadata(dict(metadata))})
         records.sort(key=lambda rec: rec["id"])
         return records
 
@@ -239,6 +247,41 @@ class ChromaStore(BaseVectorStore):
         if not isinstance(filters, dict) or not filters:
             raise ValueError("filters must be a non-empty dict (refuse to wipe all)")
         return filters
+
+    @staticmethod
+    def _sanitize_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+        """把 Chroma 不支持的 metadata 值序列化为 JSON 字符串。
+
+        Chroma 1.x 校验：metadata 值仅允许 str/int/float/bool 与**同类型
+        原始元素的 list**；dict 与 list-of-dict（如 ``metadata.images``
+        的 ImageRef 列表）会被拒绝。序列化后的键加 ``__json`` 后缀标记，
+        供 ``_restore_metadata`` 读取时对称还原。
+        """
+        out: dict[str, Any] = {}
+        for key, value in metadata.items():
+            unsupported = isinstance(value, dict) or (
+                isinstance(value, list)
+                and not (value and all(isinstance(v, str) for v in value))
+            )
+            if unsupported:
+                out[f"{key}{_JSON_KEY_SUFFIX}"] = json.dumps(value, ensure_ascii=False)
+            else:
+                out[key] = value
+        return out
+
+    @staticmethod
+    def _restore_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+        """还原 ``_sanitize_metadata`` 序列化的值（对称逆操作）。"""
+        out: dict[str, Any] = {}
+        for key, value in metadata.items():
+            if key.endswith(_JSON_KEY_SUFFIX) and isinstance(value, str):
+                try:
+                    out[key[: -len(_JSON_KEY_SUFFIX)]] = json.loads(value)
+                except json.JSONDecodeError:
+                    out[key] = value
+            else:
+                out[key] = value
+        return out
 
     @staticmethod
     def _where(filters: dict[str, Any] | None, *, allow_empty: bool = True) -> dict[str, Any] | None:
