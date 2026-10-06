@@ -50,26 +50,30 @@ def render(*, settings: Any | None = None, search_service: SearchService | None 
 # --------------------------------------------------------------------- #
 # 模式选择：三按钮，默认 Normal，选中 primary 高亮，不可用置灰
 # --------------------------------------------------------------------- #
-def _render_mode_buttons(availability: dict) -> str:
-    if _MODE_BTN_KEY not in st.session_state or st.session_state[_MODE_BTN_KEY] not in dict(_MODES):
-        st.session_state[_MODE_BTN_KEY] = "normal"
-    selected = st.session_state[_MODE_BTN_KEY]
+def _set_mode(mode: str) -> None:
+    # on_click 回调在脚本重跑前执行，保证单击当轮即以新模式渲染按钮。
+    st.session_state[_MODE_BTN_KEY] = mode
 
+
+def _render_mode_buttons(availability: dict) -> str:
+    if st.session_state.get(_MODE_BTN_KEY) not in dict(_MODES):
+        _set_mode("normal")
     cols = st.columns(len(_MODES))
     for col, (mode, label) in zip(cols, _MODES):
         with col:
             state = availability[mode]
             if st.button(
                 label,
-                type="primary" if selected == mode else "secondary",
+                type="primary" if st.session_state[_MODE_BTN_KEY] == mode else "secondary",
                 disabled=not state.available,
                 help=state.reason,
                 use_container_width=True,
                 key=f"qp_btn_{mode}",
+                on_click=_set_mode,
+                args=(mode,),
             ):
-                st.session_state[_MODE_BTN_KEY] = mode
-                selected = mode
-    return selected
+                pass  # 状态经 on_click 回调更新，此处无需处理
+    return st.session_state[_MODE_BTN_KEY]
 
 
 # --------------------------------------------------------------------- #

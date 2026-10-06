@@ -103,15 +103,26 @@ def test_stderr_has_logs_stdout_clean_on_eof(server):
 
 
 def test_tools_list_and_unknown_method(server):
-    """E2/E3：tools/list 返回 query_knowledge_hub schema，未知方法 -32601。"""
-    response = _rpc(server, {"jsonrpc": "2.0", "id": 3, "method": "tools/list"})
-    msg = json.loads(response)
-    tools = msg["result"]["tools"]
-    assert [t["name"] for t in tools] == [
+    """E2/E3：tools/list 返回 query_knowledge_hub schema，未知方法 -32601。
+
+    期望工具列表按仓库配置动态推导：`agentic_search.enabled=true` 时
+    server 会注册第 4 个工具（S1.6 条件注册语义）。
+    """
+    from core.settings import load_settings
+
+    agentic_enabled = load_settings(
+        PROJECT_ROOT / "config" / "settings.yaml"
+    ).agentic_search.enabled
+    expected_tools = [
         "query_knowledge_hub",
         "list_collections",
         "get_document_summary",
-    ]
+    ] + (["agentic_search"] if agentic_enabled else [])
+
+    response = _rpc(server, {"jsonrpc": "2.0", "id": 3, "method": "tools/list"})
+    msg = json.loads(response)
+    tools = msg["result"]["tools"]
+    assert [t["name"] for t in tools] == expected_tools
     assert tools[1]["inputSchema"] == {"type": "object", "properties": {}}
     schema = tools[0]
     assert "hybrid retrieval" in schema["description"]

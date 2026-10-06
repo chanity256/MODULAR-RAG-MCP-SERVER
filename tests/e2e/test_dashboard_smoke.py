@@ -335,7 +335,22 @@ def test_query_traces_page_hides_agentic(tmp_path, traces_path):
 
 
 def test_overview_page_shows_agentic_disabled(tmp_path, traces_path):
-    """Overview 配置卡：enabled=false（仓库默认配置）显示 disabled 关闭状态。"""
+    """Overview 配置卡：enabled=false 显示 disabled 关闭状态。
+
+    用临时配置固定关闭态，不依赖仓库 settings.yaml 的当前取值。
+    """
+    import re
+
+    config = tmp_path / "settings_disabled.yaml"
+    config.write_text(
+        re.sub(
+            r"(agentic_search:.*?)enabled: (true|false)",
+            r"\1enabled: false",
+            (_REPO_ROOT / "config" / "settings.yaml").read_text(encoding="utf-8"),
+            flags=re.S,
+        ),
+        encoding="utf-8",
+    )
     driver = _driver(
         tmp_path,
         "overview_agentic",
@@ -345,7 +360,7 @@ def test_overview_page_shows_agentic_disabled(tmp_path, traces_path):
         from observability.dashboard.services.trace_service import TraceService
 
         overview.render(
-            config_service=ConfigService(config_path={str(_REPO_ROOT / 'config' / 'settings.yaml')!r}),
+            config_service=ConfigService(config_path={str(config)!r}),
             data_service=FakeDataService(),
             trace_service=TraceService(traces_path={str(traces_path)!r}),
         )
@@ -447,10 +462,14 @@ def test_query_playground_agentic_disabled_greyed(tmp_path):
 
 
 def test_query_playground_collection_hidden_for_agentic(tmp_path):
-    """Fast/Deep 模式下 collection 输入隐藏。"""
+    """Fast/Deep 模式下 collection 输入隐藏；单击模式按钮当轮即高亮。"""
     driver = _playground_driver(tmp_path, "playground_collection", "FakeSearchService()")
     at = _run(driver)
+    # 单击 Fast 一次：当轮渲染即变 primary（S4.2 修复的时序问题）。
     at.button(key="qp_btn_fast").click().run()
+    buttons = {b.label: b for b in at.button}
+    assert buttons["Fast"].proto.type == "primary"
+    assert buttons["Normal"].proto.type != "primary"
     assert "qp_collection" not in [t.key for t in at.text_input]
 
 
