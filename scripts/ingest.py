@@ -62,8 +62,8 @@ __all__ = [
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "settings.yaml"
 
 #: 受支持的源文件扩展名（小写；与 ``ingestion.pipeline`` 的 Loader 路由一致；
-#: 单测中有 drift guard 保证两处不脱钩）。
-SUPPORTED_EXTENSIONS = frozenset({".pdf"})
+#: 单测中有 drift guard 保证两处不脱钩；``.md`` 刻意不登记）。
+SUPPORTED_EXTENSIONS = frozenset({".pdf", ".docx", ".pptx", ".xlsx", ".html"})
 
 # 退出码语义。
 EXIT_OK = 0

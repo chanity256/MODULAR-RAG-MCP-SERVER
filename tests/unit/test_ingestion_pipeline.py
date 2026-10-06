@@ -391,9 +391,70 @@ def test_changed_file_reingests_as_new_version(tmp_path):
 
     assert second.status == "success"
     assert second.doc_hash != first.doc_hash
-    # 新版本 chunk 追加，旧版本保留（BM25 增量、向量库按 id 并存）。
-    assert len(store.records) == first.chunks + second.chunks
-    assert len(parts["bm25"]) == first.chunks + second.chunks
+    # M2 版本替换：store 前清掉旧版本，只剩新版本 chunk。
+    assert len(store.records) == second.chunks
+    assert len(parts["bm25"]) == second.chunks
+    assert {cid.split("_", 1)[0] for cid in store.records} == {second.doc_hash}
+
+
+def test_version_replacement_failure_aborts_before_store(tmp_path, monkeypatch):
+    store = FakeVectorStore()
+    pipeline, parts = _build_pipeline(tmp_path, FakeLoader(tmp_path), store)
+    source = _write_source(tmp_path)
+    first = pipeline.run(str(source), collection="a")
+    upserts = len(store.upsert_calls)
+    source.write_bytes(b"source-document-bytes-v2")
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("chroma unavailable")
+
+    monkeypatch.setattr(store, "delete_by_metadata", _boom)
+    with pytest.raises(IngestionPipelineError) as excinfo:
+        pipeline.run(str(source), collection="a")
+
+    assert excinfo.value.stage == "store"
+    assert len(store.upsert_calls) == upserts
+    record = parts["integrity"].get_record(str(source), "a")
+    assert record["status"] == "failed"
+    assert record["failed_stage"] == "store"
+    # 新版本未写入：没有出现新旧混合
+    assert {cid.split("_", 1)[0] for cid in store.records} == {first.doc_hash}
+
+
+def test_version_replacement_unchanged_or_forced_same_hash_does_not_clean(tmp_path):
+    store = FakeVectorStore()
+    pipeline, _ = _build_pipeline(tmp_path, FakeLoader(tmp_path), store)
+    source = _write_source(tmp_path)
+    first = pipeline.run(str(source), collection="a")
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("no cleanup expected for same hash")
+
+    store.delete_by_metadata = _boom
+    forced = pipeline.run(str(source), collection="a", force=True)
+
+    assert forced.status == "success"
+    assert len(store.records) == first.chunks
+
+
+def test_version_replacement_in_one_collection_keeps_other_collection(tmp_path):
+    store = FakeVectorStore()
+    pipeline, parts = _build_pipeline(tmp_path, FakeLoader(tmp_path), store)
+    source = _write_source(tmp_path)
+    pipeline.run(str(source), collection="a")
+    in_b = pipeline.run(str(source), collection="b")
+    source.write_bytes(b"source-document-bytes-v2")
+
+    replaced = pipeline.run(str(source), collection="a")
+
+    # chunk_id 不含 collection，b 的写入覆盖了同 id 记录；a 的替换不能波及它们。
+    old_b = [r for r in store.records.values() if r.metadata.get("collection") == "b"]
+    assert len(old_b) == in_b.chunks
+    assert {r.id.split("_", 1)[0] for r in old_b} == {in_b.doc_hash}
+    assert parts["image_storage"].count(doc_hash=in_b.doc_hash) == 1
+    reloaded = BM25Indexer(index_path=tmp_path / "db" / "bm25" / "index.json").load()
+    assert reloaded.remove_document(in_b.doc_hash) == in_b.chunks
+    assert reloaded.remove_document(replaced.doc_hash) == replaced.chunks
 
 
 # ---------------------------------------------------------------------------
@@ -469,7 +530,7 @@ def test_unknown_extension_without_injected_loader(tmp_path):
         integrity_checker=SQLiteIntegrityChecker(db_path=tmp_path / "db" / "ih.db"),
         bm25_indexer=BM25Indexer(settings, index_path=tmp_path / "db" / "bm25" / "index.json"),
     )
-    source = tmp_path / "notes.docx"
+    source = tmp_path / "notes.txt"
     source.write_bytes(b"not a pdf")
 
     with pytest.raises(IngestionPipelineError) as exc_info:
@@ -477,7 +538,7 @@ def test_unknown_extension_without_injected_loader(tmp_path):
 
     assert exc_info.value.stage == "load"
     assert "no loader registered" in str(exc_info.value)
-    assert "'.docx'" in str(exc_info.value)
+    assert "'.txt'" in str(exc_info.value)
 
 
 def test_empty_document_succeeds_with_zero_chunks(tmp_path):

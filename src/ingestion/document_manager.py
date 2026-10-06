@@ -32,7 +32,11 @@ __all__ = [
 
 @dataclass
 class DocumentInfo:
-    """已摄入文档的列表项。"""
+    """已摄入文档的列表项。
+
+    ``doc_hash`` 为单值视图：多代版本并存时取 ``sorted(hashes)[0]``，
+    不保证是最新版本；最新哈希以历史表 v2 的 ``file_hash`` 为准。
+    """
 
     source_path: str
     collection: str
@@ -56,7 +60,11 @@ class DocumentInfo:
 
 @dataclass
 class DocumentDetail:
-    """单个文档的完整详情（chunk + 图片）。"""
+    """单个文档的完整详情（chunk + 图片）。
+
+    ``doc_hash`` 口径同 ``DocumentInfo``（``sorted(hashes)[0]``）；
+    ``images`` 汇总全部哈希的图片。
+    """
 
     source_path: str
     collection: str
@@ -184,21 +192,16 @@ class DocumentManager:
         history = self._history_index()
         documents: list[DocumentInfo] = []
         for (source, col), chunks in grouped.items():
-            doc_hash = self._doc_hash_of(chunks)
-            ingested_at = None
-            if doc_hash and doc_hash in history:
-                ingested_at = history[doc_hash].get("processed_at")
-            elif source in history:
-                ingested_at = history[source].get("processed_at")
+            hashes = self._doc_hashes_of(chunks)
             first_meta = (chunks[0].get("metadata") or {}) if chunks else {}
             documents.append(
                 DocumentInfo(
                     source_path=source,
                     collection=col,
                     chunk_count=len(chunks),
-                    image_count=self._image_count(doc_hash, chunks),
-                    ingested_at=ingested_at,
-                    doc_hash=doc_hash,
+                    image_count=self._image_count(hashes, chunks),
+                    ingested_at=self._ingested_at(history, hashes, source),
+                    doc_hash=self._primary_hash(hashes),
                     title=first_meta.get("title") or source,
                 )
             )
@@ -226,16 +229,13 @@ class DocumentManager:
                 for chunk in chunks
                 if (chunk.get("metadata") or {}).get("collection") == col
             ]
-        doc_hash = self._doc_hash_of(chunks)
+        hashes = self._doc_hashes_of(chunks)
         history = self._history_index()
-        ingested_at = None
-        if doc_hash and doc_hash in history:
-            ingested_at = history[doc_hash].get("processed_at")
-        elif doc_id in history:
-            ingested_at = history[doc_id].get("processed_at")
-        images = []
-        if doc_hash:
-            images = [record.to_dict() for record in self._get_images().list_images(doc_hash=doc_hash)]
+        images = [
+            record.to_dict()
+            for doc_hash in sorted(hashes)
+            for record in self._get_images().list_images(doc_hash=doc_hash)
+        ]
         first_meta = (chunks[0].get("metadata") or {}) if chunks else {}
         return DocumentDetail(
             source_path=doc_id,
@@ -243,49 +243,168 @@ class DocumentManager:
             chunk_count=len(chunks),
             chunks=chunks,
             images=images,
-            ingested_at=ingested_at,
-            doc_hash=doc_hash,
+            ingested_at=self._ingested_at(history, hashes, doc_id),
+            doc_hash=self._primary_hash(hashes),
             title=first_meta.get("title") or doc_id,
         )
 
     def delete_document(self, source_path: str, collection: str) -> DeleteResult:
-        """协调删除 Chroma + BM25 + ImageStorage + FileIntegrity。"""
+        """协调删除 Chroma + BM25 + ImageStorage + FileIntegrity。
+
+        遍历该 ``(source_path, collection)`` 在 Chroma 中出现的**全部**
+        doc_hash（多代版本并存时逐一清理），各存储删除计数按哈希聚合。
+        顺序固定为 BM25 → Chroma → 图片 → 历史表（历史表最后：它是
+        「是否存在」的判定基准）；重复执行结果一致（可重入幂等）。
+
+        BM25 / 图片不区分 collection（chunk_id 与图片目录只含 doc_hash），
+        因此某哈希仍被其他 ``(source_path, collection)`` 的 Chroma 记录引用时
+        跳过该哈希的 BM25 / 图片删除，避免越界删掉其他集合的数据。
+        BM25 ``save`` 失败仅告警、不回滚已删除的内存索引。
+        """
+        self._validate_scope(source_path, collection)
+        chunks = self._get_store().get_by_metadata(
+            {"source_path": source_path, "collection": collection}
+        )
+        hashes = self._doc_hashes_of(chunks)
+        result = self._purge(source_path, collection, hashes)
+        result.integrity_removed = self._remove_history(source_path, collection, hashes)
+        self._logger.info(
+            "deleted document %s collection=%s hashes=%d chroma=%d bm25=%d images=%d integrity=%s",
+            source_path, collection, len(hashes), result.chroma_deleted, result.bm25_deleted,
+            result.images_deleted, result.integrity_removed,
+        )
+        return result
+
+    def prepare_version_replacement(
+        self, source_path: str, collection: str, file_hash: str
+    ) -> DeleteResult | None:
+        """再摄取前清理同 ``(source_path, collection)`` 的旧版本残留（IR2.2）。
+
+        仅当历史表记录的 ``file_hash`` 存在且不同于 ``file_hash`` 时执行：
+        清理旧哈希及 Chroma 中该范围内除当前哈希外的全部哈希
+        （BM25 → Chroma → 图片，跨集合共享的哈希跳过 BM25 / 图片）。
+        历史表记录保留不删，由随后的 ``mark_success`` / ``mark_failed`` 覆盖，
+        这样清理中途失败后重跑仍能识别为版本替换。
+
+        Returns:
+            执行了清理时返回删除计数；无需替换时返回 None。
+
+        Raises:
+            任一存储清理失败时原样抛出（调用方据此中止本次摄取）。
+        """
+        self._validate_scope(source_path, collection)
+        record = self._get_integrity().get_record(source_path, collection)
+        old_hash = (record or {}).get("file_hash")
+        if not old_hash or old_hash == file_hash:
+            return None
+        chunks = self._get_store().get_by_metadata(
+            {"source_path": source_path, "collection": collection}
+        )
+        hashes = (self._doc_hashes_of(chunks) | {str(old_hash)}) - {file_hash}
+        result = self._purge(source_path, collection, hashes, strict_save=True)
+        self._logger.info(
+            "replaced old version of %s collection=%s old_hashes=%d chroma=%d bm25=%d images=%d",
+            source_path, collection, len(hashes), result.chroma_deleted, result.bm25_deleted,
+            result.images_deleted,
+        )
+        return result
+
+    @staticmethod
+    def _validate_scope(source_path: str, collection: str) -> None:
         if not isinstance(source_path, str) or not source_path:
             raise ValueError("source_path must be a non-empty string")
         if not isinstance(collection, str) or not collection:
             raise ValueError("collection must be a non-empty string")
-        chunks = self._get_store().get_by_metadata(
-            {"source_path": source_path, "collection": collection}
-        )
-        doc_hash = self._doc_hash_of(chunks)
+
+    def _purge(
+        self,
+        source_path: str,
+        collection: str,
+        hashes: set[str],
+        *,
+        strict_save: bool = False,
+    ) -> DeleteResult:
+        """按固定顺序清理 BM25 → Chroma → 图片（不碰历史表）。
+
+        ``strict_save=True`` 时 BM25 ``save`` 失败直接抛出：版本替换随后的
+        store 会从磁盘重新 ``load`` 索引，吞掉失败会让旧 postings 复活。
+        """
+        exclusive = {
+            doc_hash
+            for doc_hash in hashes
+            if not self._hash_used_elsewhere(doc_hash, source_path, collection)
+        }
+        bm25_deleted = 0
+        if exclusive:
+            bm25 = self._get_bm25()
+            for doc_hash in sorted(exclusive):
+                bm25_deleted += bm25.remove_document(doc_hash)
+            try:
+                bm25.save()
+            except Exception as exc:  # 持久化失败不回滚已删除内存索引
+                if strict_save:
+                    raise
+                self._logger.warning("bm25 save after delete failed: %s", exc)
         chroma_deleted = self._get_store().delete_by_metadata(
             {"source_path": source_path, "collection": collection}
         )
-        bm25_deleted = 0
-        if doc_hash:
-            bm25_deleted = self._get_bm25().remove_document(doc_hash)
-            try:
-                self._get_bm25().save()
-            except Exception as exc:  # 持久化失败不回滚已删除内存索引
-                self._logger.warning("bm25 save after delete failed: %s", exc)
         images_deleted = 0
-        if doc_hash:
-            images_deleted = self._get_images().delete_images(doc_hash=doc_hash)
-        integrity_removed = False
-        if doc_hash:
-            integrity_removed = bool(self._get_integrity().remove_record(doc_hash))
-        self._logger.info(
-            "deleted document %s collection=%s chroma=%d bm25=%d images=%d integrity=%s",
-            source_path, collection, chroma_deleted, bm25_deleted, images_deleted, integrity_removed,
-        )
+        for doc_hash in sorted(exclusive):
+            images_deleted += self._get_images().delete_images(doc_hash=doc_hash)
         return DeleteResult(
             source_path=source_path,
             collection=collection,
             chroma_deleted=chroma_deleted,
             bm25_deleted=bm25_deleted,
             images_deleted=images_deleted,
-            integrity_removed=integrity_removed,
         )
+
+    def _hash_used_elsewhere(self, doc_hash: str, source_path: str, collection: str) -> bool:
+        """Chroma 中是否有其他 ``(source_path, collection)`` 的 chunk 携带该哈希。"""
+        store = self._get_store()
+        for key in ("sha256", "doc_hash"):
+            for record in store.get_by_metadata({key: doc_hash}):
+                metadata = record.get("metadata") or {}
+                if (
+                    metadata.get("source_path") != source_path
+                    or metadata.get("collection") != collection
+                ):
+                    return True
+        return False
+
+    def _remove_history(self, source_path: str, collection: str, hashes: set[str]) -> bool:
+        """删除本范围历史记录，并清掉同路径、同哈希但已无数据的陈旧记录。
+
+        陈旧记录典型来源：v1 迁移进来的 ``default`` 集合记录，或 Chroma 中
+        已被其他集合覆盖的记录（chunk_id 不含 collection）。其他集合仍有
+        数据的记录保留，以免其下次摄取失去增量判定基准。
+        """
+        integrity = self._get_integrity()
+        removed = bool(integrity.remove_record(source_path=source_path, collection=collection))
+        if not hashes:
+            return removed
+        try:
+            records = integrity.list_processed()
+        except Exception as exc:
+            self._logger.warning("list_processed failed during delete: %s", exc)
+            return removed
+        store = self._get_store()
+        for record in records:
+            record_source = record.get("source_path") or record.get("file_path")
+            record_hash = record.get("file_hash")
+            record_collection = record.get("collection") or collection
+            if record_hash not in hashes or record_source not in (source_path, None):
+                continue
+            if record_source is not None and record_collection != collection and store.get_by_metadata(
+                {"source_path": source_path, "collection": record_collection}
+            ):
+                continue
+            if record_source is None:
+                ok = integrity.remove_record(record_hash, collection=record_collection)
+            else:
+                ok = integrity.remove_record(source_path=record_source, collection=record_collection)
+            removed = bool(ok) or removed
+        return removed
 
     def get_collection_stats(self, collection: str | None = None) -> list[CollectionStats]:
         """返回集合级统计；``collection`` 给定时只返回该集合。"""
@@ -319,10 +438,10 @@ class DocumentManager:
                 index[str(file_path)] = record
         return index
 
-    def _image_count(self, doc_hash: str | None, chunks: list[dict[str, Any]]) -> int:
-        if doc_hash:
+    def _image_count(self, hashes: set[str], chunks: list[dict[str, Any]]) -> int:
+        if hashes:
             try:
-                return int(self._get_images().count(doc_hash=doc_hash))
+                return sum(int(self._get_images().count(doc_hash=h)) for h in sorted(hashes))
             except Exception:
                 pass
         refs: set[str] = set()
@@ -333,16 +452,34 @@ class DocumentManager:
         return len(refs)
 
     @staticmethod
-    def _doc_hash_of(chunks: list[dict[str, Any]]) -> str | None:
+    def _doc_hashes_of(chunks: list[dict[str, Any]]) -> set[str]:
+        """收集 chunks 涉及的全部去重 doc_hash（metadata 两键 + chunk_id 前缀）。"""
+        hashes: set[str] = set()
         for chunk in chunks:
             metadata = chunk.get("metadata") or {}
             for key in ("sha256", "doc_hash"):
                 value = metadata.get(key)
                 if isinstance(value, str) and value:
-                    return value
+                    hashes.add(value)
             chunk_id = chunk.get("id") or ""
             if isinstance(chunk_id, str) and "_" in chunk_id:
                 prefix = chunk_id.split("_", 1)[0]
                 if len(prefix) >= 16:
-                    return prefix
+                    hashes.add(prefix)
+        return hashes
+
+    @staticmethod
+    def _primary_hash(hashes: set[str]) -> str | None:
+        """单值消费点的口径：取 ``sorted(hashes)[0]``（多代并存时不代表最新版本）。"""
+        return sorted(hashes)[0] if hashes else None
+
+    @staticmethod
+    def _ingested_at(
+        history: dict[str, dict[str, Any]], hashes: set[str], source: str
+    ) -> str | None:
+        for doc_hash in sorted(hashes):
+            if doc_hash in history:
+                return history[doc_hash].get("processed_at")
+        if source in history:
+            return history[source].get("processed_at")
         return None

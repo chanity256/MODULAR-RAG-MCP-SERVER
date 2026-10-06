@@ -5,7 +5,8 @@ transform→encode→store），对失败步骤抛出带阶段上下文的清晰
 
 1. **integrity**：``compute_sha256`` + ``should_skip``（C2）——未变更且非
    ``force`` 时零成本跳过（直接返回 ``status="skipped"``）。
-2. **load**：按文件扩展名路由 Loader（当前 ``.pdf`` → ``PdfLoader``，C3）；
+2. **load**：按文件扩展名路由 Loader（``.pdf`` → ``PdfLoader``，C3；
+   DOCX/PPTX/XLSX/HTML → ``MarkitdownLoader``，IR5）；
    可注入 ``BaseLoader`` 供测试/新格式复用。
 3. **split**：``DocumentChunker``（C4）产出确定性 chunk id，并把本次
    ``collection`` 写入每个 chunk 的 ``metadata["collection"]``（供 D 阶段
@@ -55,6 +56,8 @@ from ingestion.storage import BM25Indexer, ImageStorage, VectorUpserter
 from ingestion.transform import ChunkRefiner, ImageCaptioner, MetadataEnricher
 from libs.loader.base_loader import BaseLoader
 from libs.loader.file_integrity import FileIntegrityChecker
+from libs.loader.markitdown_loader import SUPPORTED_EXTENSIONS as MARKITDOWN_EXTENSIONS
+from libs.loader.markitdown_loader import MarkitdownLoader
 from libs.loader.pdf_loader import PdfLoader
 from observability.logger import get_logger
 
@@ -90,7 +93,8 @@ STAGE_UPSERT = "upsert"
 ProgressCallback = Callable[[str, int, int], None]
 
 #: 扩展名 -> Loader 构造规则（新格式在此登记或注入 ``BaseLoader``）。
-_SUPPORTED_EXTENSIONS = {".pdf"}
+#: ``.md`` 刻意不登记（Markdown 结构化摄取归 OBSIDIAN V 系列）。
+_SUPPORTED_EXTENSIONS = {".pdf"} | set(MARKITDOWN_EXTENSIONS)
 
 
 class IngestionPipelineError(RuntimeError):
@@ -325,7 +329,10 @@ class IngestionPipeline:
                 len(chunks), len(vectors[0]) if vectors else None, len(sparse_stats),
             )
 
-            # ---- 阶段 6：store（BM25 → 向量 → 图片） ----
+            # ---- 阶段 6：store（旧版本清理 → BM25 → 向量 → 图片） ----
+            # 清理失败同样记为 store 阶段并中止，不进入新旧混合写入。
+            with self._stage(STAGE_STORE, source):
+                replaced = self._prepare_version_replacement(source, collection, file_hash)
             with self._stage(STAGE_STORE, source):
                 written, images_persisted = self._store(
                     document, chunks, sparse_stats, vectors,
@@ -338,6 +345,7 @@ class IngestionPipeline:
                         "chunks": len(chunks),
                         "written": written,
                         "images": images_persisted,
+                        "replaced": replaced.to_dict() if replaced is not None else None,
                     },
                 )
 
@@ -459,6 +467,44 @@ class IngestionPipeline:
         self._emit_progress(on_progress, STAGE_UPSERT, 3, 3)
         return summary.written, images_persisted
 
+    def _prepare_version_replacement(self, source: str, collection: str, file_hash: str):
+        """历史记录哈希与当前不同时，经 ``DocumentManager`` 清理旧版本（M2）。
+
+        Returns:
+            执行清理时为 ``DeleteResult``，无需替换时为 None。
+        """
+        try:
+            record = self._integrity_checker.get_record(source, collection)
+        except NotImplementedError:
+            # 只实现 v1 最小契约的自定义检查器没有路径维度记录，无法判定版本替换。
+            return None
+        old_hash = (record or {}).get("file_hash")
+        if not old_hash or old_hash == file_hash:
+            return None
+        # DocumentManager 会在共享的索引器实例上删除后整体 save；
+        # 内存态必须先与磁盘对齐，否则空的内存索引会覆盖掉磁盘上的全量索引。
+        try:
+            self._bm25_indexer.load()
+        except FileNotFoundError:
+            pass
+        from ingestion.document_manager import DocumentManager
+
+        manager = DocumentManager(
+            chroma_store=self._vector_upserter.store,
+            bm25_indexer=self._bm25_indexer,
+            image_storage=self._image_storage,
+            file_integrity=self._integrity_checker,
+            settings=self._settings,
+        )
+        result = manager.prepare_version_replacement(source, collection, file_hash)
+        if result is not None:
+            self._logger.info(
+                "cleared old version of %s (old hash=%s..., collection=%s): chroma=%d bm25=%d images=%d",
+                source, str(old_hash)[:12], collection,
+                result.chroma_deleted, result.bm25_deleted, result.images_deleted,
+            )
+        return result
+
     # ------------------------------------------------------------------
     # 内部：组件解析与工具
     # ------------------------------------------------------------------
@@ -492,13 +538,28 @@ class IngestionPipeline:
         self._initialized = True
 
     def _resolve_loader(self, source: str) -> BaseLoader:
-        """返回注入的 loader，或按扩展名路由（当前仅 ``.pdf``）。"""
-        if self._loader is not None:
-            return self._loader
+        """返回注入的 loader，或按扩展名路由（``.pdf`` → ``PdfLoader``，
+        DOCX/PPTX/XLSX/HTML → ``MarkitdownLoader``）。
+
+        路由结果按扩展名缓存；``self._loader`` 同步指向本次使用的 loader，
+        ``_version_tags`` 据此推导 parser 版本，因此判断是否注入必须看
+        ``self._injected`` 而不是 ``self._loader``。
+        """
+        injected = self._injected["loader"]
+        if injected is not None:
+            return injected
         suffix = Path(source).suffix.lower()
-        if suffix == ".pdf":
-            self._loader = PdfLoader(images_root=str(self._image_storage.images_root))
-            return self._loader
+        routed: dict[str, BaseLoader] = self.__dict__.setdefault("_routed_loaders", {})
+        loader = routed.get(suffix)
+        if loader is None:
+            if suffix == ".pdf":
+                loader = PdfLoader(images_root=str(self._image_storage.images_root))
+            elif suffix in MARKITDOWN_EXTENSIONS:
+                loader = MarkitdownLoader()
+        if loader is not None:
+            routed[suffix] = loader
+            self._loader = loader
+            return loader
         raise IngestionPipelineError(
             f"stage 'load' failed for {source}: "
             f"no loader registered for extension {suffix!r} (supported: {sorted(_SUPPORTED_EXTENSIONS)})",

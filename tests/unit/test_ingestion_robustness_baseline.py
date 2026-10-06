@@ -198,7 +198,6 @@ def test_a1_same_file_into_second_collection_is_not_skipped(tmp_path):
 # ===========================================================================
 
 
-@pytest.mark.xfail(strict=False, reason="A2: old-version chunks survive re-ingest; fixed by IR2.2")
 def test_a2_modified_file_reingest_leaves_no_old_version(tmp_path):
     store = FakeVectorStore()
     pipeline, parts = _build_pipeline(tmp_path, FakeLoader(tmp_path), store)
@@ -265,7 +264,6 @@ def test_a3_snapshot_chroma_side_already_covers_both_generations(two_generation_
     assert stack["store"].get_by_metadata({"source_path": "docs/a.pdf"}) == []
 
 
-@pytest.mark.xfail(strict=False, reason="A3: _doc_hash_of returns only the first hash; fixed by IR2.1")
 def test_a3_delete_mixed_generation_document_clears_every_hash(two_generation_stack):
     stack = two_generation_stack
 
@@ -337,11 +335,10 @@ def test_a5_failed_record_carries_failed_stage(tmp_path):
 
 
 # ===========================================================================
-# A6：只支持 .pdf
+# A6：只支持 .pdf（IR5.2 已修复）
 # ===========================================================================
 
 
-@pytest.mark.xfail(strict=False, reason="A6: only .pdf is registered; fixed by IR5.2")
 @pytest.mark.parametrize("ext", [".docx", ".pptx", ".xlsx", ".html"])
 def test_a6_markitdown_extensions_are_dual_registered(ext):
     cli = _load_cli()
