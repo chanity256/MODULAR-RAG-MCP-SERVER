@@ -1,5 +1,5 @@
 {
-  "_comment": "S0.2 golden 问题集（SIRCHMUNK_INTEGRATION_SPEC 第 7 章）：旁路对比与 G1 复测共用。三类各 ≥2 条；禁用打招呼型措辞（sirchmunk 对 'hi'/'test' 短路闲聊，spec 4.6）。category: identifier=精确标识符 / format=非 PDF 格式 / multihop=多跳跨文档。results 字段由 scripts/sirchmunk/compare.py 回填。",
+  "_comment": "S0.2 golden 问题集（SIRCHMUNK_INTEGRATION_SPEC 第 7 章）：旁路对比与 G1 复测共用。三类各 ≥2 条；禁用打招呼型措辞（sirchmunk 对 'hi'/'test' 短路闲聊，spec 4.6）。category: identifier=精确标识符 / format=非 PDF 格式 / multihop=多跳跨文档。results 字段由 scripts/sirchmunk/compare.py 回填。2026-10-06 修订：原 Q3 问「README 中的摄取 CLI 验收标准」，经核实 README 无任何 acceptance/验收内容，属坏题（spec 第 7 章 G0 机制分析第 3 条）；已改写为 README 运行手册中真实存在的 Dashboard 启动命令考点。",
   "questions": [
     {
       "id": "Q1",
@@ -16,7 +16,7 @@
     {
       "id": "Q3",
       "category": "format",
-      "query": "Summarize the acceptance criteria recorded in the project README run manual for the ingestion CLI.",
+      "query": "According to the README run manual, which command starts the Streamlit Dashboard?",
       "expected_sources": ["README.md"]
     },
     {
