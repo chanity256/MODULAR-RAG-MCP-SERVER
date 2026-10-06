@@ -43,7 +43,7 @@
 | **Ingestion Pipeline** | PDF → Markdown → Chunk → Transform → Embedding → Upsert | 全链路数据摄取，支持多模态图片描述（Image Captioning） |
 | **Hybrid Search** | Dense (向量) + Sparse (BM25) + RRF Fusion + Rerank | 粗排召回 + 精排重排的两段式检索架构 |
 | **MCP Server** | 标准 MCP 协议暴露 Tools | `query_knowledge_hub`、`list_collections`、`get_document_summary` |
-| **Dashboard** | Streamlit 六页面管理平台 | 系统总览 / 数据浏览 / Ingestion 管理 / 摄取追踪 / 查询追踪 / 评估面板 |
+| **Dashboard** | Streamlit 七页面管理平台 | 检索（在线检索）/ 系统总览 / 数据浏览 / Ingestion 管理 / 摄取追踪 / 查询追踪 / 评估面板 |
 | **Evaluation** | Ragas + Custom 评估体系 | 支持 golden test set 回归测试，拒绝"凭感觉"调优 |
 | **Observability** | 全链路白盒化追踪 | Ingestion 与 Query 两条链路的每一个中间状态透明可见 |
 | **Skill 驱动全流程** | 从编写到测试、打包、配置一键完成 | auto-coder / qa-tester / package / setup 等 Skill 覆盖完整开发生命周期（笔记中每个 Skill 的使用和设计思路均有讲解，请参考配套视频） |
@@ -244,6 +244,8 @@ python scripts/evaluate.py --retrieval-mode hybrid+agentic --agentic-trigger alw
 
 **Dashboard 展示**：Query 追踪页基于 trace 的 `agentic_search` 阶段动态渲染（模式/Token/调用次数/证据文件列表），未启用时自然隐藏；系统总览页配置卡显示 agentic 开关与 backend。
 
+**在线检索页（S4）**：Dashboard 导航「检索」分组 → 「在线检索」提供三模式在线查询，不写代码、不敲 CLI 也能检索。Normal / Fast / Deep 三个模式按钮默认选中 Normal；门控严格遵守 settings——Fast 需 `agentic_search.enabled: true`（否则置灰并悬停提示开启方法与 sidecar 启动），Deep 另需 `allow_deep: true`；collection 输入仅 Normal 模式显示，Deep 检索时提示「可能需要数十秒」。结果区共有 Markdown 答案与引用表（来源/页码/分数），Fast/Deep 额外展示 Agentic 答案、模式、Token、LLM 调用次数、耗时与证据文件；sidecar 不可用或参数非法以页面错误提示友好展示。每次检索自动写入 trace，可到「Query 追踪」页查看各阶段耗时。
+
 **安全边界与默认关闭**：第三路复用 PathGuard fail-closed 防护，且 `enabled: false` 为默认口径——G0 终裁结论是本仓库自指语料上裸 rg 6/6 严格优于 sidecar，故 agentic 路默认不参与检索；是否启用由真实语料场景决定。真实 sidecar 的相关测试永不自动运行，须显式 `RAG_AGENTIC_INTEGRATION=1` 门控（见第 8 节）。
 
 ### 6. 启动 Dashboard
@@ -254,10 +256,11 @@ python scripts/start_dashboard.py
 streamlit run src/observability/dashboard/app.py
 ```
 
-浏览器打开 http://localhost:8501，六个页面：
+浏览器打开 http://localhost:8501，七个页面（按导航分组）：
 
 | 页面 | 功能 |
 |------|------|
+| 在线检索（检索分组） | 三模式在线查询：Normal / Fast / Deep（agentic，默认关闭）、引用表与 agentic 指标 |
 | 系统总览 | 组件配置卡片 + 数据资产统计 + 最近 trace 健康状态 |
 | 数据浏览器 | 文档/Chunk/图片浏览（按集合筛选、关键词搜索） |
 | Ingestion 管理 | 上传文件触发摄取（进度条）、删除文档 |
@@ -498,7 +501,7 @@ Skill 采用 **"写作原则 + 项目亮点 + 用户画像 = 定制化简历"** 
 - 设计 Agent + RAG 分层架构，Agent 端负责意图识别与 Tool Calling，RAG 端提供 BM25 + Dense Embedding 混合召回 + Cross-Encoder 精排的两段式检索能力，通过 MCP 协议暴露标准化工具接口供 Agent 调用
 - 实现全链路 Ingestion Pipeline，支持 PDF / Markdown 多格式文档解析，集成 Vision LLM 自动生成图片描述（架构图、截图等），解决"搜文字出图"的多模态检索需求
 - 构建可插拔后端架构，LLM / Embedding / Reranker / VectorStore 均定义抽象接口，支持 Azure OpenAI ↔ DeepSeek ↔ Ollama 一键切换，适配团队不同网络环境
-- 搭建 Streamlit Dashboard 管理平台，提供数据浏览、Ingestion 追踪、查询追踪、评估面板六大功能页，实现全链路白盒化可观测
+- 搭建 Streamlit Dashboard 管理平台，提供数据浏览、在线检索、Ingestion 追踪、查询追踪、评估面板七大功能页，实现全链路白盒化可观测
 - 集成 Ragas 评估框架 + Golden Test Set 回归测试，在版本迭代中持续监控检索质量，Faithfulness 评分稳定在 0.85 以上
 - 采用 Skill 驱动全流程开发模式，编写 DEV_SPEC 规格文档驱动 auto-coder 自动编码、qa-tester 自动测试与修复、setup 一键环境配置，5 大 Agent Skill 覆盖完整开发生命周期，2 个月业余时间完成 68 个子任务交付
 
