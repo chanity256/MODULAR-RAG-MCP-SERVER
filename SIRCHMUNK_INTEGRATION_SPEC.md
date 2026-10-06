@@ -32,7 +32,7 @@
 | 能否整合？ | **可以**。协议兼容（本项目 MIT，sirchmunk Apache-2.0，依赖无版本冲突），本项目的可插拔架构天然留有接入点。 |
 | 应该怎么定位？ | **作为「无索引 Agentic 检索」独立 MCP Tool 与（P2 门控后）条件第三路**，与现有 Dense + BM25 + Rerank 互补，**不替换** Chroma/BM25 主链路。 |
 | 运行方式（已决策） | **HTTP Sidecar（进程外隔离）**：sirchmunk 装在独立 venv，以 `sirchmunk serve`（FastAPI，绑定 127.0.0.1 + Bearer Token）常驻；本项目通过同步 httpx 调用 `POST /api/v1/search`。**主 venv 永不 import sirchmunk。** |
-| 实施范围（已决策） | **P0–P1 为承诺任务**（S0/S1）；**P2/P3 为门控任务**（S2/S3）：仅当 P0 对比与 P1 工具验收证明有明确增益后才启动。 |
+| 实施范围（已决策） | **P0–P1 为承诺任务**（S0/S1）；**P2/P3 为门控任务**（S2/S3）：仅当 P0 对比与 P1 工具验收证明有明确增益后才启动（**2026-10-06 最终裁决：G0 关闭，S2/S3 不启动**，见第 7 章「G0 重开复测与最终裁决」）。 |
 | 主要代价 | 延迟（FAST 规格预估 2–5s，S0 实测 4.6–13.6s/条（`deepseek-v4-flash`，见 7 章「S0 延迟分析与优化」）；DEEP 数十秒）、每次查询 2～N 次 LLM 调用、结果非确定性、sidecar 依赖重（torch / kreuzberg / duckdb / igraph / rg / rga）、0.x API 无 changelog 演进快。 |
 
 ### 1.2 Sirchmunk 是什么
@@ -447,6 +447,35 @@ LENS_HARD_TOKEN_BUDGET=true            # 超预算硬失败，防客户端断连
 4. **非确定性机制**：LLM 关键词抽取逐轮不同（三轮 Primary/Fallback 关键词列表均不同）→ 文件打分随之漂移 → 命中翻转（Q1 ❌❌→✅、Q2 ✅❌→❌）。翻转源于此，而非网络抖动。
 
 **重开 G0 的候选路径（按性价比排序）**：①先修问题集——逐题核实 `expected_sources` 真实存在于语料（剔除/修正 Q3 式坏题），零成本；②裸 rg 基线对照（F5 原计划）——Q1 类标识符题 rg 秒级可中，若基线能到 3–4/6，sidecar 增益论证不成立，这是 G0 真正该比的对象；③DEEP 模式单跑 Q5/Q6 各一次，验证多跳是否兑现（每题数十秒 + token，可作决策依据）；④①–③ 后仍无明确增益，则维持 `enabled: false` 收口，等真实语料场景再评估。
+
+**G0 重开复测与最终裁决（2026-10-06，候选路径 ①–④ 全部执行完毕）**：
+
+① 修问题集（commit `b3aadde`）：Q3 原题问「README 运行手册中摄取 CLI 的验收标准」，核实 README 无任何 acceptance/验收内容，属永不可命中的坏题；重写为 README 运行手册中真实存在的 Dashboard 启动命令考点（保持 format 类考察 Markdown 检索的初衷）。其余 5 题 expected_sources 逐题核实全部真实（Q1 `bm25_indexer.py:70` k1/b 默认值、Q2 `protocol_handler.py:34`、Q4 README 工具表、Q5/Q6 三个文件路径与数据流均存在）。
+
+② 裸 rg 基线（commit `b151801`，`scripts/sirchmunk/rg_baseline.py`）：确定性分词（无 LLM）+ `rg -il`，与 compare.py 同口径排除 `tests/fixtures/**`，source 级命中（≥50% expected_sources 出现在 rg 文件列表）。结果：**6/6 全中**（identifier 2/2、format 2/2、multihop 2/2），每题 8–20 ms、零成本。方法学注脚：OR 关键词较宽泛，但这正是「词法下界」该有的姿态。结果存 `scripts/sirchmunk/rg_baseline_results.json`。
+
+③ DEEP 单跑 Q5/Q6（commit `828df67`，sidecar `b314e11`，DeepSeek，exclude 生效，caffeinate 下无睡眠）：
+
+| 题 | 命中 | 耗时 | LLM 调用 | Token | 说明 |
+|----|------|------|----------|-------|------|
+| Q5 | ✅（multihop 首次命中） | 12.8 s | 6 | 66,421 | 多跳能力确实存在，但 token ≈ FAST 的 2 倍 |
+| Q6 | ❌ | 12.1 s | 0 | 0 | 走 DocQA 直析文档路径，见下两条 |
+
+DEEP 补充发现：Q6 为**「答对引错」**——答案内容完整梳理了图片引用流，但引用 DEV_SPEC.md 等文档而非期望的 3 个 `src/` 实现文件，source 级 <50% 判负；且 **DocQA 支路记账异常**——telemetry 记 0 次 LLM 调用 / 0 token，该路径的 LLM 消耗未进 `total_llm_tokens`，凡涉成本口径的对比均须对此打折扣。
+
+三方对照：
+
+| 方法 | 命中（source 级） | 单条成本 | 单条延迟 |
+|------|------------------|----------|----------|
+| 裸 rg 基线（无 LLM） | **6/6** | 零 | 8–20 ms |
+| FAST（deepseek-v4-flash） | 2/6 | 16–38k token | 4.6–13.6 s |
+| DEEP（Q5/Q6 单跑） | multihop 1/2 | 66k token（Q5） | 12.8 s |
+
+④ **最终裁决：G0 关闭（不通过，不再重测）。**依据：免费、确定性、毫秒级的裸 rg 在同一问题集上 6/6，严格优于两条 LLM 路径——sidecar 的增益论证在本语料上不成立。处置：
+
+- `agentic_search` 维持 `enabled: false` 为永久默认（sidecar 环境与 `scripts/sirchmunk/` 脚本保留，含 rg 基线供后续语料复用）；
+- S2/S3 由「门控未启动」正式改为**不启动**；
+- **重开条件**（取代 F5 方法学改进）：真实业务语料（非本仓库自指语料）+ 存在 rg 基线跑不过的场景（如跨格式语义多跳、对非文本内容的自然语言提问），且复测必须以 rg 基线为必列对照项。
 
 
 
