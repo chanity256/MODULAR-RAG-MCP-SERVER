@@ -65,6 +65,21 @@ agentic_search:
   top_k_files: 5
   max_loops: 6
   max_token_budget: 32000
+  # 第三路触发策略（S2.2，实现见 src/core/query_engine/agentic_trigger.py）：
+  #   tool_only：永不自动触发（默认，只由 MCP 工具显式调用）
+  #   fallback：主路（dense+sparse 融合）信号不足时触发
+  #   always：每次查询都触发（仅实验/评估，生产禁用）
+  trigger: tool_only
+  # fallback 判定的 top 分数下限。cross-encoder 分数是未校准 logits，
+  # 0.5 仅是未校准占位值；阈值必须在独立校准集上标定，
+  # 禁止用评估 golden set 调参（DEV_SPEC 9.5 纪律）。
+  trigger_score_threshold: 0.5
+  # fallback 判定的结果数下限（融合后结果数低于该值视为信号不足）。
+  trigger_min_results: 1
+  # 注意触发时机成本：若用 rerank 后分数触发，fallback 判定发生在 rerank
+  # 之后，而触发第三路后还需把 agentic 结果与主路结果二次融合+重排，
+  # rerank 成本翻倍；S2.3 注入方可改喂 rerank 前信号（如 RRF 名次），
+  # 精度/成本自权衡。
   allowed_roots:                 # PathGuard 白名单（enabled 时必须非空）
     - ./data/documents
   denied_substrings:             # 白名单内仍强制排除（fail-closed）

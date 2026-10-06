@@ -233,6 +233,16 @@ class AgenticSearchConfig:
     top_k_files: int = 5
     max_loops: int = 6
     max_token_budget: int = 32000
+    # ---- 第三路触发策略（S2.2；策略实现见 query_engine/agentic_trigger.py）----
+    # tool_only：永不自动触发（默认，安全值）；fallback：主路信号不足时触发；
+    # always：每次查询都触发（仅实验/评估）。
+    trigger: str = "tool_only"
+    # fallback 判定的 top 分数下限。cross-encoder 分数是未校准 logits，
+    # 此默认值仅是占位、未经校准；阈值必须在独立校准集上标定，
+    # 禁止用评估 golden set 调参（DEV_SPEC 9.5 纪律）。
+    trigger_score_threshold: float = 0.5
+    # fallback 判定的结果数下限（融合后结果数低于该值视为信号不足）。
+    trigger_min_results: int = 1
     # PathGuard 白名单根目录（同时是证据过滤边界；enabled 时必须非空）。
     allowed_roots: list[str] = field(default_factory=list)
     # 白名单内的强制排除子串（fail-closed，宁可误拒）。
@@ -531,6 +541,30 @@ def _build_agentic_search(sec: dict[str, Any]) -> AgenticSearchConfig:
     max_loops = _positive_int("max_loops", 6)
     max_token_budget = _positive_int("max_token_budget", 32000)
 
+    # 触发策略（S2.2）：策略名非法 fail-fast；阈值/下限字段即使当前
+    # 策略用不到也照常校验，保证配置整体一致。
+    trigger = _opt(sec, "trigger", "tool_only")
+    if not isinstance(trigger, str) or trigger not in {"tool_only", "fallback", "always"}:
+        raise ConfigError(
+            f"config field 'agentic_search.trigger' must be tool_only/fallback/always, "
+            f"got {trigger!r}"
+        )
+    trigger_score_threshold = _opt(sec, "trigger_score_threshold", 0.5)
+    if isinstance(trigger_score_threshold, bool) or not isinstance(
+        trigger_score_threshold, (int, float)
+    ) or not 0.0 <= float(trigger_score_threshold) <= 1.0:
+        raise ConfigError(
+            "config field 'agentic_search.trigger_score_threshold' must be a number in [0, 1]"
+        )
+    trigger_min_results = _opt(sec, "trigger_min_results", 1)
+    if isinstance(trigger_min_results, bool) or not isinstance(trigger_min_results, int) or (
+        trigger_min_results < 0
+    ):
+        raise ConfigError(
+            "config field 'agentic_search.trigger_min_results' must be a non-negative integer"
+        )
+
+
     # 跨字段要求放最后：先保证各字段自身格式合法，再校验组合约束。
     if enabled and not allowed_roots_raw:
         raise ConfigError(
@@ -540,6 +574,7 @@ def _build_agentic_search(sec: dict[str, Any]) -> AgenticSearchConfig:
     known = {
         "enabled", "backend", "base_url", "api_token", "mode", "allow_deep",
         "timeout_s", "top_k_files", "max_loops", "max_token_budget",
+        "trigger", "trigger_score_threshold", "trigger_min_results",
         "allowed_roots", "denied_substrings",
     }
     return AgenticSearchConfig(
@@ -553,6 +588,9 @@ def _build_agentic_search(sec: dict[str, Any]) -> AgenticSearchConfig:
         top_k_files=top_k_files,
         max_loops=max_loops,
         max_token_budget=max_token_budget,
+        trigger=trigger,
+        trigger_score_threshold=float(trigger_score_threshold),
+        trigger_min_results=trigger_min_results,
         allowed_roots=list(allowed_roots_raw),
         denied_substrings=list(denied_raw),
         extra=_extra(sec, known),
