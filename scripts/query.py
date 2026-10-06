@@ -14,6 +14,9 @@
 - ``--verbose``：额外显示各阶段中间结果（Dense/Sparse/Fusion 召回、
   Rerank 后端与 fallback 状态）。
 - ``--no-rerank``：跳过 Reranker 阶段（直接返回融合排名）。
+- ``--agentic``（S2.5）：启用第三路 Agentic 检索（注入 HybridSearch 的
+  ``agentic_retriever``，见 S2.3）；需 ``settings.agentic_search.enabled=true``，
+  未启用按用法/配置错误处理（退出码 2）。
 - 默认模式输出：Top-K 结果（序号、score、来源文件、页码、文本摘要）。
 - 无数据/无命中：友好提示先运行 ``scripts/ingest.py`` 摄取数据（退出码 0）。
 
@@ -38,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -54,8 +58,14 @@ from core.settings import ConfigError, Settings, load_settings  # noqa: E402
 from core.trace.persist import persist_trace  # noqa: E402
 from core.trace.trace_context import TRACE_TYPE_QUERY, TraceContext  # noqa: E402
 from core.types import RetrievalResult  # noqa: E402
+from libs.agentic_search import (  # noqa: E402
+    AgenticSearchFactory,
+    AgenticSearchRequest,
+    evidence_to_retrieval_results,
+)
 
 __all__ = [
+    "AgenticRouteAdapter",
     "DEFAULT_CONFIG_PATH",
     "EXIT_OK",
     "EXIT_FAILURE",
@@ -65,6 +75,7 @@ __all__ = [
     "parse_args",
     "build_search",
     "build_reranker",
+    "build_agentic_retriever",
     "run_query",
     "render_result_line",
     "render_no_results",
@@ -106,6 +117,14 @@ class QueryOutcome:
     rerank_applied: bool = False
     rerank_fallback: bool | None = None
     rerank_backend: str | None = None
+    # ---- 第三路 agentic 中间结果（S2.5，仅 --verbose 且 --agentic 时渲染）----
+    agentic_requested: bool = False
+    agentic: list[RetrievalResult] = field(default_factory=list)
+    agentic_triggered: bool | None = None
+    agentic_trigger_reason: str | None = None
+    agentic_source_files: list[str] = field(default_factory=list)
+    agentic_total_llm_tokens: int | None = None
+    agentic_elapsed_ms: float | None = None
     trace_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -162,6 +181,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="跳过 Reranker 精排阶段（直接返回融合排名）",
     )
     parser.add_argument(
+        "--agentic",
+        action="store_true",
+        help="启用第三路 Agentic 检索（需 settings.agentic_search.enabled=true）",
+    )
+    parser.add_argument(
         "--config",
         default=str(DEFAULT_CONFIG_PATH),
         help=f"配置文件路径（默认 {DEFAULT_CONFIG_PATH}）",
@@ -179,9 +203,55 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 
 
-def build_search(settings: Settings) -> HybridSearch:
-    """按 ``Settings`` 构建默认混合检索栈（HybridSearch 内部按需创建组件）。"""
-    return HybridSearch(settings)
+def build_search(settings: Settings, *, agentic_retriever: Any | None = None) -> HybridSearch:
+    """按 ``Settings`` 构建默认混合检索栈（HybridSearch 内部按需创建组件）。
+
+    Args:
+        agentic_retriever: 可选第三路 agentic 检索器（S2.5 ``--agentic``
+            注入；``None`` 时与基线行为逐字节一致）。
+    """
+    return HybridSearch(settings, agentic_retriever=agentic_retriever)
+
+
+class AgenticRouteAdapter:
+    """把 ``BaseAgenticSearch`` 包装成第三路 ``retrieve`` 形态（S2.5）。
+
+    ``HybridSearch`` 的 ``agentic_retriever`` 注入契约（S2.3）是鸭子类型
+    ``retrieve(query, top_k, trace=...) -> list[RetrievalResult]``；本适配器
+    在其下调用 ``backend.search(AgenticSearchRequest)`` 并经
+    ``evidence_to_retrieval_results`` 转换证据。``last_response`` /
+    ``last_elapsed_ms`` 供 ``--verbose`` 展示 Token 与耗时。
+
+    落点说明：仅 CLI 需要此包装，故收敛在脚本内（最小侵入）；如后续
+    MCP tool 等入口也要注入第三路，可平移到 ``libs/agentic_search/``。
+    """
+
+    def __init__(self, backend: Any) -> None:
+        self._backend = backend
+        self.last_response: Any | None = None
+        self.last_elapsed_ms: float | None = None
+
+    @property
+    def backend_name(self) -> str:
+        return getattr(self._backend, "backend_name", type(self._backend).__name__)
+
+    def retrieve(
+        self,
+        query: str,
+        top_k: int | None = None,
+        trace: Any = None,
+    ) -> list[RetrievalResult]:
+        """执行一次 Agentic 检索并转换为 ``RetrievalResult`` 列表。"""
+        started = time.perf_counter()
+        response = self._backend.search(AgenticSearchRequest(query=query))
+        self.last_response = response
+        self.last_elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
+        return evidence_to_retrieval_results(response, top_k=top_k)
+
+
+def build_agentic_retriever(settings: Settings) -> AgenticRouteAdapter:
+    """按 ``settings.agentic_search.backend`` 构建第三路检索适配器（S2.5）。"""
+    return AgenticRouteAdapter(AgenticSearchFactory.create(settings))
 
 
 def build_reranker(settings: Settings) -> Reranker:
@@ -199,6 +269,8 @@ def run_query(
     verbose: bool = False,
     out: Emit | None = None,
     log_file: str | None = None,
+    agentic: bool = False,
+    agentic_adapter: Any | None = None,
 ) -> QueryOutcome:
     """执行一次查询并渲染输出（组件可注入，离线可测）。
 
@@ -240,6 +312,25 @@ def run_query(
 
     outcome.results = list(results)
     outcome.trace_id = trace.trace_id
+
+    # ---- 第三路 agentic 中间结果采集（S2.5，仅 --agentic 时展示）----
+    if agentic:
+        outcome.agentic_requested = True
+        outcome.agentic = list(getattr(search, "last_agentic_results", []) or [])
+        decision = getattr(search, "last_trigger_decision", None)
+        if decision is not None:
+            outcome.agentic_triggered = bool(decision.triggered)
+            outcome.agentic_trigger_reason = getattr(decision, "reason", None)
+        # Token/耗时取**真正执行查询**的适配器：注入 search 时其内部
+        # ``_agentic_retriever`` 与 main 新建的 adapter 不是同一实例。
+        telemetry_adapter = getattr(search, "_agentic_retriever", None) or agentic_adapter
+        if telemetry_adapter is not None:
+            response = getattr(telemetry_adapter, "last_response", None)
+            if response is not None:
+                outcome.agentic_source_files = list(getattr(response, "source_files", []) or [])
+                outcome.agentic_total_llm_tokens = getattr(response, "total_llm_tokens", None)
+            outcome.agentic_elapsed_ms = getattr(telemetry_adapter, "last_elapsed_ms", None)
+
     if log_file:
         persist_trace(trace, log_file=log_file)
 
@@ -306,7 +397,44 @@ def render_verbose_sections(outcome: QueryOutcome) -> str:
         )
     else:
         lines.append("--- rerank (skipped) ---")
+    if outcome.agentic_requested:
+        lines.append(render_agentic_section(outcome))
     return "\n".join(lines)
+
+
+def render_agentic_section(outcome: QueryOutcome) -> str:
+    """渲染 verbose 第三路 agentic 段（S2.5：触发状态/来源文件/Token/耗时）。
+
+    真实 HTTP 后端在 sidecar 进程内运行（本项目侧无 stdout 污染问题），
+    正常 print 即可；输出风格对齐 dense/sparse/fusion/rerank 各段。
+    """
+    if not outcome.agentic_triggered:
+        reason = outcome.agentic_trigger_reason or "no trigger decision"
+        return f"--- agentic (not triggered: {reason}) ---"
+    # 来源优先取响应 source_files（sidecar 引用文件列表），缺失时从
+    # 证据 metadata.source_path 兜底（Fake 后端无 source_files 时仍可展示）。
+    sources = outcome.agentic_source_files or [
+        str(r.metadata.get("source_path") or "-") for r in outcome.agentic
+    ]
+    tokens = (
+        str(outcome.agentic_total_llm_tokens)
+        if outcome.agentic_total_llm_tokens is not None
+        else "-"
+    )
+    elapsed = (
+        f"{outcome.agentic_elapsed_ms:.1f}ms"
+        if outcome.agentic_elapsed_ms is not None
+        else "-"
+    )
+    return "\n".join(
+        [
+            (
+                f"--- agentic ({len(outcome.agentic)} evidences, "
+                f"sources=[{', '.join(sources)}], tokens={tokens}, elapsed={elapsed}) ---"
+            ),
+            _render_stage_items(outcome.agentic),
+        ]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -320,6 +448,7 @@ def main(
     search: Any | None = None,
     reranker: Any | None = None,
     out: Emit | None = None,
+    agentic_backend: Any | None = None,
 ) -> int:
     """CLI 入口（返回进程退出码，不直接 ``sys.exit``）。
 
@@ -332,6 +461,9 @@ def main(
             与未传无法区分时按"构建默认"处理；离线测试请传入 sentinel
             或 ``--no-rerank``。
         out: 输出函数（缺省 ``print``）。
+        agentic_backend: 已构建的 ``BaseAgenticSearch``（``--agentic`` 时
+            包装成第三路检索器注入；测试注入 fake 后端离线运行；缺省按
+            ``settings.agentic_search.backend`` 经工厂构建）。
 
     Returns:
         ``0`` 查询完成（含无命中）；``1`` 检索链路失败；
@@ -340,7 +472,7 @@ def main(
     emit = print if out is None else out
     args = parse_args(argv)
 
-    need_settings = search is None or (reranker is None and not args.no_rerank)
+    need_settings = search is None or args.agentic or (reranker is None and not args.no_rerank)
     settings: Settings | None = None
     if need_settings:
         try:
@@ -349,9 +481,29 @@ def main(
             emit(f"[usage] 配置加载失败: {exc}")
             return EXIT_USAGE
 
+    # ---- 第三路 agentic（S2.5）：enabled=false 明确报错（退出码 2）----
+    agentic_adapter: Any | None = None
+    if args.agentic:
+        assert settings is not None  # need_settings 含 args.agentic
+        if not settings.agentic_search.enabled:
+            emit(
+                "[usage] agentic 第三路未启用：请把 config/settings.yaml 中 "
+                "agentic_search.enabled 改为 true（当前 backend="
+                f"{settings.agentic_search.backend!r}）后重试"
+            )
+            return EXIT_USAGE
+        if agentic_backend is not None:
+            agentic_adapter = AgenticRouteAdapter(agentic_backend)
+        else:
+            try:
+                agentic_adapter = build_agentic_retriever(settings)
+            except Exception as exc:
+                emit(f"[usage] Agentic 后端初始化失败: {exc}")
+                return EXIT_USAGE
+
     if search is None:
         try:
-            search = build_search(settings)
+            search = build_search(settings, agentic_retriever=agentic_adapter)
         except Exception as exc:
             emit(f"[usage] 查询组件初始化失败: {exc}")
             return EXIT_USAGE
@@ -374,6 +526,8 @@ def main(
             verbose=args.verbose,
             out=emit,
             log_file=settings.observability.log_file if settings is not None else None,
+            agentic=args.agentic,
+            agentic_adapter=agentic_adapter,
         )
     except QueryProcessingError as exc:
         emit(f"[usage] 查询无效: {exc}")
