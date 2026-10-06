@@ -151,7 +151,8 @@ S4 追加（Dashboard 在线检索，P4）：
 | 服务层（新增） | `src/observability/dashboard/services/search_service.py` | `SearchService`：`availability(settings)` 返回各模式的可用状态与原因；`run(mode, query, top_k, collection)` 分发至 `QueryKnowledgeHubTool`（normal）或 `AgenticSearchTool`（fast/deep），结果归一化为 `SearchOutcome`（mode/markdown/citations/agentic_meta/is_error/error/elapsed_ms）；工具实例懒构建并会话内缓存 |
 | 页面（新增） | `src/observability/dashboard/pages/query_playground.py` | 「在线检索」页 UI：模式按钮组（默认 Normal）、置灰门控与 help 提示、collection 仅 Normal 显示、按模式渲染结果区、`st.error` 友好错误展示；`render(*, settings=None, search_service=None)` 支持注入 |
 | 页面注册 | `src/observability/dashboard/app.py` | 导航新增分组「检索」，注册「在线检索」页 |
-| 测试（新增/增量） | `tests/unit/test_dashboard_search_service.py`、`tests/e2e/test_dashboard_smoke.py` | 单测用 Fake 后端与 fake HybridSearch 离线覆盖；e2e 冒烟沿用 `AppTest.from_file` driver |
+| 启动编排（交付后增量） | [scripts/start_dashboard.py](scripts/start_dashboard.py) | sidecar 托管：探活 → 自动拉起 → 等健康 → 退出回收（进程隔离不变，见第 7 章「S4 交付后修复与增强」R4） |
+| 测试（新增/增量） | `tests/unit/test_dashboard_search_service.py`、`tests/unit/test_start_dashboard.py`、`tests/e2e/test_dashboard_smoke.py` | 单测用 Fake 后端与 fake HybridSearch 离线覆盖；启动器编排 6 个离线用例；e2e 冒烟沿用 `AppTest.from_file` driver |
 
 > **S4 接口冻结（实现前置）**：先在本节冻结 `SearchOutcome` 与 `SearchService` 接口，随后 S4.1（服务层）与 S4.2（页面 UI，基于 fake service）可并行开发，S4.3 单独收口。不改动检索核心（`core/`、`mcp_server/`、`libs/`），不新增依赖，默认配置不变（`agentic_search.enabled: false`，默认仅 Normal 可用）。
 
@@ -521,12 +522,23 @@ DEEP 补充发现：Q6 为**「答对引错」**——答案内容完整梳理�
 > **接口冻结与并行说明**：S4 启动前先在 3.3 模块清单冻结 `SearchOutcome` 与 `SearchService` 接口；随后 **S4.1（服务层）与 S4.2（页面 UI，基于注入的 fake service 开发）可并行各开一个 agent**，最后由 S4.3 单独收口。S4 不改动检索核心（`core/`、`mcp_server/`、`libs/`），不新增依赖，默认配置不变（`agentic_search.enabled: false`，默认仅 Normal 可用）。
 >
 > **进度备注（2026-10-06，S4 交付）**：S4.1–S4.3 全部完成，全套件离线全绿（**1267 passed / 3 skipped**，较 S3 净增 22）。README 已重建并补齐「在线检索」页用法（5.1 节增量 + Dashboard 页面表 + 六/七页面口径）。
+>
+> **进度备注（2026-10-06，交付后增量）**：按浏览器实机演示反馈完成三项修复/增强（按钮单击高亮时序、三色按钮、测试与仓库当前配置解耦），并新增启动器 sidecar 托管编排（一键启动）；全套件离线全绿（**1273 passed / 3 skipped**，净增 6 个启动器单测），明细见下方「S4 交付后修复与增强」。
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 验收标准 |
 |---------|---------|------|---------|---------|
 | S4.1 | `SearchService` 三模式分发 + 门控 | [x] | 2026-10-06 | normal/fast/deep 正确路由到 `QueryKnowledgeHubTool` / `AgenticSearchTool`；可用性矩阵覆盖 `enabled`、`allow_deep` 的四种组合（`availability(settings)` 返回各模式可用状态与原因）；结果归一化为 `SearchOutcome`（成功、`isError`、`ToolInvalidParams`、空结果四类）；离线单测使用 Fake 后端与 fake HybridSearch，不触网 |
 | S4.2 | 「在线检索」页 UI + 导航注册 | [x] | 2026-10-06 | 模式按钮组默认选中 Normal（primary 高亮）；Fast 需 `enabled=true` 否则置灰（help 提示开启 `agentic_search.enabled` 并启动 sidecar），Deep 另需 `allow_deep=true` 否则置灰（提示开启 `allow_deep`）；collection 输入仅在 Normal 显示；Deep spinner 文案提示「可能需要数十秒」；结果区按模式渲染（共有：Markdown 答案 + 引用表来源/页码/分数；Fast/Deep 额外：agentic 答案、模式、Token、LLM 调用次数、耗时、证据文件）；`isError`/参数非法经 `st.error` 友好展示，页面不崩溃；trace 写入后可在 Query 追踪页查看各阶段；`render(*, settings=None, search_service=None)` 支持注入 |
 | S4.3 | AppTest 冒烟 + 文档收口 | [x] | 2026-10-06 | 冒烟覆盖：默认渲染、agentic 关闭时 Fast/Deep 置灰、注入 fake service 后三模式检索、错误展示（6 个 AppTest 用例）；README 与 USAGE_GUIDE 均增补「在线检索」页用法（页面表更新为七页面口径）；本文档 S4 表格勾选；全套件 `pytest tests -q` 离线全绿（**1267 passed / 3 skipped**） |
+
+#### S4 交付后修复与增强（2026-10-06，浏览器实机演示反馈）
+
+| # | 问题/诉求 | 处置 | 验证 |
+|---|----------|------|------|
+| R1 | 模式按钮单击后高亮不变（需再点一次才变 primary） | Streamlit 按钮无状态：原实现在重跑中更新 session state，但按钮样式当轮已按旧状态渲染（慢一拍）。改为 `on_click` 回调更新（回调先于脚本重跑执行），单击当轮即高亮 | 冒烟新增「单击一次即 primary、Normal 退为 secondary」断言；真实浏览器点击验证 |
+| R2 | 三模式按钮按约定配色：Normal 绿 / Fast 蓝 / Deep 红 | `st.button` 无逐按钮配色能力，页面按列注入 CSS（`stHorizontalBlock > div:nth-child(i) button` 锚定模式行）：选中=实心填充、未选中=同色描边、disabled=置灰；`type=primary/secondary` 参数保留（AppTest `proto.type` 断言兼容） | 真实浏览器截图验证三态与单击切换；15 个冒烟用例全绿 |
+| R3 | 两个测试硬编码假设仓库配置 `enabled=false`，本地开启 agentic 后失败 | 测试与配置解耦：overview 冒烟改用临时配置固定关闭态（正则改写 agentic 节的 `enabled`）；MCP 集成 `test_tools_list_and_unknown_method` 期望工具列表按 `load_settings` 动态推导（`enabled=true` 时注册第 4 个工具，断言语义仍为「注册与配置一致」） | 开/关两种配置下全套件全绿 |
+| R4 | 「一键启动」：启动 Dashboard 时 sidecar 跟着起 | **进程隔离红线不变**（3.1 / 2.2，主 venv 永不 import sirchmunk），改由 `scripts/start_dashboard.py` 编排托管：探活 `/api/v1/search/status`（任何 HTTP 响应含 401 均算存活）→ 未运行则拉起 `start_sidecar.sh`（独立 venv/独立进程）→ 等健康（60s 上限）→ Dashboard 退出时回收；外部已运行的实例只复用不接管；SIGTERM 转 SystemExit 使 finally 统一回收 streamlit/sidecar 子进程；`--no-sidecar` 可完全跳过；sidecar 启动失败仅警告不阻塞（Dashboard 照常跑 Normal） | 端到端验证：单命令双服务起（8501/8584）、对启动器 SIGTERM 后两端口全释放；+6 启动器离线单测（探活两态/复用不接管/拉起等健康/脚本秒退降级）；README 第 6 节与 USAGE_GUIDE 第 5 节同步一键启动口径 |
 
 ---
 
