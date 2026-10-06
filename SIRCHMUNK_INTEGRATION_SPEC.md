@@ -33,7 +33,7 @@
 | 应该怎么定位？ | **作为「无索引 Agentic 检索」独立 MCP Tool 与（P2 门控后）条件第三路**，与现有 Dense + BM25 + Rerank 互补，**不替换** Chroma/BM25 主链路。 |
 | 运行方式（已决策） | **HTTP Sidecar（进程外隔离）**：sirchmunk 装在独立 venv，以 `sirchmunk serve`（FastAPI，绑定 127.0.0.1 + Bearer Token）常驻；本项目通过同步 httpx 调用 `POST /api/v1/search`。**主 venv 永不 import sirchmunk。** |
 | 实施范围（已决策） | **P0–P1 为承诺任务**（S0/S1）；**P2/P3 为门控任务**（S2/S3）：仅当 P0 对比与 P1 工具验收证明有明确增益后才启动。 |
-| 主要代价 | 延迟（FAST 约 2–5s，DEEP 数十秒）、每次查询 2～N 次 LLM 调用、结果非确定性、sidecar 依赖重（torch / kreuzberg / duckdb / igraph / rg / rga）、0.x API 无 changelog 演进快。 |
+| 主要代价 | 延迟（FAST 规格预估 2–5s，S0 实测 4.6–13.6s/条（`deepseek-v4-flash`，见 7 章「S0 延迟分析与优化」）；DEEP 数十秒）、每次查询 2～N 次 LLM 调用、结果非确定性、sidecar 依赖重（torch / kreuzberg / duckdb / igraph / rg / rga）、0.x API 无 changelog 演进快。 |
 
 ### 1.2 Sirchmunk 是什么
 
@@ -189,7 +189,17 @@ P2 追加（门控后）：`src/core/query_engine/fusion.py`（`fuse_routes` N �
 
 - `OpenAIChat` **仅 OpenAI 兼容**（原生 `OpenAI`/`AsyncOpenAI`，`openai_chat.py:222-223`），无 `timeout` 参数；Azure 只有 URL 识别 profile，从不使用 `AzureOpenAI`。
 - 本项目 `settings.llm` 当前为 `provider: azure` 且未配置 endpoint/api_key，不具可用性。
-- **决策**：sidecar 拥有独立 `LLM_*` 环境变量（推荐 ZAI OpenAI 兼容端点，与本项目 embedding/vision 同源），不与 `settings.llm` 耦合；两套配置在文档中明确标注职责差异。
+- **决策**：sidecar 拥有独立 `LLM_*` 环境变量，不与 `settings.llm` 耦合；两套配置在文档中明确标注职责差异。~~推荐 ZAI OpenAI 兼容端点，与本项目 embedding/vision 同源~~（**2026-10-06 修订**：推荐 DeepSeek `deepseek-v4-flash`，理由见 4.5.1）。
+
+#### 4.5.1 LLM 选型：思考模式决定 FAST 延迟（2026-10-06 实证）
+
+- FAST 每次检索固定 2 次 LLM 调用（查询分析 + 回答），rg/rga 扫描仅 0.03–1.4s，**延迟几乎完全由 LLM 决定**（分段数据见 7 章「S0 延迟分析与优化」）。
+- 上游 `OpenAIChat` 只在 provider profile 声明 `thinking_param` 时注入思考开关（`openai_chat.py:279-295`），默认 `enable_thinking=False`：
+  - `deepseek` profile（按 base_url 含 `deepseek.com` 识别）对 `deepseek-v4-*` 发送 `extra_body={"thinking": {"type": "disabled"}}`（已在 sidecar venv 内用 `_build_request_kwargs` 验证）；
+  - `zhipu` profile **无** `thinking_param`，上游不发送任何思考参数。
+- `glm-5.3-flash` **强制思考**：`thinking.type=disabled` 返回错误码 1210（「该模型始终思考，不支持关闭思考」），只能用 `reasoning_effort=low/high/max` 调节，而 sidecar 无法传入该参数。同一小 prompt：默认 8.96s / 285 reasoning tokens，`reasoning_effort=low` 1.5s。
+- **推荐配置**：`LLM_BASE_URL=https://api.deepseek.com`、`LLM_MODEL_NAME=deepseek-v4-flash`。直连探测（小 prompt）：`thinking: disabled` 0.85–1.02s、0 reasoning tokens；不传思考参数 1.51s、199 reasoning tokens——确认关闭思考生效。API 返回的 `model` 字段为别名 `deepseek-flash`，不影响调用。
+- 不推荐：`glm-5.3-flash`（上述原因）；`glm-4.5-*` 等默认思考的 GLM 型号同样无法经 sidecar 关闭思考。
 
 ### 4.6 返回结构与口径（比原分析更细）
 
@@ -268,9 +278,10 @@ agentic_search:
 
 ```bash
 # sirchmunk sidecar — 独立 venv，绑定本机回环 + Bearer
-LLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
-LLM_API_KEY=${ZAI_API_KEY}
-LLM_MODEL_NAME=glm-5.3-flash
+# LLM：推荐 DeepSeek（上游自动关闭 deepseek-v4-* 思考）；勿用强制思考的 glm-5.3-flash（4.5.1）
+LLM_BASE_URL=https://api.deepseek.com
+LLM_API_KEY=<DeepSeek API Key>
+LLM_MODEL_NAME=deepseek-v4-flash
 SIRCHMUNK_WORK_PATH=./data/db/sirchmunk
 SIRCHMUNK_ENABLE_CLUSTER_REUSE=false   # 关闭 embedding 模型下载（4.1）
 SIRCHMUNK_API_TOKEN=<生成一个随机 token，与主项目 agentic_search.api_token 一致>
@@ -344,7 +355,7 @@ LENS_HARD_TOKEN_BUDGET=true            # 超预算硬失败，防客户端断连
 
 **闸门 G0 结论：未通过。**依据：
 - 干净口径命中率 1/6；两轮结果非确定性翻转（Q2 第 1 轮命中、第 2 轮未命中），无可辨稳定增益；
-- FAST 实测延迟 77–256s/条，远超规格预估的 2–5s（全仓首扫 + 真实 LLM 延迟未计入原估计）；
+- FAST 实测延迟 77–256s/条，远超规格预估的 2–5s（~~全仓首扫 + 真实 LLM 延迟未计入原估计~~；**勘误（2026-10-06）**：分段日志显示 rg/rga 扫描仅 0.07–1.36s，延迟几乎全部来自两次 LLM 调用——`glm-5.3-flash` 强制思考 + 流式断连重试，与检索根大小无关，见「S0 延迟分析与优化」）；
 - Token 成本 6.5k–42k/条（glm-5.3-flash）；Q6 第 2 轮仍把问题集文件列为首个证据——~~上游 exclude 语义未完全生效，语料污染无法从调用方根除~~（**勘误**：根因是 `compare.py` 字段名写错，排除规则从未送达上游，属本项目 bug，已修复，见下方「S0 遗留问题修复」；因此第 2 轮并非真正的干净口径）；
 - 唯一命中的 Q4（format 类）问题主链路经 MarkdownLoader 扩展后本可覆盖，不构成引入重依赖 sidecar 的决定性理由。
 
@@ -356,17 +367,76 @@ LENS_HARD_TOKEN_BUDGET=true            # 超预算硬失败，防客户端断连
 
 | # | 问题 | 根因归属 | 处置 | 验证 |
 |---|------|---------|------|------|
-| F1 | 排除 `tests/fixtures/**` 不生效，Q6 引用问题集文件（泄题） | **本项目 bug**：`scripts/sirchmunk/compare.py` 传 `"exclude"`，上游 `SearchRequest` 字段为 `exclude_patterns`，FastAPI 静默丢弃未知字段 | 改为 `"exclude_patterns": ["tests/fixtures/**"]` | ①直跑 `rg -l -g '!tests/fixtures/**' <仓库根>`，fixtures 文件全部消失（`rga` 同）；②真实 sidecar 单跑 Q6（FAST）：**命中**，首个证据 `src/libs/loader/pdf_loader.py`，sidecar 日志中证据文件仅 `pdf_loader.py`、`DEV_SPEC.md`，无 `tests/fixtures/*`；耗时 473,461 ms，LLM 调用 2 次，Token 38,649 |
+| F1 | 排除 `tests/fixtures/**` 不生效，Q6 引用问题集文件（泄题） | **本项目 bug**：`scripts/sirchmunk/compare.py` 传 `"exclude"`，上游 `SearchRequest` 字段为 `exclude_patterns`，FastAPI 静默丢弃未知字段 | 改为 `"exclude_patterns": ["tests/fixtures/**"]` | ①直跑 `rg -l -g '!tests/fixtures/**' <仓库根>`，fixtures 文件全部消失（`rga` 同）；②真实 sidecar 单跑 Q6（FAST）：**命中**，首个证据 `src/libs/loader/pdf_loader.py`，sidecar 日志中证据文件仅 `pdf_loader.py`、`DEV_SPEC.md`，无 `tests/fixtures/*`；~~耗时 473,461 ms~~（**作废**：运行期间 Mac 进入 Idle Sleep，`pmset -g log` 22:52 起多次 Sleep/DarkWake 已确认；sidecar 日志时间戳跨度 1,940s 而 `perf_counter` 仅计 473s，两者均不代表真实处理耗时），LLM 调用 2 次，Token 38,649；命中结论仍有效 |
 | F2 | sidecar 启动崩溃（缺 `python-multipart`） | 上游未声明依赖 | `setup_venv.sh` 在安装 sirchmunk 后显式 `pip install python-multipart`（不改上游 `pyproject`） | `bash -n` 语法检查通过；现有 venv 已含该包，sidecar 启动 + preflight 三连全绿；未从零重建 venv 实测 |
 | F3 | 无 token 返回 500 而非 401 | 上游 `auth_middleware` 写法 | **不修复，记录偏差**：拒绝访问本身生效；本项目 `http_backend.py` 对任何非 2xx 一律映射为 `AgenticSearchBackendError`，不受状态码口径影响 | — |
-| F4 | FAST 延迟 77–473 s/条 | 模型速度 + 全仓扫描 | 非代码缺陷，属重开 G0 的配置决策（换更快 LLM 端点/缩小检索根） | — |
+| F4 | FAST 延迟 77–256 s/条（~~77–473~~，473s 因系统睡眠作废） | ~~模型速度 + 全仓扫描~~ **勘误（2026-10-06）**：①`glm-5.3-flash` 强制思考且上游 `zhipu` profile 无法关闭（4.5.1）；②流式中途断连（12 次检索中 7 次遇断连/SDK 重试），每次整轮重来；rg 扫描仅 0.07–1.36s，与检索根无关 | 换供应商 DeepSeek `deepseek-v4-flash`（上游自动 `thinking: disabled`），仅改 `.env-sirchmunk`，不改上游源码 | 6 题复测 4.6–13.6s/条、0 断连，见「S0 延迟分析与优化」 |
 | F5 | 结果非确定性、样本仅 6 题 | 测试方法学 | 属重开 G0 的方法学改进（每类 ≥5 题、多轮运行、裸 rg 基准线对照） | — |
 
 **生产链路核查**：`src/libs/agentic_search/http_backend.py:123,125` 已正确使用 `include_patterns` / `exclude_patterns`，`agentic_search` MCP 工具不受 F1 影响。
 
-**对 G0 结论的影响**：F1 修复使第 2 轮「干净口径」失效（当时排除并未生效），G0 的命中率数据需在修复后的口径下重测才有效；但单题复测 1 次不足以重开 G0，且延迟（F4）进一步恶化。**G0 结论维持「未通过」**，`agentic_search` 保持 `enabled: false`，S2/S3 不启动；重开 G0 的前置条件为 F4/F5 的决策与重测预算确认。
+**对 G0 结论的影响**：F1 修复使第 2 轮「干净口径」失效（当时排除并未生效），G0 的命中率数据需在修复后的口径下重测才有效；但单题复测 1 次不足以重开 G0，~~且延迟（F4）进一步恶化~~（**勘误**：473s 系系统睡眠所致，不代表延迟恶化）。**G0 结论维持「未通过」**，`agentic_search` 保持 `enabled: false`，S2/S3 不启动；重开 G0 的前置条件为 F4/F5 的决策与重测预算确认。
 
 > **进度备注（2026-10-05，S0 收口后更新）**：S0 侧车环境与旁路对比已在真实 sidecar 上完成（见上方执行记录），**闸门 G0 未通过**，S2/S3 维持不启动。S1 离线交付保持已完成状态（1128 passed / 3 skipped）；`agentic_search` 工具保留为可选能力（`enabled: false`），其真实 sidecar 冒烟门控 `RAG_AGENTIC_INTEGRATION` 继续默认跳过。G1 复测因 G0 未通过而无执行意义，一并搁置。S0 遗留问题已在调用方侧修复（F1 exclude 字段名、F2 python-multipart），G0 结论维持不变。
+>
+> **进度备注（2026-10-06，延迟分析与换供应商后更新）**：F4 延迟根因已定位并解决（换 DeepSeek，FAST 实测 4.6–13.6s/条，落入 `timeout_s=30`），但 G0 按原标准复评**仍未通过**（命中率 2/6 且跨轮翻转），`agentic_search` 维持 `enabled: false`，S2/S3 不启动。详见下方「S0 延迟分析与优化」。
+
+#### S0 延迟分析与优化（2026-10-06）
+
+**方法**：新增 `scripts/sirchmunk/latency_report.py`，解析 sidecar stdout 日志，按 `[FAST] Starting → Step1 → Step3 → Search complete` 时间戳把每次检索拆为「查询分析 LLM / grep（rg+rga 扫描与证据抽取）/ 回答 LLM」三段，并统计 LLM HTTP 请求数、流式断连（`Connection error`）与 openai SDK 重试次数。该脚本已用 2026-10-05 的 12 次检索日志验证，输出与逐条人工对账一致。
+
+**12 次干净检索分段（glm-5.3-flash，2026-10-05 日志，两次遍历 6 题）**：
+
+| # | 查询分析 LLM s | grep s | 回答 LLM s | 合计 s | 证据字符 | LLM 请求 | 断连 | SDK 重试 |
+|---|----------------|--------|------------|--------|----------|----------|------|----------|
+| 1 | 76.90 | 1.36 | 85.27 | 163.54 | 1,850 | 2 | 0 | 0 |
+| 2 | 97.59 | 0.08 | 23.11 | 120.77 | 26,000 | 2 | 0 | 1 |
+| 3 | 32.31 | 0.09 | 46.56 | 78.96 | 40,021 | 2 | 0 | 0 |
+| 4 | 32.34 | 0.07 | 94.23 | 126.64 | 40,028 | 3 | 1 | 0 |
+| 5 | 47.83 | 0.12 | 66.54 | 114.48 | 40,007 | 3 | 1 | 0 |
+| 6 | 32.11 | 0.09 | 44.80 | 77.01 | 1,850 | 2 | 0 | 0 |
+| 7 | 90.37 | 0.07 | 84.89 | 175.33 | 40,021 | 2 | 0 | 0 |
+| 8 | 219.60 | 0.07 | 36.42 | 256.10 | 40,000 | 2 | 0 | 1 |
+| 9 | 27.21 | 0.08 | 72.77 | 100.05 | 40,021 | 3 | 1 | 0 |
+| 10 | 23.63 | 0.09 | 97.20 | 120.92 | 40,028 | 3 | 1 | 0 |
+| 11 | 88.34 | 0.08 | 70.02 | 158.43 | 40,007 | 2 | 0 | 0 |
+| 12 | 36.26 | 0.07 | 153.44 | 189.78 | 1,850 | 4 | 2 | 0 |
+
+结论：rg/rga 扫描仅 0.07–1.36s，**延迟几乎全部来自两次 LLM 调用**（23–220s/次）；12 次中 7 次遇断连或 SDK 重试，每次断连整轮调用重来（含已产生的 reasoning 全部重算）。
+
+**GLM 探测结论（直连 `open.bigmodel.cn`，同一小 prompt）**：
+
+- `glm-5.3-flash`：`thinking.type=disabled` 返回错误码 1210（强制思考，不可关闭）；默认 8.96s / 285 reasoning tokens；`reasoning_effort=low` 1.5s / 10 tokens——但上游 `zhipu` profile 无 `thinking_param`，sidecar 无法传入该参数。
+- `glm-4-flash` 3.16s（设计上非思考模型）；`glm-4.5-flash` / `glm-4.5-air` 1.0–1.4s 但默认思考，上游同样无法关闭。
+- 换 GLM 型号只能缓解不能根治（`glm-4-flash` 3.2s 且为老模型），故不采用。
+
+**Q6 473s 作废说明**：2026-10-05 晚 F1 验证跑出的 473s 不可信——`pmset -g log` 确认 22:52 起多次 Idle Sleep / Maintenance Sleep / DarkWake；sidecar 日志时间戳跨度 1,940s 而 `perf_counter` 仅计 473s（macOS 睡眠期间 `mach_absolute_time` 暂停），两者均不代表真实处理耗时。为此 `compare.py` 已增加墙钟对照：`time.time()` 与 `perf_counter` 差值 >5s 的条目标记「睡眠疑似」，复测统一用 `caffeinate -i` 包住运行。
+
+**决策：换供应商 DeepSeek `deepseek-v4-flash`**。上游 `deepseek` profile 对 `deepseek-v4-*` 自动发送 `extra_body={"thinking": {"type": "disabled"}}`（sidecar venv 内 `_build_request_kwargs` 验证），**零代码改动**，仅改 `.env-sirchmunk`。直连探测：`thinking: disabled` 0.85–1.02s / 0 reasoning tokens；不传思考参数 1.51s / 199 reasoning tokens，确认开关生效。
+
+**6 题复测（2026-10-06，`caffeinate -i` 下 FAST，`exclude_patterns` 生效，sidecar `b314e11`）**：
+
+| id | 类别 | 命中 | 耗时 ms | 查询分析/grep/回答 s | Token | 首个证据文件 |
+|----|------|------|---------|----------------------|-------|--------------|
+| Q1 | identifier | ✅ | 9,422 | 1.16 / 0.12 / 8.13 | 28,614 | `src/ingestion/storage/bm25_indexer.py` |
+| Q2 | identifier | ❌ | 4,632 | 1.04 / 0.03 / 3.56 | 16,553 | `DEV_SPEC.md` |
+| Q3 | format | ❌ | 6,688 | 1.20 / 0.05 / 5.44 | 37,938 | `FUTURE_OPTIMIZATION_ROADMAP.md` |
+| Q4 | format | ✅ | 6,438 | 1.18 / 0.03 / 5.22 | 37,555 | `FUTURE_OPTIMIZATION_ROADMAP.md` |
+| Q5 | multihop | ❌ | 9,448 | 3.24 / 0.03 / 6.17 | 36,180 | `DEV_SPEC.md` |
+| Q6 | multihop | ❌ | 13,617 | 1.40 / 0.09 / 12.12 | 38,379 | `DEV_SPEC.md` |
+
+断连 0 次、SDK 重试 0 次；每条固定 2 次 LLM 调用；合计耗时 4.6–13.6s/条。分类命中：identifier 1/2，format 1/2，multihop 0/2。
+
+**闸门 G0 复评（按原标准，如实记录）**：**仍未通过。**依据：
+
+- 延迟障碍已解除（77–256s → 4.6–13.6s，落入 `timeout_s=30`），但 G0 的通过标准是「至少一类问题存在明确增益」，本次命中率 2/6，无一类达到 2/2；
+- 跨轮非确定性依旧：与 2026-10-05 两轮对照，Q1 ❌❌→✅、Q2 ✅❌→❌、Q6 ❌❌→❌（三空），Q4 三轮稳定命中但 format 类主链路本可覆盖（原判断不变）；multihop 三轮 0/6，多跳能力未见兑现；
+- Token 成本 16.5k–38.4k/条，与 GLM 时期相当。
+
+**处置**：`agentic_search` 维持 `enabled: false`，S2/S3 不启动。剩余障碍从延迟（F4，已解决）转移为**命中质量与非确定性（F5）**；重开 G0 的前置条件为 F5 的方法学改进（每类 ≥5 题、多轮运行、裸 rg 基线对照）及复测预算确认。
+
+**`timeout_s` 判定与建议**：FAST 实测上限 13.6s（DeepSeek、40k 字符证据上限下），`timeout_s=30` 保留 ≈2.2× 余量，**建议维持 30 不变**（无证据支持收紧或放宽）。补充口径：①FAST 模式上游不绑定 `max_token_budget`（预算绑定仅发生在 DEEP 分支，`search.py:2450-2462`），故 16–38k token/条的 FAST 消耗不会触发 `LLMTokenBudgetExceeded`，其单条成本上限实际由 40k 字符证据上限与 2 次固定 LLM 调用决定；②DEEP 模式（数十秒）本就被 `allow_deep=false` 门控，`timeout_s=30` 对 DEEP 不适用属预期行为。
+
 
 
 

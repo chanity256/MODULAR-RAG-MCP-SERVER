@@ -157,8 +157,8 @@ cp scripts/sirchmunk/env.example .env-sirchmunk
 
 | 变量 | 说明 |
 |------|------|
-| `LLM_API_KEY` | OpenAI 兼容端点的 Key（sirchmunk **不支持**原生 Azure，用 ZAI/DeepSeek/OpenAI 等兼容端点） |
-| `LLM_BASE_URL` / `LLM_MODEL_NAME` | 模板默认 ZAI `glm-5.3-flash`，可按需改 |
+| `LLM_API_KEY` | OpenAI 兼容端点的 Key（sirchmunk **不支持**原生 Azure，用 DeepSeek/DashScope/OpenAI 等兼容端点） |
+| `LLM_BASE_URL` / `LLM_MODEL_NAME` | 模板默认 DeepSeek `https://api.deepseek.com` + `deepseek-v4-flash`（上游自动关闭思考）。**不要用 `glm-5.3-flash`**：它强制思考且 sidecar 无法关闭，单次 LLM 调用可达数十到上百秒 |
 | `SIRCHMUNK_API_TOKEN` | 生成一个随机 token，**必须与主项目 `agentic_search.api_token` 一致** |
 | `SIRCHMUNK_WORK_PATH` | 默认 `./data/db/sirchmunk`，每进程独占，勿与其他进程共享 |
 | `SIRCHMUNK_ENABLE_CLUSTER_REUSE` | 保持 `false`，可跳过 torch + embedding 模型下载 |

@@ -12,6 +12,9 @@
         --token "$SIRCHMUNK_API_TOKEN" \
         --repo-root /path/to/this/repo
 
+测延迟时用 ``caffeinate -i python scripts/sirchmunk/compare.py ...`` 防止系统睡眠；
+墙钟与 perf_counter 相差过大的条目会标记「睡眠疑似」。
+
 退出码: 0=全部成功 / 1=存在失败调用。
 需要 sidecar 已启动且 LLM_API_KEY 可用（真实调用，不在离线测试套件内）。
 """
@@ -28,6 +31,9 @@ DEFAULT_FIXTURE = Path(__file__).resolve().parents[2] / "tests/fixtures/agentic/
 # Golden 问题的期望来源覆盖 src/ 与根目录文档（仓库自身代码语料，spec S0.2 三类问题），
 # 故旁路对比以仓库根为检索根；rg/rga 遵循 .gitignore，自动排除 .venv*/data/db 等非语料目录。
 DEFAULT_ROOTS = ["."]
+# macOS 上 perf_counter（mach_absolute_time）在系统睡眠期间不走，time.time() 照走；
+# 两者差值超过阈值说明调用期间发生过睡眠/挂起，该条耗时不可信（S0 Q6 473s 即此情况）。
+SLEEP_SUSPECT_THRESHOLD_S = 5.0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -57,6 +63,10 @@ def source_hit(expected: list[str], evidence_files: list[str], repo_root: str) -
     return False
 
 
+def sleep_suspected(perf_ms: float, wall_ms: float, threshold_s: float = SLEEP_SUSPECT_THRESHOLD_S) -> bool:
+    return abs(wall_ms - perf_ms) > threshold_s * 1000
+
+
 def run(base_url: str, token: str | None, fixture_path: str, repo_root: str, mode: str) -> list[dict]:
     import httpx
 
@@ -66,6 +76,7 @@ def run(base_url: str, token: str | None, fixture_path: str, repo_root: str, mod
     with httpx.Client(timeout=600.0) as client:  # 旁路对比不走 30s 工具超时（spec S0.2）
         for question in fixture["questions"]:
             started = time.perf_counter()
+            wall_started = time.time()
             error = None
             answer = ""
             evidence_files: list[str] = []
@@ -97,6 +108,7 @@ def run(base_url: str, token: str | None, fixture_path: str, repo_root: str, mod
             except Exception as exc:  # 旁路对比逐条隔离
                 error = f"{type(exc).__name__}: {exc}"
             elapsed = round((time.perf_counter() - started) * 1000, 1)
+            wall_elapsed = round((time.time() - wall_started) * 1000, 1)
             rows.append(
                 {
                     "id": question["id"],
@@ -107,6 +119,8 @@ def run(base_url: str, token: str | None, fixture_path: str, repo_root: str, mod
                     "llm_call_count": llm_calls,
                     "total_llm_tokens": tokens,
                     "elapsed_ms": elapsed,
+                    "wall_elapsed_ms": wall_elapsed,
+                    "sleep_suspected": sleep_suspected(elapsed, wall_elapsed),
                     "answer_preview": answer[:160],
                     "error": error,
                 }
@@ -118,16 +132,24 @@ def render_markdown(rows: list[dict], mode: str) -> str:
     lines = [
         f"## S0.2 旁路对比结果（mode={mode}）",
         "",
-        "| id | 类别 | source 级命中 | 耗时 ms | LLM 调用 | Token | 首个证据文件 |",
-        "|----|------|--------------|---------|----------|-------|--------------|",
+        "| id | 类别 | source 级命中 | 耗时 ms | 墙钟 ms | 睡眠疑似 | LLM 调用 | Token | 首个证据文件 |",
+        "|----|------|--------------|---------|---------|----------|----------|-------|--------------|",
     ]
     for r in rows:
         first_ev = r["evidence_files"][0] if r["evidence_files"] else (r["error"] or "-")
         lines.append(
             f"| {r['id']} | {r['category']} | {'✅' if r['hit'] else '❌'} "
-            f"| {r['elapsed_ms']} | {r['llm_call_count'] if r['llm_call_count'] is not None else '-'} "
+            f"| {r['elapsed_ms']} | {r['wall_elapsed_ms']} | {'⚠️ 作废' if r['sleep_suspected'] else '-'} "
+            f"| {r['llm_call_count'] if r['llm_call_count'] is not None else '-'} "
             f"| {r['total_llm_tokens'] if r['total_llm_tokens'] is not None else '-'} | {first_ev} |"
         )
+    suspects = [r["id"] for r in rows if r["sleep_suspected"]]
+    if suspects:
+        lines += [
+            "",
+            f"⚠️ 墙钟与 perf_counter 相差 >{SLEEP_SUSPECT_THRESHOLD_S:g}s（疑似系统睡眠），"
+            f"以下条目耗时作废需重测：{', '.join(suspects)}。建议用 `caffeinate -i` 包住运行。",
+        ]
     by_cat: dict[str, list[dict]] = {}
     for r in rows:
         by_cat.setdefault(r["category"], []).append(r)
