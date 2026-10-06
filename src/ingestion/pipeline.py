@@ -29,6 +29,11 @@ transform→encode→store），对失败步骤抛出带阶段上下文的清晰
 （携带 ``stage``），已算出 file_hash 时同步 ``mark_failed``（下次可重跑）；
 Transform/LLM/Vision 的可降级失败在组件内部消化，不会触发本异常。
 
+重试与回滚（IR4）：embed / store 阶段的可重试错误（分类见
+``ingestion.errors``）按 ``ingestion.retry`` 指数退避重试，缺省
+``max_attempts=1`` 即不重试；store 写入最终失败时按 ``doc_hash`` 回滚已写入的
+BM25 / 向量 / 图片，回滚自身失败只记录（trace + ``error_msg``），不掩盖原始异常。
+
 进度回调（03-tech-stack 5.3 契约）：``on_progress(stage_name, current, total)``
 按 load/split/transform/embed/upsert 五个阶段名上报，embed 按批粒度、
 transform 按子步骤（1..3）、upsert 按存储子步骤（1..3）递增；
@@ -40,6 +45,7 @@ transform 按子步骤（1..3）、upsert 按存储子步骤（1..3）递增；
 
 from __future__ import annotations
 
+import random
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -51,6 +57,7 @@ from core.trace.persist import persist_trace
 from core.trace.trace_context import TRACE_TYPE_INGESTION, TraceContext
 from core.types import Chunk, Document
 from ingestion.chunking import DocumentChunker
+from ingestion.errors import compute_backoff, is_retryable
 from ingestion.embedding import BatchProcessor, DenseEncoder, SparseEncoder
 from ingestion.storage import BM25Indexer, ImageStorage, VectorUpserter
 from ingestion.transform import ChunkRefiner, ImageCaptioner, MetadataEnricher
@@ -102,6 +109,9 @@ class IngestionPipelineError(RuntimeError):
 
     def __init__(self, message: str, *, stage: str = "") -> None:
         self.stage = stage
+        self.attempts = 1
+        #: store 回滚自身失败时的描述（回滚成功或未执行时为 None）。
+        self.rollback_error: str | None = None
         super().__init__(message)
 
 
@@ -164,6 +174,8 @@ class IngestionPipeline:
         bm25_indexer: C11 倒排索引器（默认 ``data/db/bm25/index.json``）。
         vector_upserter: C12 幂等写入器（默认经 VectorStoreFactory 创建）。
         image_storage: C13 图片存储（默认 ``data/images`` + SQLite 索引）。
+        sleep: 退避等待函数（默认 ``time.sleep``，测试注入 fake 时钟）。
+        random_fn: 抖动随机源，返回 ``[0, 1)``（默认 ``random.random``）。
 
     组件惰性创建：首次 ``run`` 时统一初始化一次，注入项原样保留；
     因此构造 Pipeline 本身不触发任何 provider 连接/IO。
@@ -185,8 +197,12 @@ class IngestionPipeline:
         bm25_indexer: BM25Indexer | None = None,
         vector_upserter: VectorUpserter | None = None,
         image_storage: ImageStorage | None = None,
+        sleep: Callable[[float], None] | None = None,
+        random_fn: Callable[[], float] | None = None,
     ) -> None:
         self._settings = settings
+        self._sleep = sleep if sleep is not None else time.sleep
+        self._random = random_fn if random_fn is not None else random.random
         self._logger = get_logger("modular-rag.ingestion.pipeline")
         self._injected = {
             "integrity_checker": integrity_checker,
@@ -314,16 +330,19 @@ class IngestionPipeline:
             self._logger.info("transformed %d chunks (rule/LLM degradation handled inside)", len(chunks))
 
             # ---- 阶段 5：encode（dense + sparse，按批驱动） ----
-            with self._stage(STAGE_EMBED, source):
-                vectors, sparse_stats = self._encode(chunks, trace=trace, on_progress=on_progress)
-                trace.record_stage(
-                    STAGE_EMBED,
-                    method="pipeline",
-                    details={
-                        "chunks": len(chunks),
-                        "dimension": len(vectors[0]) if vectors else None,
-                    },
-                )
+            (vectors, sparse_stats), embed_attempts = self._run_with_retry(
+                STAGE_EMBED, source, trace,
+                lambda: self._encode(chunks, trace=trace, on_progress=on_progress),
+            )
+            trace.record_stage(
+                STAGE_EMBED,
+                method="pipeline",
+                details={
+                    "chunks": len(chunks),
+                    "dimension": len(vectors[0]) if vectors else None,
+                    **self._attempt_details(embed_attempts),
+                },
+            )
             self._logger.info(
                 "encoded %d chunks (dense dim=%s, sparse stats=%d)",
                 len(chunks), len(vectors[0]) if vectors else None, len(sparse_stats),
@@ -331,23 +350,34 @@ class IngestionPipeline:
 
             # ---- 阶段 6：store（旧版本清理 → BM25 → 向量 → 图片） ----
             # 清理失败同样记为 store 阶段并中止，不进入新旧混合写入。
-            with self._stage(STAGE_STORE, source):
-                replaced = self._prepare_version_replacement(source, collection, file_hash)
-            with self._stage(STAGE_STORE, source):
-                written, images_persisted = self._store(
-                    document, chunks, sparse_stats, vectors,
-                    collection=collection, trace=trace, on_progress=on_progress,
+            replaced, _ = self._run_with_retry(
+                STAGE_STORE, source, trace,
+                lambda: self._prepare_version_replacement(source, collection, file_hash),
+            )
+            touched: set[str] = set()
+            try:
+                (written, images_persisted), store_attempts = self._run_with_retry(
+                    STAGE_STORE, source, trace,
+                    lambda: self._store(
+                        document, chunks, sparse_stats, vectors,
+                        collection=collection, trace=trace, on_progress=on_progress,
+                        touched=touched,
+                    ),
                 )
-                trace.record_stage(
-                    STAGE_STORE,
-                    method="pipeline",
-                    details={
-                        "chunks": len(chunks),
-                        "written": written,
-                        "images": images_persisted,
-                        "replaced": replaced.to_dict() if replaced is not None else None,
-                    },
-                )
+            except IngestionPipelineError as exc:
+                self._rollback_store(source, collection, document.id, touched, exc, trace)
+                raise
+            trace.record_stage(
+                STAGE_STORE,
+                method="pipeline",
+                details={
+                    "chunks": len(chunks),
+                    "written": written,
+                    "images": images_persisted,
+                    "replaced": replaced.to_dict() if replaced is not None else None,
+                    **self._attempt_details(store_attempts),
+                },
+            )
 
             # ---- 阶段 7：mark_success ----
             with self._stage(STAGE_INTEGRITY, source):
@@ -424,23 +454,30 @@ class IngestionPipeline:
         collection: str,
         trace: TraceContext,
         on_progress: ProgressCallback | None,
+        touched: set[str] | None = None,
     ) -> tuple[int, int]:
         """三路持久化：BM25 增量索引 → 向量幂等 upsert → 图片登记。
+
+        ``touched`` 收集已开始写入的存储名（``bm25`` / ``vectors`` / ``images``），
+        供失败回滚判定范围；``bm25`` 仅在内存索引已与磁盘对齐后才登记。
 
         Returns:
             ``(向量写入记录数, 成功登记图片数)``。
         """
+        touched = touched if touched is not None else set()
         # 6a. BM25：已有索引文件则载入后增量 add（同 chunk_id 替换），
         #     否则在空索引上 add（等价于全量构建）。
         try:
             self._bm25_indexer.load()
         except FileNotFoundError:
             pass  # 尚无持久化索引：从当前（空）内存索引起步
+        touched.add("bm25")
         self._bm25_indexer.add(sparse_stats, trace=trace)
         self._bm25_indexer.save()
         self._emit_progress(on_progress, STAGE_UPSERT, 1, 3)
 
         # 6b. 向量库幂等 upsert（chunk.id 为幂等键）。
+        touched.add("vectors")
         summary = self._vector_upserter.upsert(chunks, vectors, trace=trace)
         self._emit_progress(on_progress, STAGE_UPSERT, 2, 3)
 
@@ -455,6 +492,7 @@ class IngestionPipeline:
                 self._logger.warning("image file unreadable, skip %s: %s", ref.id, exc)
                 continue
             ext = image_path.suffix or ".png"
+            touched.add("images")
             self._image_storage.put(
                 ref.id,
                 data,
@@ -487,16 +525,7 @@ class IngestionPipeline:
             self._bm25_indexer.load()
         except FileNotFoundError:
             pass
-        from ingestion.document_manager import DocumentManager
-
-        manager = DocumentManager(
-            chroma_store=self._vector_upserter.store,
-            bm25_indexer=self._bm25_indexer,
-            image_storage=self._image_storage,
-            file_integrity=self._integrity_checker,
-            settings=self._settings,
-        )
-        result = manager.prepare_version_replacement(source, collection, file_hash)
+        result = self._document_manager().prepare_version_replacement(source, collection, file_hash)
         if result is not None:
             self._logger.info(
                 "cleared old version of %s (old hash=%s..., collection=%s): chroma=%d bm25=%d images=%d",
@@ -504,6 +533,110 @@ class IngestionPipeline:
                 result.chroma_deleted, result.bm25_deleted, result.images_deleted,
             )
         return result
+
+    def _run_with_retry(
+        self,
+        stage: str,
+        source: str,
+        trace: TraceContext,
+        fn: Callable[[], Any],
+    ) -> tuple[Any, int]:
+        """在 ``_stage`` 包装下执行 ``fn``，可重试错误按 ``ingestion.retry`` 退避重试。
+
+        Returns:
+            ``(fn 返回值, 实际尝试次数)``。
+
+        Raises:
+            IngestionPipelineError: 不可重试错误或重试耗尽（``attempts`` 记录尝试次数）。
+        """
+        policy = self._settings.ingestion.retry
+        max_attempts = max(1, int(policy.max_attempts))
+        attempt = 1
+        while True:
+            try:
+                with self._stage(stage, source):
+                    return fn(), attempt
+            except IngestionPipelineError as exc:
+                exc.attempts = attempt
+                if attempt >= max_attempts or not is_retryable(exc):
+                    raise
+                delay = compute_backoff(
+                    attempt,
+                    initial_backoff_s=policy.initial_backoff_s,
+                    backoff_multiplier=policy.backoff_multiplier,
+                    backoff_jitter=policy.backoff_jitter,
+                    random_fn=self._random,
+                )
+                trace.record_stage(
+                    "retry",
+                    method="pipeline",
+                    details={
+                        "stage": stage,
+                        "attempt": attempt,
+                        "max_attempts": max_attempts,
+                        "delay_s": round(delay, 3),
+                        "error": f"{type(exc.__cause__ or exc).__name__}: {exc.__cause__ or exc}",
+                    },
+                )
+                self._logger.warning(
+                    "retryable failure at stage %r for %s (attempt %d/%d), retrying in %.2fs: %s",
+                    stage, source, attempt, max_attempts, delay, exc,
+                )
+                self._sleep(delay)
+                attempt += 1
+
+    def _attempt_details(self, attempts: int) -> dict[str, int]:
+        """重试开启时在阶段 trace 中附带尝试次数（关闭时保持基线 trace 不变）。"""
+        if self._settings.ingestion.retry.max_attempts > 1:
+            return {"attempts": attempts}
+        return {}
+
+    def _rollback_store(
+        self,
+        source: str,
+        collection: str,
+        doc_hash: str,
+        touched: set[str],
+        exc: IngestionPipelineError,
+        trace: TraceContext,
+    ) -> None:
+        """store 写入失败后按 ``doc_hash`` 回滚三路存储；自身失败只记录不抛出。"""
+        if not touched:
+            return  # BM25 载入前即失败：没有任何写入需要回滚
+        details: dict[str, Any] = {"doc_hash": doc_hash, "touched": sorted(touched)}
+        try:
+            result = self._document_manager().rollback_ingestion(source, collection, doc_hash)
+        except Exception as rollback_exc:
+            exc.rollback_error = f"{type(rollback_exc).__name__}: {rollback_exc}"
+            details.update(ok=False, error=exc.rollback_error)
+            self._logger.error(
+                "store rollback failed for %s (hash=%s..., collection=%s): %s",
+                source, doc_hash[:12], collection, exc.rollback_error,
+            )
+        else:
+            details.update(
+                ok=True,
+                bm25_deleted=result.bm25_deleted,
+                chroma_deleted=result.chroma_deleted,
+                images_deleted=result.images_deleted,
+            )
+            self._logger.info(
+                "rolled back partial store of %s (hash=%s..., collection=%s): chroma=%d bm25=%d images=%d",
+                source, doc_hash[:12], collection,
+                result.chroma_deleted, result.bm25_deleted, result.images_deleted,
+            )
+        trace.record_stage("rollback", method="pipeline", details=details)
+
+    def _document_manager(self):
+        from ingestion.document_manager import DocumentManager
+
+        return DocumentManager(
+            chroma_store=self._vector_upserter.store,
+            bm25_indexer=self._bm25_indexer,
+            image_storage=self._image_storage,
+            file_integrity=self._integrity_checker,
+            settings=self._settings,
+        )
 
     # ------------------------------------------------------------------
     # 内部：组件解析与工具
@@ -589,16 +722,20 @@ class IngestionPipeline:
     ) -> None:
         """失败落账：integrity ``mark_failed`` + trace error 打点。"""
         stage = getattr(exc, "stage", "")
+        error_msg = f"{type(exc).__name__}: {exc}"
+        rollback_error = getattr(exc, "rollback_error", None)
+        if rollback_error:
+            error_msg = f"{error_msg}; rollback failed: {rollback_error}"
         trace.record_stage(
             "error",
             method="pipeline",
-            details={"stage": stage, "error": f"{type(exc).__name__}: {exc}"},
+            details={"stage": stage, "error": error_msg},
         )
         if file_hash:
             try:
                 self._integrity_checker.mark_failed(
                     file_hash,
-                    f"{type(exc).__name__}: {exc}",
+                    error_msg,
                     source_path=source,
                     collection=collection,
                     failed_stage=stage or None,

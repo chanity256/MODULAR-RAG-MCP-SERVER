@@ -295,7 +295,6 @@ def test_a4_success_record_carries_version_metadata(tmp_path):
         assert records[0].get(key), key
 
 
-@pytest.mark.xfail(strict=False, reason="A4: no deletion detection (--sync/--prune/--dry-run); fixed by IR3")
 def test_a4_cli_exposes_sync_prune_dry_run():
     parser = _load_cli().build_parser()
     for flag in ("--sync", "--prune"):
@@ -304,7 +303,6 @@ def test_a4_cli_exposes_sync_prune_dry_run():
         assert args.dry_run is True
 
 
-@pytest.mark.xfail(strict=False, reason="A4: no retry channel for failed files; fixed by IR4.2")
 def test_a4_cli_exposes_retry_failed():
     parser = _load_cli().build_parser()
     # 未定 --retry-failed 是否仍要求 --path：两种 CLI 形态都接受。
@@ -367,7 +365,6 @@ def test_a7_snapshot_store_failure_surfaces_stage_error(tmp_path):
     assert "injected vector upsert failure" in str(exc_info.value)
 
 
-@pytest.mark.xfail(strict=False, reason="A7: BM25 not rolled back after vector failure; fixed by IR4.2")
 def test_a7_vector_failure_rolls_back_bm25_and_images(tmp_path):
     pipeline, parts = _build_pipeline(tmp_path, FakeLoader(tmp_path), _FailingUpsertStore())
     source = _write_source(tmp_path)
@@ -381,7 +378,6 @@ def test_a7_vector_failure_rolls_back_bm25_and_images(tmp_path):
     assert parts["image_storage"].count(doc_hash=doc_hash) == 0
 
 
-@pytest.mark.xfail(strict=False, reason="A7: BM25/vectors not rolled back after image failure; fixed by IR4.2")
 def test_a7_image_failure_rolls_back_bm25_and_vectors(tmp_path, monkeypatch):
     store = FakeVectorStore()
     pipeline, parts = _build_pipeline(tmp_path, FakeLoader(tmp_path), store)

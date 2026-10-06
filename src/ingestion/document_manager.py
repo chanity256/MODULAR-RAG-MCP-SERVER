@@ -309,6 +309,31 @@ class DocumentManager:
         )
         return result
 
+    def rollback_ingestion(
+        self,
+        source_path: str,
+        collection: str,
+        doc_hash: str,
+        *,
+        include_bm25: bool = True,
+    ) -> DeleteResult:
+        """store 阶段失败后按 ``doc_hash`` 回滚本次写入（IR4.2）。
+
+        与删除/版本替换共用 ``_purge``（BM25 → Chroma → 图片，跨集合共享的
+        哈希跳过 BM25 / 图片），使三路存储回到「该文档不存在」的一致状态；
+        历史表不动，由调用方随后 ``mark_failed`` 覆盖。重复执行结果一致。
+
+        ``include_bm25=False`` 用于 BM25 内存态未能与磁盘对齐（``load`` 失败）
+        的情形：此时 ``save`` 会用不完整的内存索引覆盖磁盘全量索引。
+
+        Raises:
+            任一存储清理失败时原样抛出（BM25 ``save`` 失败同样抛出）。
+        """
+        self._validate_scope(source_path, collection)
+        return self._purge(
+            source_path, collection, {doc_hash}, strict_save=True, include_bm25=include_bm25
+        )
+
     @staticmethod
     def _validate_scope(source_path: str, collection: str) -> None:
         if not isinstance(source_path, str) or not source_path:
@@ -323,6 +348,7 @@ class DocumentManager:
         hashes: set[str],
         *,
         strict_save: bool = False,
+        include_bm25: bool = True,
     ) -> DeleteResult:
         """按固定顺序清理 BM25 → Chroma → 图片（不碰历史表）。
 
@@ -335,7 +361,7 @@ class DocumentManager:
             if not self._hash_used_elsewhere(doc_hash, source_path, collection)
         }
         bm25_deleted = 0
-        if exclusive:
+        if exclusive and include_bm25:
             bm25 = self._get_bm25()
             for doc_hash in sorted(exclusive):
                 bm25_deleted += bm25.remove_document(doc_hash)
