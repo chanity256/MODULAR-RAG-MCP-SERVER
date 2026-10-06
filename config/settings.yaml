@@ -55,12 +55,12 @@ retrieval:
 # Agentic 检索（Sirchmunk HTTP sidecar，可选；enabled=false 时零加载、
 # tools/list 不出现 agentic_search 工具）。详见 SIRCHMUNK_INTEGRATION_SPEC.md。
 agentic_search:
-  enabled: false                 # true 需先启动 sidecar（scripts/sirchmunk/）
+  enabled: true                  # true 需先启动 sidecar（scripts/sirchmunk/）
   backend: sirchmunk_http        # 唯一生产后端（fake 仅供测试注入）
   base_url: http://127.0.0.1:8584
   api_token: ${SIRCHMUNK_API_TOKEN}  # 从环境变量解析，不落盘
   mode: FAST                     # FAST | DEEP（DEEP 另受 allow_deep 门控）
-  allow_deep: false              # DEEP 单次可达数十秒，默认禁止工具选择
+  allow_deep: true               # 已开启 Deep（Dashboard 在线检索体验用；单次数十秒）
   timeout_s: 30                  # httpx 总超时（须低于 MCP 客户端工具超时）
   top_k_files: 5
   max_loops: 6
