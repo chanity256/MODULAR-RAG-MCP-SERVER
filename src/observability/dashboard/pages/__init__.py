@@ -6,6 +6,7 @@ from . import (
     ingestion_manager,
     ingestion_traces,
     overview,
+    query_playground,
     query_traces,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "ingestion_manager",
     "ingestion_traces",
     "query_traces",
+    "query_playground",
     "evaluation_panel",
 ]

@@ -519,12 +519,14 @@ DEEP 补充发现：Q6 为**「答对引错」**——答案内容完整梳理�
 #### 阶段 S4：Dashboard 三模式在线检索（P4）
 
 > **接口冻结与并行说明**：S4 启动前先在 3.3 模块清单冻结 `SearchOutcome` 与 `SearchService` 接口；随后 **S4.1（服务层）与 S4.2（页面 UI，基于注入的 fake service 开发）可并行各开一个 agent**，最后由 S4.3 单独收口。S4 不改动检索核心（`core/`、`mcp_server/`、`libs/`），不新增依赖，默认配置不变（`agentic_search.enabled: false`，默认仅 Normal 可用）。
+>
+> **进度备注（2026-10-06，S4 交付）**：S4.1–S4.2 完成；S4.3 冒烟 + USAGE_GUIDE/规格收口完成，全套件离线全绿（**1267 passed / 3 skipped**，较 S3 净增 22）。唯余 README 增补：README.md 当前处于删除/重建中（工作区未提交改名 old-README.md），为不覆盖用户在途改动而暂缓，README 重建后需补「在线检索」页用法。
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 验收标准 |
 |---------|---------|------|---------|---------|
-| S4.1 | `SearchService` 三模式分发 + 门控 | [ ] | — | normal/fast/deep 正确路由到 `QueryKnowledgeHubTool` / `AgenticSearchTool`；可用性矩阵覆盖 `enabled`、`allow_deep` 的四种组合（`availability(settings)` 返回各模式可用状态与原因）；结果归一化为 `SearchOutcome`（成功、`isError`、`ToolInvalidParams`、空结果四类）；离线单测使用 Fake 后端与 fake HybridSearch，不触网 |
-| S4.2 | 「在线检索」页 UI + 导航注册 | [ ] | — | 模式按钮组默认选中 Normal（primary 高亮）；Fast 需 `enabled=true` 否则置灰（help 提示开启 `agentic_search.enabled` 并启动 sidecar），Deep 另需 `allow_deep=true` 否则置灰（提示开启 `allow_deep`）；collection 输入仅在 Normal 显示；Deep spinner 文案提示「可能需要数十秒」；结果区按模式渲染（共有：Markdown 答案 + 引用表来源/页码/分数；Fast/Deep 额外：agentic 答案、模式、Token、LLM 调用次数、耗时、证据文件）；`isError`/参数非法经 `st.error` 友好展示，页面不崩溃；trace 写入后可在 Query 追踪页查看各阶段；`render(*, settings=None, search_service=None)` 支持注入 |
-| S4.3 | AppTest 冒烟 + 文档收口 | [ ] | — | 冒烟覆盖：默认渲染、agentic 关闭时 Fast/Deep 置灰、注入 fake service 后三模式检索、错误展示；README/USAGE_GUIDE 增补「在线检索」页用法；本文档 S4 表格勾选；全套件 `pytest tests -q` 离线全绿 |
+| S4.1 | `SearchService` 三模式分发 + 门控 | [x] | 2026-10-06 | normal/fast/deep 正确路由到 `QueryKnowledgeHubTool` / `AgenticSearchTool`；可用性矩阵覆盖 `enabled`、`allow_deep` 的四种组合（`availability(settings)` 返回各模式可用状态与原因）；结果归一化为 `SearchOutcome`（成功、`isError`、`ToolInvalidParams`、空结果四类）；离线单测使用 Fake 后端与 fake HybridSearch，不触网 |
+| S4.2 | 「在线检索」页 UI + 导航注册 | [x] | 2026-10-06 | 模式按钮组默认选中 Normal（primary 高亮）；Fast 需 `enabled=true` 否则置灰（help 提示开启 `agentic_search.enabled` 并启动 sidecar），Deep 另需 `allow_deep=true` 否则置灰（提示开启 `allow_deep`）；collection 输入仅在 Normal 显示；Deep spinner 文案提示「可能需要数十秒」；结果区按模式渲染（共有：Markdown 答案 + 引用表来源/页码/分数；Fast/Deep 额外：agentic 答案、模式、Token、LLM 调用次数、耗时、证据文件）；`isError`/参数非法经 `st.error` 友好展示，页面不崩溃；trace 写入后可在 Query 追踪页查看各阶段；`render(*, settings=None, search_service=None)` 支持注入 |
+| S4.3 | AppTest 冒烟 + 文档收口 | [~] | — | 冒烟覆盖：默认渲染、agentic 关闭时 Fast/Deep 置灰、注入 fake service 后三模式检索、错误展示（✅ 已落地 6 个 AppTest 用例）；USAGE_GUIDE 已增补「在线检索」页用法（2.6 节）+ 七页面口径；本文档 S4 表格已勾选；全套件 `pytest tests -q` 离线全绿（**1267 passed / 3 skipped**）；README 增补暂缓（README.md 删除/重建中，见上方进度备注），README 重建后补齐本项 |
 
 ---
 

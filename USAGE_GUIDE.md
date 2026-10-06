@@ -100,12 +100,27 @@ Claude Desktop 同理，配置块为 `mcpServers`。
 ### 2.5 Dashboard 与评估
 
 ```bash
-python scripts/start_dashboard.py          # http://localhost:8501，六页面管理平台
+python scripts/start_dashboard.py          # http://localhost:8501，七页面管理平台
 
 python scripts/evaluate.py                 # 默认 golden set + composite 后端
 python scripts/evaluate.py --evaluator custom --top-k 5   # 纯离线指标
 python scripts/evaluate.py --retrieval-mode hybrid+agentic --agentic-trigger always   # agentic A/B（需 sidecar 启用）
 ```
+
+### 2.6 Dashboard「在线检索」页（S4）
+
+Dashboard 导航「检索」分组 → 「在线检索」：三模式在线查询，不写代码、不敲 CLI 也能检索。
+
+- **模式选择**：Normal / Fast / Deep 三个按钮，默认选中 Normal（primary 高亮），选好后再点「检索」。
+- **配置门控**（严格遵守 settings）：
+  - Normal：始终可用；
+  - Fast：需 `agentic_search.enabled: true`，否则按钮置灰，悬停提示开启方法并启动 sidecar（`scripts/sirchmunk/`）；
+  - Deep：另需 `agentic_search.allow_deep: true`，否则置灰并提示开启 `allow_deep`。
+  - 默认配置（`enabled: false`）下仅 Normal 可用。
+- **表单**：查询文本 + Top-K；collection 输入仅在 Normal 模式显示。Deep 模式检索时会提示「可能需要数十秒」。
+- **结果**：Markdown 答案 + 引用表（来源/页码/分数）；Fast/Deep 额外展示 Agentic 答案、模式、Token、LLM 调用次数、耗时与证据文件。
+- **trace 联动**：每次检索自动写入 trace，到「Query 追踪」页可查看各阶段耗时（agentic 阶段由 S3.2 渲染）。
+- **失败友好**：sidecar 不可用或参数非法时以页面错误提示展示，不崩溃。
 
 ---
 

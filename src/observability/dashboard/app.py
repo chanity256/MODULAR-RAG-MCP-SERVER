@@ -23,6 +23,7 @@ from observability.dashboard.pages import (
     ingestion_manager,
     ingestion_traces,
     overview,
+    query_playground,
     query_traces,
 )
 
@@ -35,6 +36,9 @@ pages = {
     "数据与摄取": [
         st.Page(data_browser.render, title="数据浏览器", icon="📁", url_path="data-browser"),
         st.Page(ingestion_manager.render, title="Ingestion 管理", icon="⬆️", url_path="ingestion"),
+    ],
+    "检索": [
+        st.Page(query_playground.render, title="在线检索", icon="🔎", url_path="search"),
     ],
     "追踪": [
         st.Page(ingestion_traces.render, title="Ingestion 追踪", icon="📈", url_path="ingestion-traces"),

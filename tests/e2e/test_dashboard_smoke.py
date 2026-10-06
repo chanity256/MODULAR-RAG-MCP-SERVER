@@ -1,6 +1,6 @@
-"""E2E：Dashboard 冒烟测试（阶段 I2）。
+"""E2E：Dashboard 冒烟测试（阶段 I2 + S3.2 + S4.3）。
 
-用 Streamlit ``AppTest``（headless）验证六个页面在有数据时可正常
+用 Streamlit ``AppTest``（headless）验证各页面在有数据时可正常
 渲染、无 Python 异常。``AppTest.from_function`` 会剥离模块 globals
 （imports 不可见），因此采用生成 driver 脚本 + ``AppTest.from_file``
 的方式（与真实页面脚本执行语义一致）。
@@ -10,6 +10,7 @@
 - 数据页：fake DataService（真 DocumentManager 会在仓库 data/ 下建
   SQLite/目录，超出冒烟关注点）。
 - 评估页：fake run_eval（真检索栈需网络）。
+- 在线检索页（S4）：fake SearchService（真服务会构建 HybridSearch/sidecar）。
 """
 
 from __future__ import annotations
@@ -356,3 +357,177 @@ def test_overview_page_shows_agentic_disabled(tmp_path, traces_path):
     # 关闭状态：headline 写出 disabled，extras caption 只带 enabled=False。
     assert any("disabled" in str(b.value) for b in list(at.markdown) + list(at.caption))
     assert any("enabled=False" in str(c.value) for c in at.caption)
+
+
+# --------------------------------------------------------------------- #
+# 在线检索页冒烟（S4.3）
+# --------------------------------------------------------------------- #
+
+_PLAYGROUND_PRELUDE = """
+import streamlit as st
+
+from observability.dashboard.pages import query_playground
+from observability.dashboard.services.search_service import SearchOutcome, SearchService
+
+if "fake_search_service" not in st.session_state:
+    st.session_state["fake_search_service"] = None
+
+
+class FakeAvail:
+    def __init__(self, available, reason=None):
+        self.available = available
+        self.reason = reason
+
+
+class FakeSearchService(SearchService):
+    \"\"\"离线假服务：记录 run 调用，按 enabled/allow_deep 伪造可用性。\"\"\"
+
+    def __init__(self, *, enabled=True, allow_deep=True, outcome=None):
+        super().__init__(settings=object())
+        self._enabled = enabled
+        self._allow_deep = allow_deep
+        self.outcome = outcome
+        self.calls = []
+
+    def availability(self, settings=None):
+        fast = self._enabled
+        deep = self._enabled and self._allow_deep
+        return {
+            "normal": FakeAvail(True),
+            "fast": FakeAvail(fast, None if fast else "need agentic_search.enabled"),
+            "deep": FakeAvail(deep, None if deep else "need allow_deep"),
+        }
+
+    def run(self, mode, query, top_k=None, collection=None):
+        self.calls.append({"mode": mode, "query": query, "top_k": top_k, "collection": collection})
+        return self.outcome
+"""
+
+_PLAYGROUND_MOUNT = """
+# AppTest 每次重跑 driver 会重建模块 globals；实例必须经 session_state
+# 存活，且只在首次运行时创建（后续 rerun 复用同一实例累计 run 调用）。
+if st.session_state["fake_search_service"] is None:
+    st.session_state["fake_search_service"] = {service_expr}
+query_playground.render(search_service=st.session_state["fake_search_service"])
+"""
+
+
+def _playground_driver(tmp_path: Path, name: str, service_expr: str) -> Path:
+    body = _PLAYGROUND_PRELUDE + _PLAYGROUND_MOUNT.format(service_expr=service_expr)
+    return _driver(tmp_path, name, body)
+
+
+def test_query_playground_default_render(tmp_path):
+    """默认渲染：header 存在、Normal 默认选中（primary）、collection 仅 Normal 显示。"""
+    driver = _playground_driver(tmp_path, "playground_default", "FakeSearchService()")
+    at = _run(driver)
+    assert not at.exception
+    assert any("在线检索" in str(h.value) for h in at.header)
+
+    buttons = {b.label: b for b in at.button}
+    assert buttons["Normal"].proto.disabled is False
+    assert buttons["Normal"].proto.type == "primary"  # 默认选中 Normal
+    assert buttons["Fast"].proto.type != "primary"
+    # collection 输入仅在 Normal 模式显示。
+    assert "qp_collection" in [t.key for t in at.text_input]
+
+
+def test_query_playground_agentic_disabled_greyed(tmp_path):
+    """agentic 关闭（仓库默认）：Fast/Deep 置灰，help 提示开启方法。"""
+    driver = _playground_driver(
+        tmp_path, "playground_disabled", "FakeSearchService(enabled=False, allow_deep=False)"
+    )
+    at = _run(driver)
+    assert not at.exception
+    buttons = {b.label: b for b in at.button}
+    assert buttons["Fast"].proto.disabled is True
+    assert buttons["Deep"].proto.disabled is True
+    assert "agentic_search.enabled" in buttons["Fast"].help
+    assert "allow_deep" in buttons["Deep"].help
+
+
+def test_query_playground_collection_hidden_for_agentic(tmp_path):
+    """Fast/Deep 模式下 collection 输入隐藏。"""
+    driver = _playground_driver(tmp_path, "playground_collection", "FakeSearchService()")
+    at = _run(driver)
+    at.button(key="qp_btn_fast").click().run()
+    assert "qp_collection" not in [t.key for t in at.text_input]
+
+
+def test_query_playground_runs_three_modes(tmp_path):
+    """注入 fake service 后三模式检索：正确分发、Markdown 答案与引用表渲染。"""
+    outcome = (
+        "SearchOutcome(mode='normal', markdown='answer md', "
+        "citations=[{'id': 1, 'source': 'docs/a.pdf', 'page': 1, 'chunk_id': 'c1', 'text': 't', 'score': 0.9}], "
+        "elapsed_ms=12.0)"
+    )
+    driver = _playground_driver(tmp_path, "playground_run", f"FakeSearchService(outcome={outcome})")
+    at = _run(driver)
+    assert not at.exception
+    at.text_input(key="qp_query").set_value("bm25 scoring").run()
+
+    service = at.session_state["fake_search_service"]
+
+    # Normal（默认选中）。
+    at.button(key="qp_run").click().run()
+    assert service.calls[-1]["mode"] == "normal"
+    assert service.calls[-1]["query"] == "bm25 scoring"
+    assert service.calls[-1]["top_k"] == 5
+    assert not at.exception
+    assert any("answer md" in str(m.value) for m in at.markdown)
+
+    # Fast。
+    at.button(key="qp_btn_fast").click().run()
+    at.button(key="qp_run").click().run()
+    assert service.calls[-1]["mode"] == "fast"
+
+    # Deep。
+    at.button(key="qp_btn_deep").click().run()
+    at.button(key="qp_run").click().run()
+    assert service.calls[-1]["mode"] == "deep"
+
+    # 引用表渲染（来源/页码/分数）。
+    assert any("docs/a.pdf" in t.value.to_string() for t in at.table)
+
+
+def test_query_playground_deep_outcome_meta(tmp_path):
+    """Deep 结果：agentic 元数据（模式/Token/LLM 调用/耗时/证据文件）渲染。"""
+    outcome = (
+        "SearchOutcome(mode='deep', markdown='agentic md', "
+        "citations=[], elapsed_ms=9000.0, "
+        "agentic_meta={'mode': 'DEEP', 'total_llm_tokens': 1234, 'llm_call_count': 3, "
+        "'elapsed_ms': 8765.0, 'agentic_answer': 'deep answer', 'evidence_files': ['/tmp/docs/a.md']})"
+    )
+    driver = _playground_driver(tmp_path, "playground_deep", f"FakeSearchService(outcome={outcome})")
+    at = _run(driver)
+    at.button(key="qp_btn_deep").click().run()
+    at.text_input(key="qp_query").set_value("multi hop").run()
+    at.button(key="qp_run").click().run()
+    assert not at.exception
+
+    subheaders = [h.value for h in at.subheader]
+    assert "Agentic 检索详情" in subheaders
+    metrics = {m.label: m.value for m in at.metric}
+    assert str(metrics["模式"]) == "DEEP"
+    assert str(metrics["Token"]) == "1234"
+    assert str(metrics["LLM 调用"]) == "3"
+    assert str(metrics["耗时"]) == "8765 ms"
+    all_text = "\n".join(str(e.value) for e in list(at.markdown) + list(at.caption))
+    assert "/tmp/docs/a.md" in all_text
+
+
+def test_query_playground_error_display(tmp_path):
+    """isError 结果：st.error 友好提示，页面不崩溃。"""
+    outcome = (
+        "SearchOutcome(mode='fast', markdown='Agentic search is currently unavailable: sidecar down', "
+        "is_error=True, error='Agentic search is currently unavailable: sidecar down')"
+    )
+    driver = _playground_driver(
+        tmp_path, "playground_error", f"FakeSearchService(outcome={outcome})"
+    )
+    at = _run(driver)
+    at.button(key="qp_btn_fast").click().run()
+    at.text_input(key="qp_query").set_value("q").run()
+    at.button(key="qp_run").click().run()
+    assert not at.exception
+    assert any("sidecar down" in str(e.value) for e in at.error)
