@@ -63,7 +63,7 @@ def test_config_service_formats_component_cards(tmp_path):
     service = ConfigService(settings=settings, config_path=path)
     cards = service.component_cards()
     names = [card.name for card in cards]
-    assert names == ["LLM", "Embedding", "Splitter", "Reranker", "Evaluator"]
+    assert names == ["LLM", "Embedding", "Splitter", "Reranker", "Evaluator", "Agentic Search"]
     by_name = {card.name: card for card in cards}
     assert by_name["LLM"].headline() == "azure / gpt-4o"
     assert by_name["Embedding"].extras["dimensions"] == 1536
@@ -71,6 +71,27 @@ def test_config_service_formats_component_cards(tmp_path):
     assert by_name["Reranker"].model == "None"
     assert by_name["Evaluator"].provider == "custom"
     assert isinstance(cards[0], ComponentCard)
+
+
+def test_config_service_agentic_card_disabled_by_default(tmp_path):
+    """S3.2：默认 enabled=false 时 Agentic 卡片显示 disabled 关闭状态。"""
+    settings, path = _settings(tmp_path)
+    service = ConfigService(settings=settings, config_path=path)
+    card = {item.name: item for item in service.component_cards()}["Agentic Search"]
+    assert card.provider == "disabled"
+    assert card.extras == {"enabled": False}
+
+
+def test_config_service_agentic_card_enabled(tmp_path):
+    """S3.2：enabled=true 时 Agentic 卡片展示 backend 与 trigger/mode。"""
+    settings, path = _settings(tmp_path)
+    settings.agentic_search.enabled = True
+    settings.agentic_search.backend = "sirchmunk_http"
+    settings.agentic_search.trigger = "fallback"
+    service = ConfigService(settings=settings, config_path=path)
+    card = {item.name: item for item in service.component_cards()}["Agentic Search"]
+    assert card.provider == "sirchmunk_http"
+    assert card.extras == {"enabled": True, "trigger": "fallback", "mode": "FAST"}
 
 
 def test_config_service_loads_from_explicit_path(tmp_path):

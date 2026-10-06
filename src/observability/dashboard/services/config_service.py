@@ -45,7 +45,7 @@ class ConfigService:
         rerank_model = settings.rerank.model
         if settings.rerank.backend == "none":
             rerank_model = "None"
-        return [
+        cards = [
             ComponentCard(
                 name="LLM",
                 provider=settings.llm.provider,
@@ -75,3 +75,18 @@ class ConfigService:
                 provider=", ".join(settings.evaluation.backends),
             ),
         ]
+        # Agentic 检索（S3.2）：无论 enabled 与否都展示卡片，
+        # 关闭时 provider 显示 disabled（不隐藏、不报错）。
+        agentic = settings.agentic_search
+        cards.append(
+            ComponentCard(
+                name="Agentic Search",
+                provider=agentic.backend if agentic.enabled else "disabled",
+                extras=(
+                    {"enabled": agentic.enabled, "trigger": agentic.trigger, "mode": agentic.mode}
+                    if agentic.enabled
+                    else {"enabled": agentic.enabled}
+                ),
+            )
+        )
+        return cards

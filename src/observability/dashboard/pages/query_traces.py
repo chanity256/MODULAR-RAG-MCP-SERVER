@@ -84,10 +84,86 @@ def render(*, trace_service: TraceService | None = None) -> None:
         if rows:
             st.table(rows)
 
+    _render_agentic(trace)
+
     fusion = _preview(trace, "fusion") or _preview(trace, "hybrid")
     if fusion:
         st.subheader("最终 / 融合结果")
         _render_hits(fusion)
+
+
+def _render_agentic(trace: dict[str, Any]) -> None:
+    """渲染 agentic 相关阶段（S3.2）。
+
+    - ``agentic_search`` 工具阶段：模式 / Token / LLM 调用次数 / 证据文件；
+    - ``hybrid`` / ``fusion`` 阶段里的 agentic 路信息（routes 计数、
+      ``agentic_trigger`` 触发状态与 reason）。
+
+    均基于 trace details 动态渲染：无 agentic 阶段时自然隐藏。
+    """
+    _render_agentic_tool_stage(trace)
+    _render_agentic_route(trace)
+
+
+def _render_agentic_tool_stage(trace: dict[str, Any]) -> None:
+    """渲染 ``agentic_search`` 工具阶段（字段与 trace details 一一对应）。"""
+    record = _stage(trace, "agentic_search")
+    if not record:
+        return
+    details = record.get("details") or {}
+    st.subheader("Agentic 检索")
+    if details.get("error"):
+        # 失败阶段（_record_error）：details 只有 error_type / error。
+        st.warning(
+            f"agentic 检索失败：{details.get('error_type')}: {details.get('error')}"
+        )
+        return
+    cols = st.columns(4)
+    cols[0].metric("模式", str(details.get("mode") or "—"))
+    cols[1].metric("LLM Tokens", details.get("total_llm_tokens", 0))
+    cols[2].metric("LLM 调用次数", details.get("llm_call_count", 0))
+    evidence_files = details.get("evidence_files") or []
+    cols[3].metric("证据文件数", len(evidence_files) if isinstance(evidence_files, list) else evidence_files)
+    st.caption(
+        f"backend={details.get('backend')} · evidences={details.get('evidences')}"
+        f" · elapsed_ms={details.get('elapsed_ms')}"
+    )
+    if isinstance(evidence_files, list) and evidence_files:
+        st.write("**证据文件列表**")
+        st.table([{"rank": idx, "file": path} for idx, path in enumerate(evidence_files, start=1)])
+
+
+def _render_agentic_route(trace: dict[str, Any]) -> None:
+    """渲染 hybrid / fusion 阶段中的 agentic 路信息（routes 计数与触发状态）。"""
+    hybrid_details = (_stage(trace, "hybrid") or {}).get("details") or {}
+    fusion_details = (_stage(trace, "fusion") or {}).get("details") or {}
+    trigger = hybrid_details.get("agentic_trigger")
+    route_hits = [
+        (name, details)
+        for name, details in (("hybrid", hybrid_details), ("fusion", fusion_details))
+        if isinstance(details.get("routes"), dict) and "agentic" in details["routes"]
+    ]
+    if not trigger and not route_hits:
+        return
+    st.subheader("Agentic 路由")
+    rows = []
+    for name, details in route_hits:
+        routes = details["routes"]
+        rows.append(
+            {
+                "stage": name,
+                "dense": routes.get("dense"),
+                "sparse": routes.get("sparse"),
+                "agentic": routes.get("agentic"),
+            }
+        )
+    if rows:
+        st.table(rows)
+    if trigger:
+        st.caption(
+            f"触发策略={trigger.get('strategy')} · triggered={trigger.get('triggered')}"
+            f" · reason={trigger.get('reason')}"
+        )
 
 
 def _label(trace: dict[str, Any]) -> str:

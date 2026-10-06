@@ -232,3 +232,127 @@ def test_evaluation_panel_page(tmp_path, monkeypatch):
         """,
     )
     assert not _run(driver).exception
+
+
+# --------------------------------------------------------------------- #
+# Agentic 展示冒烟（S3.2）
+# --------------------------------------------------------------------- #
+
+_QUERY_TRACE_AGENTIC = {
+    "trace_id": "t-qry-agentic",
+    "trace_type": "query",
+    "started_at": "2026-08-18T10:10:00+00:00",
+    "total_elapsed_ms": 220.0,
+    "metadata": {"query": "agentic deep dive"},
+    "stages": [
+        {"stage": "query_processing", "method": "query_processor", "elapsed_ms": 2.0},
+        {
+            "stage": "hybrid",
+            "method": "hybrid_search",
+            "elapsed_ms": 60.0,
+            "details": {
+                "routes": {"dense": 10, "sparse": 8, "agentic": 3},
+                "agentic_trigger": {"strategy": "fallback", "triggered": True, "reason": "top_score < 0.5"},
+            },
+        },
+        {
+            "stage": "fusion",
+            "method": "rrf",
+            "elapsed_ms": 1.0,
+            "details": {"routes": {"dense": 10, "sparse": 8, "agentic": 3}, "fused": 15},
+        },
+        {
+            "stage": "agentic_search",
+            "method": "sirchmunk_http",
+            "elapsed_ms": 120.0,
+            "details": {
+                "backend": "sirchmunk_http",
+                "mode": "FAST",
+                "evidences": 2,
+                "evidence_files": ["/tmp/docs/azure_setup.pdf", "/tmp/docs/bm25_guide.pdf"],
+                "llm_call_count": 4,
+                "total_llm_tokens": 1830,
+                "elapsed_ms": 118.5,
+            },
+        },
+    ],
+}
+
+
+@pytest.fixture()
+def agentic_traces_path(tmp_path: Path) -> Path:
+    path = tmp_path / "traces_agentic.jsonl"
+    lines = [_QUERY_TRACE, _QUERY_TRACE_AGENTIC]
+    path.write_text("\n".join(json.dumps(item) for item in lines) + "\n", encoding="utf-8")
+    return path
+
+
+def test_query_traces_page_renders_agentic(tmp_path, agentic_traces_path):
+    """含 agentic 阶段的 trace：展示 mode/tokens/调用次数/证据列表与路由信息。"""
+    driver = _driver(
+        tmp_path,
+        "query_traces_agentic",
+        f"""
+        from observability.dashboard.pages import query_traces
+        from observability.dashboard.services.trace_service import TraceService
+
+        query_traces.render(trace_service=TraceService(traces_path={str(agentic_traces_path)!r}))
+        """,
+    )
+    at = _run(driver)
+    assert not at.exception
+    # 默认选中第一条（最新：agentic trace）。
+    subheaders = [h.value for h in at.subheader]
+    assert "Agentic 检索" in subheaders
+    assert "Agentic 路由" in subheaders
+    metrics = {m.label: m.value for m in at.metric}
+    assert metrics["模式"] == "FAST"
+    assert metrics["LLM Tokens"] == "1830"
+    assert metrics["LLM 调用次数"] == "4"
+    assert metrics["证据文件数"] == "2"
+    captions = [c.value for c in at.caption]
+    assert any("backend=sirchmunk_http" in c for c in captions)
+    assert any("reason=top_score < 0.5" in c for c in captions)
+
+
+def test_query_traces_page_hides_agentic(tmp_path, traces_path):
+    """无 agentic 阶段的 trace：不渲染 agentic 区块、页面正常。"""
+    driver = _driver(
+        tmp_path,
+        "query_traces_no_agentic",
+        f"""
+        from observability.dashboard.pages import query_traces
+        from observability.dashboard.services.trace_service import TraceService
+
+        query_traces.render(trace_service=TraceService(traces_path={str(traces_path)!r}))
+        """,
+    )
+    at = _run(driver)
+    assert not at.exception
+    all_text = "\n".join(str(block.value) for block in list(at.subheader) + list(at.caption) + list(at.markdown))
+    assert "Agentic" not in all_text
+
+
+def test_overview_page_shows_agentic_disabled(tmp_path, traces_path):
+    """Overview 配置卡：enabled=false（仓库默认配置）显示 disabled 关闭状态。"""
+    driver = _driver(
+        tmp_path,
+        "overview_agentic",
+        f"""
+        from observability.dashboard.pages import overview
+        from observability.dashboard.services.config_service import ConfigService
+        from observability.dashboard.services.trace_service import TraceService
+
+        overview.render(
+            config_service=ConfigService(config_path={str(_REPO_ROOT / 'config' / 'settings.yaml')!r}),
+            data_service=FakeDataService(),
+            trace_service=TraceService(traces_path={str(traces_path)!r}),
+        )
+        """,
+    )
+    at = _run(driver)
+    assert not at.exception
+    assert any("Agentic Search" in str(c.value) for c in at.subheader)
+    # 关闭状态：headline 写出 disabled，extras caption 只带 enabled=False。
+    assert any("disabled" in str(b.value) for b in list(at.markdown) + list(at.caption))
+    assert any("enabled=False" in str(c.value) for c in at.caption)
