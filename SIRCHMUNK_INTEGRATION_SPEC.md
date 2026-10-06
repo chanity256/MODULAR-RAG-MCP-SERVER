@@ -144,6 +144,8 @@ P2 追加（门控后）：`src/core/query_engine/fusion.py`（`fuse_routes` N �
 
 无需改动：Ingestion 全链路、Chroma/BM25/Image 存储、既有 3 个 MCP Tool 契约、CitationGenerator（已读 `metadata["source_path"]`，直接工作）。
 
+> **2026-10-06 勘误**：「Chroma/BM25/Image 存储零改动」此后不再严格成立——主项目 eval 缺口 G1–G3 修复中，`libs/vector_store/chroma_store.py`（upsert 写入侧 metadata 净化：dict/混合列表 → JSON 字符串、None 值丢弃）与 `core/types.py`（`parse_image_refs` 读取侧兼容 JSON 字符串）确有一次修改。该修复与 agentic 整合无关（Chroma 只接受标量 metadata，`PdfLoader` 的 `images` dict 列表导致 4 个含图 PDF store 失败），故不违背「整合不要求改存储」的原判断，仅作记录。
+
 ---
 
 ## 4. 整合注意事项（源码实证）
@@ -289,7 +291,7 @@ LENS_HARD_TOKEN_BUDGET=true            # 超预算硬失败，防客户端断连
 # GREP_* 按需覆盖（默认已满足 9.6 成本不变量，不改）
 ```
 
-不新增存储路径（`data/db/sirchmunk/` 归 sidecar work_path）、不新增数据库表；主项目存储三路（Chroma/BM25/图片 SQLite）零改动。
+不新增存储路径（`data/db/sirchmunk/` 归 sidecar work_path）、不新增数据库表；主项目存储三路（Chroma/BM25/图片 SQLite）零改动（**2026-10-06 勘误**：Chroma store 因 G1–G3 修复有过一次 metadata 净化改动，见 3.3；与 agentic 整合无关）。
 
 ---
 
@@ -436,6 +438,15 @@ LENS_HARD_TOKEN_BUDGET=true            # 超预算硬失败，防客户端断连
 **处置**：`agentic_search` 维持 `enabled: false`，S2/S3 不启动。剩余障碍从延迟（F4，已解决）转移为**命中质量与非确定性（F5）**；重开 G0 的前置条件为 F5 的方法学改进（每类 ≥5 题、多轮运行、裸 rg 基线对照）及复测预算确认。
 
 **`timeout_s` 判定与建议**：FAST 实测上限 13.6s（DeepSeek、40k 字符证据上限下），`timeout_s=30` 保留 ≈2.2× 余量，**建议维持 30 不变**（无证据支持收紧或放宽）。补充口径：①FAST 模式上游不绑定 `max_token_budget`（预算绑定仅发生在 DEEP 分支，`search.py:2450-2462`），故 16–38k token/条的 FAST 消耗不会触发 `LLMTokenBudgetExceeded`，其单条成本上限实际由 40k 字符证据上限与 2 次固定 LLM 调用决定；②DEEP 模式（数十秒）本就被 `allow_deep=false` 门控，`timeout_s=30` 对 DEEP 不适用属预期行为。
+
+**G0 未通过机制分析（2026-10-06 补充取证，针对命中质量）**：
+
+1. **FAST 单文件结构是 multihop 0/6 的根因（结构性，非偶发）**：FAST 每次检索只选**一个** best file 构建证据（≤40k 字符），而 Q5/Q6 的期望来源各为 3 个 `src/` 文件，best file 选错即必挂——两题日志均显示选中 `DEV_SPEC.md`。跨文件迭代本就是 DEEP/ReAct 的设计目标（`allow_deep=false` 门控中）。
+2. **词法文件选择：提及关键词的文档击败实现文件**：Q2 期望 `protocol_handler.py`（`-32602` 定义于该文件，已核实 `:34`），但选择器按词法得分选中 `DEV_SPEC.md`（文档措辞与问题关键词更贴近）。只有**字面标识符**能让 grep 直达真文件——Q1 命中正是 grep fallback 路径（`bm25_indexer.py` 15 hits）。这解释了 identifier 类「应强却 1/2」。
+3. **问题集自身存在坏题**：Q3 问「README 中摄取 CLI 的验收标准」，核实 README 无任何 `acceptance/验收` 字样——期望来源在语料中不存在，属 golden 集缺陷（F5 实例），format 类被拖为 1/2。
+4. **非确定性机制**：LLM 关键词抽取逐轮不同（三轮 Primary/Fallback 关键词列表均不同）→ 文件打分随之漂移 → 命中翻转（Q1 ❌❌→✅、Q2 ✅❌→❌）。翻转源于此，而非网络抖动。
+
+**重开 G0 的候选路径（按性价比排序）**：①先修问题集——逐题核实 `expected_sources` 真实存在于语料（剔除/修正 Q3 式坏题），零成本；②裸 rg 基线对照（F5 原计划）——Q1 类标识符题 rg 秒级可中，若基线能到 3–4/6，sidecar 增益论证不成立，这是 G0 真正该比的对象；③DEEP 模式单跑 Q5/Q6 各一次，验证多跳是否兑现（每题数十秒 + token，可作决策依据）；④①–③ 后仍无明确增益，则维持 `enabled: false` 收口，等真实语料场景再评估。
 
 
 
