@@ -401,6 +401,8 @@ pytest -q
 - 保存解析器版本、Chunk 策略版本和 Embedding 模型版本；
 - 对失败文档提供可诊断的阶段信息。
 
+> **已立项**：本节方向已立项为 [INGESTION_ROBUSTNESS_SPEC.md](../specs/INGESTION_ROBUSTNESS_SPEC.md)（IR 系列，IR0–IR6，Markdown 归 OBSIDIAN V 系列）；现状审计 A1–A7 与模块设计见该规格。
+
 ### 6.3 MCP 能力
 
 - 评估迁移至官方 MCP SDK，减少自维护协议细节；

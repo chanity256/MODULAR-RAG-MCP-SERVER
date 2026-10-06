@@ -20,8 +20,8 @@
 | 目录 | 内容 |
 |------|------|
 | [docs/frozen/](docs/frozen/) | 已冻结文档：[DEV_SPEC.md](docs/frozen/DEV_SPEC.md)（主规格，架构参考）、[SIRCHMUNK_INTEGRATION_SPEC.md](docs/frozen/SIRCHMUNK_INTEGRATION_SPEC.md)、[ACCEPTANCE_GAPS.md](docs/frozen/ACCEPTANCE_GAPS.md) |
-| [docs/specs/](docs/specs/) | 开发规格落点（立项后的新规格存放处，当前为空） |
-| [docs/analysis/](docs/analysis/) | 分析与规划：[MICROSERVICES_ANALYSIS.md](docs/analysis/MICROSERVICES_ANALYSIS.md) |
+| [docs/specs/](docs/specs/) | 开发规格：[INGESTION_ROBUSTNESS_SPEC.md](docs/specs/INGESTION_ROBUSTNESS_SPEC.md)（IR 系列，待开工） |
+| [docs/analysis/](docs/analysis/) | 分析与规划：[MICROSERVICES_ANALYSIS.md](docs/analysis/MICROSERVICES_ANALYSIS.md)、[SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md](docs/analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md) |
 | [docs/backlog/](docs/backlog/) | 候选功能与待开发规格：[OBSIDIAN_RAG_SPEC.md](docs/backlog/OBSIDIAN_RAG_SPEC.md) 等 |
 | [docs/reference/](docs/reference/) | 使用参考：[USAGE_GUIDE.md](docs/reference/USAGE_GUIDE.md)（速查手册）、[FUTURE_OPTIMIZATION_ROADMAP.md](docs/reference/FUTURE_OPTIMIZATION_ROADMAP.md)（优化路线图） |
 

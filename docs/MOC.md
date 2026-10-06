@@ -4,7 +4,11 @@
 
 ## specs/ — 开发规格（落点）
 
-**立项后新规格的存放处**（从 [backlog/](backlog/) 晋升）。当前为空——既有规格均已收口，见 [frozen/](frozen/)。
+**立项后新规格的存放处**（从 [backlog/](backlog/) 晋升）。
+
+| 文档 | 说明 |
+|------|------|
+| [INGESTION_ROBUSTNESS_SPEC.md](specs/INGESTION_ROBUSTNESS_SPEC.md) | 摄取管线健壮性规格（IR 系列，IR0–IR6 未开始；现状审计 A1–A7、历史表 v2 / 版本替换 / 同步模式 / 重试诊断 / 通用格式 Loader） |
 
 新规格格式对齐 frozen/ 中 SIRCHMUNK / OBSIDIAN 先例：含模块设计、测试方案、任务排期与进度跟踪表，任务编号用新前缀避免冲突。
 
@@ -25,6 +29,7 @@
 | 文档 | 说明 |
 |------|------|
 | [MICROSERVICES_ANALYSIS.md](analysis/MICROSERVICES_ANALYSIS.md) | 微服务架构分析：当前模块化单体判断与演进方向 |
+| [SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md](analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md) | Sirchmunk 能力覆盖差距分析：已接入与未接入能力对照、对 G0 结论的影响（非排期） |
 
 ## backlog/ — 候选功能与待开发规格
 
