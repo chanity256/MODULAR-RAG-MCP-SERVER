@@ -483,13 +483,15 @@ DEEP 补充发现：Q6 为**「答对引错」**——答案内容完整梳理�
 
 #### 阶段 S2：HybridSearch 条件第三路（P2，门控：G1 通过后启动）
 
+> **进度备注（2026-10-06，显式重启）**：G0 终裁本为「S2/S3 不启动」；应用户显式指令重启 **S2**（第三路工程能力落地，`enabled=false` 默认关闭的口径不变），**S3 暂缓**（评估 A/B 与 Dashboard 展示待 S2 验收后再议）。S2 已全部完成（S2.1–S2.5，2026-10-06），全套件 1226 passed / 3 skipped 离线全绿。注意：重启不推翻 G0 结论——agentic 路默认仍关闭，S2 交付的是「可启用」的完整第三路链路，是否启用仍由真实语料场景决定。
+
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 验收标准 |
 |---------|---------|------|---------|---------|
-| S2.1 | `RRFFusion.fuse_routes`（N 路融合） | [ ] | | 新增 `fuse_routes(routes: dict[str, Sequence[RetrievalResult]])`；纯函数 `rrf_fuse_rankings` 数学零改动；payload 取首个出现路由（dense>sparse>agentic 优先级）；trace details 含各路计数；既有 `fuse(dense, sparse)` 行为与测试零改动；单测手工基准值 |
-| S2.2 | `AgenticTrigger` 触发策略 | [ ] | | `tool_only / fallback / always` 三策略；fallback 判定信号与阈值**在独立校准集上标定**（cross-encoder 分数是未校准 logits，禁用 golden set 调参——上游 AGENTS.md 9.5 纪律同理适用）；rerank 后分数触发需二次融合+重排的成本写入配置注释；单测策略矩阵 |
-| S2.3 | HybridSearch 可选第三路 | [ ] | | 注入可选 `agentic_retriever`；触发→第三路召回→`fuse_routes`→统一 rerank；失败降级泛化为 N 路（全失败才抛 HybridSearchError）；`last_agentic_results`/`routes.agentic` trace；`enabled=false` 或未触发时与基线行为逐字节一致（回归断言）；既有 18 集成用例零回归 |
-| S2.4 | 去重与上下文扩展 | [ ] | | 后置去重：`source_path` + 文本重叠判定（Dense 命中同一文件时保留 chunk 级结果，agentic 证据仅补位）；agentic snippet 按 char 偏移向宿主文件扩展至 ≈`chunk_size`（Cross-Encoder 评分公平）；扩展失败（文件不可读/越权）保留原 snippet；单测覆盖重叠/不可读/越权 |
-| S2.5 | `query.py --agentic` | [ ] | | `--agentic`（启用第三路）+ `--verbose` 打印 agentic 路中间结果（证据文件/Token/耗时）；退出码语义沿用 D7 矩阵；注入 fake 后端离线单测 |
+| S2.1 | `RRFFusion.fuse_routes`（N 路融合） | [x] | 2026-10-06 | 新增 `fuse_routes(routes: dict[str, Sequence[RetrievalResult]])`；纯函数 `rrf_fuse_rankings` 数学零改动；payload 取首个出现路由（dense>sparse>agentic 优先级，`ROUTE_PRIORITY` 常量、与 dict 传入顺序无关）；trace details 含各路计数（`routes: {...}`）；既有 `fuse(dense, sparse)` 改为委托 `fuse_routes` 且行为与测试零改动（trace 旧平铺形态由 fuse 本地记录保持）；单测手工基准值（+14 测试） |
+| S2.2 | `AgenticTrigger` 触发策略 | [x] | 2026-10-06 | `tool_only / fallback / always` 三策略（新增 `agentic_trigger.py`，返回 `TriggerDecision(triggered, reason)`，非法 fail-fast）；fallback 判定信号与阈值**在独立校准集上标定**（cross-encoder 分数是未校准 logits，禁用 golden set 调参——上游 AGENTS.md 9.5 纪律同理适用；默认 `trigger_score_threshold=0.5` 为未校准占位，模块 docstring/settings.py/settings.yaml 三处标注）；rerank 后分数触发需二次融合+重排的成本写入配置注释；单测策略矩阵（+35 测试） |
+| S2.3 | HybridSearch 可选第三路 | [x] | 2026-10-06 | 注入可选 `agentic_retriever`（鸭子类型 `retrieve(query, top_k, trace=...)`；`BaseAgenticSearch` 经 converter 包装后注入，HybridSearch 不 import libs/agentic_search）；触发→第三路召回→`fuse_routes`→统一 rerank（rerank 在上层 `query_knowledge_hub`，第三路结果自动进同一管线）；失败降级泛化为 N 路（dense+sparse 全失败仍抛 HybridSearchError）；`last_agentic_results`/`last_trigger_decision`/`routes.agentic` trace；`enabled=false` 或未触发时与基线行为逐字节一致（trace stages 剥离 elapsed_ms 后全列表相等断言）；既有 hybrid 集成用例 21/21 零回归（+12 测试） |
+| S2.4 | 去重与上下文扩展 | [x] | 2026-10-06 | 后置去重（新增 `agentic_dedup.py`）：`source_path` + 文本重叠判定（重叠率 ≥0.8 判重，`SequenceMatcher` 最长匹配块覆盖比，常量注释）；Dense/Sparse chunk 级结果永不丢弃，agentic 证据仅补位；agentic snippet 按 char 偏移向宿主文件以 snippet 为中心扩展至 ≈`chunk_size`（Cross-Encoder 评分公平；metadata 追加 `context_expanded`/`expanded_char_start`/`expanded_char_end`，chunk_id 不变）；扩展失败（文件不可读/symlink 逃逸/白名单外/`denied_substrings`）经 PathGuard fail-closed 保留原 snippet 不抛错；仅第三路触发且存活时才有开销，未触发路径零改动（+21 测试） |
+| S2.5 | `query.py --agentic` | [x] | 2026-10-06 | `--agentic`（启用第三路：`AgenticRouteAdapter` 把 `BaseAgenticSearch` 包装成 retrieve 形态注入 HybridSearch）+ `--verbose` 打印 agentic 路中间结果（触发状态/证据文件/Token/耗时，Token 取 search 内部真正执行的适配器）；`enabled=false` 时退出码 2 并提示改 `config/settings.yaml`；退出码语义沿用 D7 矩阵（0/1/2，无新增）；注入 fake 后端离线单测（+8 测试）；未传 `--agentic` 时行为与基线一致 |
 
 #### 阶段 S3：评估 A/B 与 Dashboard（P3，门控：S2 零回归后启动）
 
