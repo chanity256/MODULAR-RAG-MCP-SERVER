@@ -73,6 +73,7 @@
 | P1 | HTTP 适配器 + `agentic_search` MCP Tool | 承诺（S1） | `libs/agentic_search`（Base/Factory/HTTP 后端/PathGuard）+ 新 MCP tool + trace + 离线测试 |
 | P2 | HybridSearch 条件第三路 | 门控（S2，G1 通过后） | N 路 RRF 融合 + 触发策略 + 去重 + `query.py --agentic` |
 | P3 | 评估 A/B 与 Dashboard 展示 | 门控（S3，P2 零回归后） | source 级指标 A/B + Query Traces 页 agentic 阶段展示 |
+| P4 | Dashboard 三模式在线检索 | S4 | 「在线检索」页：Normal/Fast/Deep 三模式分发，门控严格遵守 `agentic_search.enabled`/`allow_deep`，结果与引用归一化展示 |
 
 ### 2.2 Out of Scope（明确不做）
 
@@ -142,6 +143,17 @@
 | 测试 | `tests/unit/test_agentic_*.py`、`tests/integration/test_agentic_http.py`、`tests/e2e/test_agentic_mcp.py` | 见第 5 章 |
 
 P2 追加（门控后）：`src/core/query_engine/fusion.py`（`fuse_routes` N 路）、`src/core/query_engine/hybrid_search.py`（可选第三路 + 触发策略）、`src/core/query_engine/agentic_trigger.py`（新增）、`scripts/query.py`（`--agentic`）。
+
+S4 追加（Dashboard 在线检索，P4）：
+
+| 模块 | 文件 | 改动 |
+|------|------|------|
+| 服务层（新增） | `src/observability/dashboard/services/search_service.py` | `SearchService`：`availability(settings)` 返回各模式的可用状态与原因；`run(mode, query, top_k, collection)` 分发至 `QueryKnowledgeHubTool`（normal）或 `AgenticSearchTool`（fast/deep），结果归一化为 `SearchOutcome`（mode/markdown/citations/agentic_meta/is_error/error/elapsed_ms）；工具实例懒构建并会话内缓存 |
+| 页面（新增） | `src/observability/dashboard/pages/query_playground.py` | 「在线检索」页 UI：模式按钮组（默认 Normal）、置灰门控与 help 提示、collection 仅 Normal 显示、按模式渲染结果区、`st.error` 友好错误展示；`render(*, settings=None, search_service=None)` 支持注入 |
+| 页面注册 | `src/observability/dashboard/app.py` | 导航新增分组「检索」，注册「在线检索」页 |
+| 测试（新增/增量） | `tests/unit/test_dashboard_search_service.py`、`tests/e2e/test_dashboard_smoke.py` | 单测用 Fake 后端与 fake HybridSearch 离线覆盖；e2e 冒烟沿用 `AppTest.from_file` driver |
+
+> **S4 接口冻结（实现前置）**：先在本节冻结 `SearchOutcome` 与 `SearchService` 接口，随后 S4.1（服务层）与 S4.2（页面 UI，基于 fake service）可并行开发，S4.3 单独收口。不改动检索核心（`core/`、`mcp_server/`、`libs/`），不新增依赖，默认配置不变（`agentic_search.enabled: false`，默认仅 Normal 可用）。
 
 无需改动：Ingestion 全链路、Chroma/BM25/Image 存储、既有 3 个 MCP Tool 契约、CitationGenerator（已读 `metadata["source_path"]`，直接工作）。
 
@@ -308,8 +320,9 @@ LENS_HARD_TOKEN_BUDGET=true            # 超预算硬失败，防客户端断连
 2. **阶段 S1（P1，承诺）**：适配层 + `agentic_search` MCP Tool + trace + 离线测试全绿 → **闸门 G1**。
 3. **阶段 S2（P2，门控）**：HybridSearch 条件第三路（N 路 RRF + 触发策略 + 去重）。
 4. **阶段 S3（P3，门控）**：评估 A/B（source 级指标）+ Dashboard 展示 + 文档收口。
+5. **阶段 S4（P4）**：Dashboard 三模式在线检索（「在线检索」页 + SearchService 分发 + 门控 + 冒烟测试）。
 
-> 依赖关系：S1 依赖 S0（G0 通过）；S2 依赖 S1（G1 通过）；S3 依赖 S2 零回归。
+> 依赖关系：S1 依赖 S0（G0 通过）；S2 依赖 S1（G1 通过）；S3 依赖 S2 零回归；S4 依赖 S1（两个 Tool 均已交付）与 S3.2（Query 追踪页已支持渲染 agentic 阶段），S2/S3 已交付后启动。
 
 ### 📊 进度跟踪表 (Progress Tracking)
 
@@ -502,6 +515,16 @@ DEEP 补充发现：Q6 为**「答对引错」**——答案内容完整梳理�
 | S3.1 | 评估 A/B（source 级指标） | [x] | 2026-10-06 | `scripts/evaluate.py --retrieval-mode hybrid\|agentic\|hybrid+agentic`（`hybrid` 为默认基线，行为零回归）；**source 级** hit/MRR（基于 `expected_sources`）与 chunk 级指标并列不混算（agentic 确定性 ID 与 `expected_chunk_ids` 永不匹配）；报告含延迟与 Token 对比列；另有 `--agentic-trigger` 可覆盖 `settings.agentic_search.trigger`（如 `always` 逐题触发）；fake runner 离线单测；真实 sidecar 永不自动调用（`RAG_AGENTIC_INTEGRATION=1` 门控） |
 | S3.2 | Dashboard agentic 展示 | [x] | 2026-10-06 | Query Traces 页基于 trace `method` 动态渲染 `agentic_search` 阶段（模式/Token/调用次数/证据文件列表），无该阶段时自然隐藏；Overview 配置卡显示 agentic 开关与 backend；AppTest 冒烟覆盖 |
 | S3.3 | 文档收口与决策记录 | [x] | 2026-10-06 | README「Agentic 检索（sidecar）」小节增量增补第三路内容（配置项/CLI 用法/Dashboard 展示/安全边界与默认关闭口径/真实 sidecar 门控）；USAGE_GUIDE 补 `--agentic` 与 `--retrieval-mode` 用法并同步当前状态；FUTURE_OPTIMIZATION_ROADMAP 6.3 Agentic tools 标记落地状态；本文档进度表勾完 + A/B 数据结论写回第 1.1 节（见上方进度备注）；全套件 `pytest tests -q` 离线全绿（**1245 passed / 3 skipped**） |
+
+#### 阶段 S4：Dashboard 三模式在线检索（P4）
+
+> **接口冻结与并行说明**：S4 启动前先在 3.3 模块清单冻结 `SearchOutcome` 与 `SearchService` 接口；随后 **S4.1（服务层）与 S4.2（页面 UI，基于注入的 fake service 开发）可并行各开一个 agent**，最后由 S4.3 单独收口。S4 不改动检索核心（`core/`、`mcp_server/`、`libs/`），不新增依赖，默认配置不变（`agentic_search.enabled: false`，默认仅 Normal 可用）。
+
+| 任务编号 | 任务名称 | 状态 | 完成日期 | 验收标准 |
+|---------|---------|------|---------|---------|
+| S4.1 | `SearchService` 三模式分发 + 门控 | [ ] | — | normal/fast/deep 正确路由到 `QueryKnowledgeHubTool` / `AgenticSearchTool`；可用性矩阵覆盖 `enabled`、`allow_deep` 的四种组合（`availability(settings)` 返回各模式可用状态与原因）；结果归一化为 `SearchOutcome`（成功、`isError`、`ToolInvalidParams`、空结果四类）；离线单测使用 Fake 后端与 fake HybridSearch，不触网 |
+| S4.2 | 「在线检索」页 UI + 导航注册 | [ ] | — | 模式按钮组默认选中 Normal（primary 高亮）；Fast 需 `enabled=true` 否则置灰（help 提示开启 `agentic_search.enabled` 并启动 sidecar），Deep 另需 `allow_deep=true` 否则置灰（提示开启 `allow_deep`）；collection 输入仅在 Normal 显示；Deep spinner 文案提示「可能需要数十秒」；结果区按模式渲染（共有：Markdown 答案 + 引用表来源/页码/分数；Fast/Deep 额外：agentic 答案、模式、Token、LLM 调用次数、耗时、证据文件）；`isError`/参数非法经 `st.error` 友好展示，页面不崩溃；trace 写入后可在 Query 追踪页查看各阶段；`render(*, settings=None, search_service=None)` 支持注入 |
+| S4.3 | AppTest 冒烟 + 文档收口 | [ ] | — | 冒烟覆盖：默认渲染、agentic 关闭时 Fast/Deep 置灰、注入 fake service 后三模式检索、错误展示；README/USAGE_GUIDE 增补「在线检索」页用法；本文档 S4 表格勾选；全套件 `pytest tests -q` 离线全绿 |
 
 ---
 
