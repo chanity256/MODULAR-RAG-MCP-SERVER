@@ -9,7 +9,7 @@
 >
 > **本文档自此冻结为架构与设计参考**，排期表不再新增或改动任务。后续增量工作转入独立规格跟踪：
 >
-> - [OBSIDIAN_RAG_SPEC.md](OBSIDIAN_RAG_SPEC.md) — Obsidian 多格式解析（V 系列增量）
+> - [OBSIDIAN_RAG_SPEC.md](../backlog/OBSIDIAN_RAG_SPEC.md) — Obsidian 多格式解析（V 系列增量）
 > - [SIRCHMUNK_INTEGRATION_SPEC.md](SIRCHMUNK_INTEGRATION_SPEC.md) — Sirchmunk Agentic 检索整合（S 系列，S0–S1 已收口，G0 未通过、S2/S3 门控未启动）
 > - [ACCEPTANCE_GAPS.md](ACCEPTANCE_GAPS.md) — 验收缺口台账（G1–G3 已关闭）
 

@@ -272,8 +272,8 @@ Immediately after evaluation, provide targeted study resources (中文):
 - [file_path](file_path#LX-LY) — 说明这段代码的作用和关键逻辑
 
 ### 📄 相关文档
-- [DEV_SPEC.md 对应章节](DEV_SPEC.md) — 设计原理
-- [config/settings.yaml](config/settings.yaml) — 相关配置项
+- [DEV_SPEC.md 对应章节](../../docs/frozen/DEV_SPEC.md) — 设计原理
+- [config/settings.yaml](../../config/settings.yaml) — 相关配置项
 
 ### 🔗 参考资料
 - [External concept name] — 1-sentence explanation of relevance

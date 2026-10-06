@@ -134,11 +134,11 @@
 
 | 模块 | 文件 | 改动 |
 |------|------|------|
-| 配置 | [config/settings.yaml](config/settings.yaml) | 新增 `agentic_search` 节（见第 6 章，默认 `enabled: false`） |
-| 配置解析 | [src/core/settings.py](src/core/settings.py) | 新增 `AgenticSearchConfig` dataclass + `_build_agentic_search()`；可选节纪律（缺失走默认值），非法值 fail-fast |
+| 配置 | [config/settings.yaml](../../config/settings.yaml) | 新增 `agentic_search` 节（见第 6 章，默认 `enabled: false`） |
+| 配置解析 | [src/core/settings.py](../../src/core/settings.py) | 新增 `AgenticSearchConfig` dataclass + `_build_agentic_search()`；可选节纪律（缺失走默认值），非法值 fail-fast |
 | 适配层（新增） | `src/libs/agentic_search/`：`base_agentic_search.py` / `http_backend.py` / `path_guard.py` / `agentic_search_factory.py` | 沿用 `libs/*` 的 Base + Factory 模式；`AgenticSearchResponse` 契约类型；PathGuard 白名单；HTTP 后端同步 httpx + 错误映射 + 防御式解析 |
 | MCP Tool（新增） | `src/mcp_server/tools/agentic_search.py` | 参照 `query_knowledge_hub.py`：懒初始化、可注入、参数校验（`query` 必填、`mode∈{FAST,DEEP}`、`paths` 必须在白名单内、`top_k` 正整数）、`persist_trace` |
-| Tool 注册 | [src/mcp_server/server.py](src/mcp_server/server.py) `build_default_protocol_handler()` | 仅当 `agentic_search.enabled` 时 `register_tool(create_agentic_search_definition())` |
+| Tool 注册 | [src/mcp_server/server.py](../../src/mcp_server/server.py) `build_default_protocol_handler()` | 仅当 `agentic_search.enabled` 时 `register_tool(create_agentic_search_definition())` |
 | 依赖 | [pyproject.toml](pyproject.toml) | optional dev 组登记 `httpx`（MockTransport 测试用）；**不新增**主依赖、不引入 sirchmunk |
 | 测试 | `tests/unit/test_agentic_*.py`、`tests/integration/test_agentic_http.py`、`tests/e2e/test_agentic_mcp.py` | 见第 5 章 |
 
@@ -151,7 +151,7 @@ S4 追加（Dashboard 在线检索，P4）：
 | 服务层（新增） | `src/observability/dashboard/services/search_service.py` | `SearchService`：`availability(settings)` 返回各模式的可用状态与原因；`run(mode, query, top_k, collection)` 分发至 `QueryKnowledgeHubTool`（normal）或 `AgenticSearchTool`（fast/deep），结果归一化为 `SearchOutcome`（mode/markdown/citations/agentic_meta/is_error/error/elapsed_ms）；工具实例懒构建并会话内缓存 |
 | 页面（新增） | `src/observability/dashboard/pages/query_playground.py` | 「在线检索」页 UI：模式按钮组（默认 Normal）、置灰门控与 help 提示、collection 仅 Normal 显示、按模式渲染结果区、`st.error` 友好错误展示；`render(*, settings=None, search_service=None)` 支持注入 |
 | 页面注册 | `src/observability/dashboard/app.py` | 导航新增分组「检索」，注册「在线检索」页 |
-| 启动编排（交付后增量） | [scripts/start_dashboard.py](scripts/start_dashboard.py) | sidecar 托管：探活 → 自动拉起 → 等健康 → 退出回收（进程隔离不变，见第 7 章「S4 交付后修复与增强」R4） |
+| 启动编排（交付后增量） | [scripts/start_dashboard.py](../../scripts/start_dashboard.py) | sidecar 托管：探活 → 自动拉起 → 等健康 → 退出回收（进程隔离不变，见第 7 章「S4 交付后修复与增强」R4） |
 | 测试（新增/增量） | `tests/unit/test_dashboard_search_service.py`、`tests/unit/test_start_dashboard.py`、`tests/e2e/test_dashboard_smoke.py` | 单测用 Fake 后端与 fake HybridSearch 离线覆盖；启动器编排 6 个离线用例；e2e 冒烟沿用 `AppTest.from_file` driver |
 
 > **S4 接口冻结（实现前置）**：先在本节冻结 `SearchOutcome` 与 `SearchService` 接口，随后 S4.1（服务层）与 S4.2（页面 UI，基于 fake service）可并行开发，S4.3 单独收口。不改动检索核心（`core/`、`mcp_server/`、`libs/`），不新增依赖，默认配置不变（`agentic_search.enabled: false`，默认仅 Normal 可用）。
@@ -578,5 +578,5 @@ DEEP 补充发现：Q6 为**「答对引错」**——答案内容完整梳理�
 - 返回结构：`src/sirchmunk/schema/search_context.py`、`src/sirchmunk/schema/knowledge.py`
 - HTTP API：`src/sirchmunk/api/search.py`（`/api/v1/search`，Bearer 见 `api/main.py:97`）
 - MCP 实际注册（仅 1 工具）：`src/sirchmunk_mcp/server.py:51-65`
-- 本项目适配对接点：[src/mcp_server/server.py](src/mcp_server/server.py)、[src/mcp_server/tools/query_knowledge_hub.py](src/mcp_server/tools/query_knowledge_hub.py)、[src/core/query_engine/hybrid_search.py](src/core/query_engine/hybrid_search.py)、[src/core/query_engine/fusion.py](src/core/query_engine/fusion.py)
-- 关联规格：[OBSIDIAN_RAG_SPEC.md](OBSIDIAN_RAG_SPEC.md)（多格式结构化解析归其 M1/M2）、[FUTURE_OPTIMIZATION_ROADMAP.md](FUTURE_OPTIMIZATION_ROADMAP.md)（6.3 Agentic RAG 展望）
+- 本项目适配对接点：[src/mcp_server/server.py](../../src/mcp_server/server.py)、[src/mcp_server/tools/query_knowledge_hub.py](../../src/mcp_server/tools/query_knowledge_hub.py)、[src/core/query_engine/hybrid_search.py](../../src/core/query_engine/hybrid_search.py)、[src/core/query_engine/fusion.py](../../src/core/query_engine/fusion.py)
+- 关联规格：[OBSIDIAN_RAG_SPEC.md](../backlog/OBSIDIAN_RAG_SPEC.md)（多格式结构化解析归其 M1/M2）、[FUTURE_OPTIMIZATION_ROADMAP.md](../reference/FUTURE_OPTIMIZATION_ROADMAP.md)（6.3 Agentic RAG 展望）

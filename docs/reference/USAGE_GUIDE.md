@@ -1,7 +1,7 @@
 # 项目使用指南（含 Sirchmunk Agentic 检索）
 
 > 本文档是速查手册，覆盖：① 主项目（Indexed RAG）基本用法；② Sirchmunk sidecar 的启动与 `agentic_search` 工具用法。
-> 详细设计见 [README.md](README.md)、[SIRCHMUNK_INTEGRATION_SPEC.md](SIRCHMUNK_INTEGRATION_SPEC.md)。
+> 详细设计见 [README.md](../../README.md)、[SIRCHMUNK_INTEGRATION_SPEC.md](../frozen/SIRCHMUNK_INTEGRATION_SPEC.md)。
 
 ---
 

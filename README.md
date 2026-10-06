@@ -15,6 +15,16 @@
 - [常见问题](#-常见问题)
 - [后续安排](#-后续安排)
 
+### 📚 开发文档（docs/）
+
+| 目录 | 内容 |
+|------|------|
+| [docs/frozen/](docs/frozen/) | 已冻结文档：[DEV_SPEC.md](docs/frozen/DEV_SPEC.md)（主规格，架构参考）、[SIRCHMUNK_INTEGRATION_SPEC.md](docs/frozen/SIRCHMUNK_INTEGRATION_SPEC.md)、[ACCEPTANCE_GAPS.md](docs/frozen/ACCEPTANCE_GAPS.md) |
+| [docs/specs/](docs/specs/) | 开发规格落点（立项后的新规格存放处，当前为空） |
+| [docs/analysis/](docs/analysis/) | 分析与规划：[MICROSERVICES_ANALYSIS.md](docs/analysis/MICROSERVICES_ANALYSIS.md) |
+| [docs/backlog/](docs/backlog/) | 候选功能与待开发规格：[OBSIDIAN_RAG_SPEC.md](docs/backlog/OBSIDIAN_RAG_SPEC.md) 等 |
+| [docs/reference/](docs/reference/) | 使用参考：[USAGE_GUIDE.md](docs/reference/USAGE_GUIDE.md)（速查手册）、[FUTURE_OPTIMIZATION_ROADMAP.md](docs/reference/FUTURE_OPTIMIZATION_ROADMAP.md)（优化路线图） |
+
 ---
 
 ## 🏗️ 项目概述
@@ -64,7 +74,7 @@
 
 **🤖 Skill 驱动全流程**：内置 auto-coder（自动编码）、qa-tester（自动测试）、package（清理打包）、setup（一键配置）等 Agent Skill，覆盖从代码编写到测试、打包、部署的完整开发生命周期。每个 Skill 的使用方法和设计思路在笔记的项目部分均有讲解视频，可参考学习。
 
-> 📖 详细架构设计、模块说明和任务排期请参阅 [DEV_SPEC.md](DEV_SPEC.md)
+> 📖 详细架构设计、模块说明和任务排期请参阅 [docs/frozen/DEV_SPEC.md](docs/frozen/DEV_SPEC.md)（全部开发文档索引见 [docs/MOC.md](docs/MOC.md)）
 
 ---
 
@@ -192,7 +202,7 @@ Server 通过 stdin/stdout 收发 JSON-RPC（MCP 2025-06-18），暴露三个 to
 
 ### 5.1 Agentic 检索（sidecar，可选）
 
-`agentic_search` 工具把查询转发给独立进程中的 [sirchmunk](https://github.com/modelscope/sirchmunk)（无索引 Agentic 检索：rg/rga 词法召回 + LLM 迭代探索），与 Dense + BM25 主链路互补，不替换它。sirchmunk 装在独立 venv 里，主项目 venv 永远不 import 它，只通过 HTTP 调用 `POST /api/v1/search`。完整设计与注意事项见 [`SIRCHMUNK_INTEGRATION_SPEC.md`](SIRCHMUNK_INTEGRATION_SPEC.md)。
+`agentic_search` 工具把查询转发给独立进程中的 [sirchmunk](https://github.com/modelscope/sirchmunk)（无索引 Agentic 检索：rg/rga 词法召回 + LLM 迭代探索），与 Dense + BM25 主链路互补，不替换它。sirchmunk 装在独立 venv 里，主项目 venv 永远不 import 它，只通过 HTTP 调用 `POST /api/v1/search`。完整设计与注意事项见 [`docs/frozen/SIRCHMUNK_INTEGRATION_SPEC.md`](docs/frozen/SIRCHMUNK_INTEGRATION_SPEC.md)。
 
 **启动 sidecar**
 

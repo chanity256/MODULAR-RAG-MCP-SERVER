@@ -53,7 +53,7 @@ retrieval:
   rrf_k: 60                  # RRF 平滑常数（D4：k 参数，越大越平滑）
 
 # Agentic 检索（Sirchmunk HTTP sidecar，可选；enabled=false 时零加载、
-# tools/list 不出现 agentic_search 工具）。详见 SIRCHMUNK_INTEGRATION_SPEC.md。
+# tools/list 不出现 agentic_search 工具）。详见 docs/frozen/SIRCHMUNK_INTEGRATION_SPEC.md。
 agentic_search:
   enabled: true                  # true 需先启动 sidecar（scripts/sirchmunk/）
   backend: sirchmunk_http        # 唯一生产后端（fake 仅供测试注入）
