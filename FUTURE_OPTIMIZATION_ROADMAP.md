@@ -445,6 +445,21 @@ pytest -q
 - CI 分别执行 Python 与前端检查；
 - 对 OpenAPI schema 进行版本变更检查，避免前后端契约静默破坏。
 
+### 6.8 主链路 vs Agentic Sidecar 三方对比实验（G0 关闭后的候选实验）
+
+**背景**：Sirchmunk 整合的 G0 已关闭（见 SIRCHMUNK_INTEGRATION_SPEC 第 7 章「G0 重开复测与最终裁决」）：裸 rg 基线 6/6 严格优于 sidecar FAST（2/6）与 DEEP（multihop 1/2）。但该对比有一个缺口——**主链路 RAG（Dense + BM25 + RRF + Rerank）从未参赛**：这 6 题的期望来源全是 `.py` / `.md` 文件，而主链路 Loader 当前仅支持 `.pdf`，结构性地无法在题集上评测。
+
+**实验设计**（前置条件满足后执行）：
+
+1. 前置：OBSIDIAN_RAG_SPEC 的 MarkdownLoader（V 系列）落地；`.py` 等代码文件的 Code Loader 可一并评估；
+2. 将仓库源码与文档摄取进独立 collection（现成链路：`ingest.py` + 智谱 embedding 端点已验证可用）；
+3. 用同一份 `tests/fixtures/agentic/golden_questions.json`（必要时扩充每类题量）跑 `evaluate.py`，三方对比 source 级命中 / MRR / 延迟 / Token 成本；
+4. **裸 rg 基线（`scripts/sirchmunk/rg_baseline.py`）必须列为对照项**——G0 的教训即是：任何 LLM 检索路径的优势主张，都要先过免费的词法下界这一关。
+
+**预期与决策点**：identifier 类预期主链路 BM25 路即强（与 rg 同理）；format 类补齐 Loader 后可覆盖；multihop（跨文件多跳）是 chunk 级 Top-K 检索的固有弱项，是该实验真正要回答的问题——若主链路 + rg 后处理能覆盖，sidecar 依此彻底归档；若确有缺口，再以真实收益数据重开 sidecar 评估（而非假想优势）。
+
+**与第 10 章决策原则的对照**：本实验回答的正是「它解决了哪个已经观察到的问题」（multihop 缺口是否真实存在）与「如何确认有效」（三方同题集量化对比）。
+
 ## 7. 优先级建议
 
 ### 近期：低风险、高收益
