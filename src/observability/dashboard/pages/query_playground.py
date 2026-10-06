@@ -19,6 +19,11 @@ __all__ = ["render"]
 
 _MODES: tuple[tuple[str, str], ...] = (("normal", "Normal"), ("fast", "Fast"), ("deep", "Deep"))
 
+# 三模式各自的主题色（用户约定：Normal 绿 / Fast 蓝 / Deep 红）。
+# st.button 只有 primary/secondary 两态，颜色经 CSS 按列注入：
+# 选中=实心，未选中=描边，disabled=置灰。
+_MODE_COLORS: dict[str, str] = {"normal": "#22a559", "fast": "#2f7de8", "deep": "#d64545"}
+
 _MODE_BTN_KEY = "qp_mode"
 _OUTCOME_KEY = "qp_outcome"
 _SERVICE_KEY = "_search_service"
@@ -58,13 +63,15 @@ def _set_mode(mode: str) -> None:
 def _render_mode_buttons(availability: dict) -> str:
     if st.session_state.get(_MODE_BTN_KEY) not in dict(_MODES):
         _set_mode("normal")
+    selected = st.session_state[_MODE_BTN_KEY]
+    st.markdown(_mode_button_css(selected, availability), unsafe_allow_html=True)
     cols = st.columns(len(_MODES))
     for col, (mode, label) in zip(cols, _MODES):
         with col:
             state = availability[mode]
             if st.button(
                 label,
-                type="primary" if st.session_state[_MODE_BTN_KEY] == mode else "secondary",
+                type="primary" if selected == mode else "secondary",
                 disabled=not state.available,
                 help=state.reason,
                 use_container_width=True,
@@ -74,6 +81,36 @@ def _render_mode_buttons(availability: dict) -> str:
             ):
                 pass  # 状态经 on_click 回调更新，此处无需处理
     return st.session_state[_MODE_BTN_KEY]
+
+
+def _mode_button_css(selected: str, availability: dict) -> str:
+    """按列注入三色按钮样式（st.button 原生不支持逐按钮配色）。
+
+    选择子 ``stHorizontalBlock > div:nth-child(i) button`` 锚定模式行
+    第 i 列内的按钮：本页其余 HorizontalBlock（指标行）不含按钮，
+    不受影响。选中=实心填充，未选中=同色描边，不可用=置灰。
+    """
+    rules: list[str] = []
+    for idx, (mode, _label) in enumerate(_MODES, start=1):
+        button = f'div[data-testid="stHorizontalBlock"] > div:nth-child({idx}) button'
+        color = _MODE_COLORS[mode]
+        if not availability[mode].available:
+            rules.append(
+                f"{button} {{ background: #3a3f4b !important; color: #8b8f98 !important;"
+                f" border: 1px solid #4a4f58 !important; }}"
+            )
+        elif mode == selected:
+            rules.append(
+                f"{button} {{ background: {color} !important; color: #ffffff !important;"
+                f" border: 1px solid {color} !important; font-weight: 600 !important; }}"
+            )
+        else:
+            rules.append(
+                f"{button} {{ background: transparent !important; color: {color} !important;"
+                f" border: 1px solid {color} !important; }}"
+            )
+            rules.append(f"{button}:not(:disabled):hover {{ filter: brightness(1.15); }}")
+    return "<style>" + "".join(rules) + "</style>"
 
 
 # --------------------------------------------------------------------- #
