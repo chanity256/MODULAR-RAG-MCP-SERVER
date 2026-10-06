@@ -256,6 +256,8 @@ python scripts/start_dashboard.py
 streamlit run src/observability/dashboard/app.py
 ```
 
+`start_dashboard.py` 会按配置托管 sidecar：`agentic_search.enabled=true` 时自动拉起 sirchmunk sidecar（独立 venv/进程，进程隔离不变）、等健康后再启动 Dashboard；sidecar 已在运行则直接复用；Dashboard 退出时自动停掉由它拉起的 sidecar。`--no-sidecar` 可跳过托管。
+
 浏览器打开 http://localhost:8501，七个页面（按导航分组）：
 
 | 页面 | 功能 |

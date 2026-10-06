@@ -208,7 +208,16 @@ agentic_search:
 
 ## 5. 日常启动与关闭
 
-每次使用 agentic_search 前（顺序执行）：
+**推荐：一条命令全搞定**（Dashboard 启动器自动托管 sidecar）：
+
+```bash
+python scripts/start_dashboard.py
+# agentic_search.enabled=true 时：自动拉起 sidecar → 等健康 → 启动 Dashboard；
+# sidecar 已在运行则直接复用；Dashboard 退出（Ctrl+C / kill）时自动停掉由它拉起的 sidecar。
+# --no-sidecar：完全不托管 sidecar（只跑 Dashboard）。
+```
+
+手动分步启动（等效于上面的自动编排）：
 
 ```bash
 # 1. 启动 sidecar（前台运行；建议放独立终端或 tmux）
