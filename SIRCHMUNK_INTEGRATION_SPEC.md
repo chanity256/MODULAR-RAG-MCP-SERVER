@@ -1,9 +1,10 @@
 <!-- 扩展规格：Sirchmunk 无索引 Agentic 检索整合。格式与架构分层对齐 DEV_SPEC.md；基线为「阶段 A–I 已完成」状态（OBSIDIAN_RAG_SPEC V 系列为独立增量，互不阻塞）。 -->
+
 # Sirchmunk Agentic 检索整合规格 (SIRCHMUNK_INTEGRATION_SPEC)
 
 > 版本：0.2 — 由《整合可行性分析》升级为可执行规格（调研结论 + 整合注意事项 + 项目排期）
 >
-> 调研对象：[modelscope/sirchmunk](https://github.com/modelscope/sirchmunk)（`main` 分支，版本 `0.2.1+main`，Apache-2.0，Beta；**锁定 commit `b314e11`**）
+> 调研对象：[modelscope/sirchmunk](https://github.com/modelscope/sirchmunk)（`main` 分支，版本 `0.2.1+main`，Apache-2.0，Beta；**锁定 commit `b314e11`**）项目已经下载到本地 /Users/wanghaonan/Desktop/Project/Job-Search/sirchmunk 可直接使用其项目代码。
 >
 > 基线：DEV_SPEC.md 阶段 A–I 全部完成（PDF Ingestion / Hybrid Search / MCP Server / Dashboard / Evaluation / E2E 均已落地）
 >
