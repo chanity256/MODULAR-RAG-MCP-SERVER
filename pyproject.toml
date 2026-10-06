@@ -28,6 +28,10 @@ dev = [
     # agentic_search sidecar 客户端（运行时经 chromadb 间接安装；此处显式登记以防上游移除）
     "httpx>=0.27",
 ]
+# 通用格式摄取（DOCX/PPTX/XLSX/HTML，MarkitdownLoader）；不进主依赖，按需安装。
+ingest-formats = [
+    "markitdown[docx,pptx,xlsx]>=0.1.0",
+]
 
 [project.scripts]
 modular-rag-mcp-server = "mcp_server.server:main"

@@ -45,7 +45,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from core.settings import Settings
+from core.settings import Settings, resolve_ingestion_versions
 from core.trace.persist import persist_trace
 from core.trace.trace_context import TRACE_TYPE_INGESTION, TraceContext
 from core.types import Chunk, Document
@@ -241,7 +241,9 @@ class IngestionPipeline:
             # ---- 阶段 1：integrity（SHA256 + 未变更跳过） ----
             with self._stage(STAGE_INTEGRITY, source):
                 file_hash = self._integrity_checker.compute_sha256(source)
-                skipped = not force and self._integrity_checker.should_skip(file_hash)
+                skipped = not force and self._integrity_checker.should_skip(
+                    file_hash, source_path=source, collection=collection
+                )
                 trace.record_stage(
                     STAGE_INTEGRITY,
                     method="pipeline",
@@ -341,7 +343,12 @@ class IngestionPipeline:
 
             # ---- 阶段 7：mark_success ----
             with self._stage(STAGE_INTEGRITY, source):
-                self._integrity_checker.mark_success(file_hash, source)
+                self._integrity_checker.mark_success(
+                    file_hash,
+                    source,
+                    collection=collection,
+                    **self._version_tags(),
+                )
 
             persist_trace(trace, log_file=self._settings.observability.log_file)
             elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
@@ -361,7 +368,7 @@ class IngestionPipeline:
                 elapsed_ms=elapsed_ms,
             )
         except Exception as exc:
-            self._record_failure(file_hash, source, exc, trace)
+            self._record_failure(file_hash, source, exc, trace, collection=collection)
             persist_trace(trace, log_file=self._settings.observability.log_file)
             raise
 
@@ -516,6 +523,8 @@ class IngestionPipeline:
         source: str,
         exc: Exception,
         trace: TraceContext,
+        *,
+        collection: str = "default",
     ) -> None:
         """失败落账：integrity ``mark_failed`` + trace error 打点。"""
         stage = getattr(exc, "stage", "")
@@ -526,12 +535,26 @@ class IngestionPipeline:
         )
         if file_hash:
             try:
-                self._integrity_checker.mark_failed(file_hash, f"{type(exc).__name__}: {exc}")
+                self._integrity_checker.mark_failed(
+                    file_hash,
+                    f"{type(exc).__name__}: {exc}",
+                    source_path=source,
+                    collection=collection,
+                    failed_stage=stage or None,
+                    **self._version_tags(),
+                )
             except Exception as mark_exc:  # 记账失败不应吞掉原始异常
                 self._logger.warning(
                     "mark_failed failed for %s (hash=%s...): %s", source, file_hash[:12], mark_exc
                 )
         self._logger.error("ingestion failed for %s at stage %r: %s", source, stage, exc)
+
+    def _version_tags(self) -> dict[str, str]:
+        """当次运行的 parser/chunk/embedding 版本标识（规则见 settings）。"""
+        loader = getattr(self, "_loader", None)
+        return resolve_ingestion_versions(
+            self._settings, loader_name=type(loader).__name__ if loader is not None else None
+        )
 
     @staticmethod
     def _emit_progress(

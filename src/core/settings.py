@@ -37,6 +37,9 @@ __all__ = [
     "MetadataEnricherConfig",
     "ImageCaptionerConfig",
     "IngestionConfig",
+    "IngestionRetryConfig",
+    "IngestionVersionPolicyConfig",
+    "resolve_ingestion_versions",
     "Settings",
     "load_settings",
     "validate_settings",
@@ -201,6 +204,48 @@ class ImageCaptionerConfig:
 
 
 @dataclass
+class IngestionRetryConfig:
+    """摄取失败重试配置（INGESTION_ROBUSTNESS_SPEC 第 6 章，可选节）。
+
+    缺省 ``max_attempts=1`` 即不重试，行为与基线一致；``>1`` 时仅对可重试
+    错误按 ``initial_backoff_s * backoff_multiplier**n``（±``backoff_jitter``
+    比例抖动）退避。
+    """
+
+    max_attempts: int = 1
+    initial_backoff_s: float = 2.0
+    backoff_multiplier: float = 2.0
+    backoff_jitter: float = 0.2
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+#: ``version_policy`` 三个版本字段取该值时由 ``resolve_ingestion_versions`` 推导。
+VERSION_AUTO = "auto"
+
+
+@dataclass
+class IngestionVersionPolicyConfig:
+    """版本元数据与不兼容检测配置（可选节）。
+
+    三个版本字段为 ``auto`` 时按以下口径推导（见 ``resolve_ingestion_versions``），
+    否则原样使用显式字符串：
+
+    - ``parser_version``：``auto`` → 实际使用的 Loader 类名（未知时 ``unknown``）。
+    - ``chunk_version``：``auto`` → ``{splitter.provider}/{chunk_size}/{chunk_overlap}/refine={llm|rule}``。
+    - ``embedding_version``：``auto`` → ``{embedding.provider}/{embedding.model}/{dimensions|default}``。
+
+    ``on_embedding_mismatch``：``stale`` = 告警并跳过；``rebuild`` = 提示需全量重建
+    （均不自动重建）。
+    """
+
+    parser_version: str = VERSION_AUTO
+    chunk_version: str = VERSION_AUTO
+    embedding_version: str = VERSION_AUTO
+    on_embedding_mismatch: str = "stale"
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class IngestionConfig:
     """Ingestion Pipeline 配置（可选节，缺失时走默认值）。"""
 
@@ -209,6 +254,10 @@ class IngestionConfig:
     image_captioner: ImageCaptionerConfig = field(default_factory=ImageCaptionerConfig)
     # 编码批大小（C10 BatchProcessor 使用；批次内单次调用底层 provider）。
     batch_size: int = 32
+    retry: IngestionRetryConfig = field(default_factory=IngestionRetryConfig)
+    version_policy: IngestionVersionPolicyConfig = field(
+        default_factory=IngestionVersionPolicyConfig
+    )
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -495,8 +544,114 @@ def _build_ingestion(sec: dict[str, Any]) -> IngestionConfig:
         metadata_enricher=enricher,
         image_captioner=captioner,
         batch_size=raw_batch_size,
-        extra=_extra(sec, {"chunk_refiner", "metadata_enricher", "image_captioner", "batch_size"}),
+        retry=_build_ingestion_retry(sec.get("retry")),
+        version_policy=_build_ingestion_version_policy(sec.get("version_policy")),
+        extra=_extra(
+            sec,
+            {
+                "chunk_refiner", "metadata_enricher", "image_captioner", "batch_size",
+                "retry", "version_policy",
+            },
+        ),
     )
+
+
+def _is_number(value: Any) -> bool:
+    return not isinstance(value, bool) and isinstance(value, (int, float))
+
+
+def _build_ingestion_retry(raw: Any) -> IngestionRetryConfig:
+    """ingestion.retry 为可选节；整体或单字段缺失均走默认值。"""
+    sec = raw or {}
+    if not isinstance(sec, dict):
+        raise ConfigError("config section 'ingestion.retry' must be a mapping")
+    max_attempts = _opt(sec, "max_attempts", 1)
+    if isinstance(max_attempts, bool) or not isinstance(max_attempts, int) or max_attempts < 1:
+        raise ConfigError("config field 'ingestion.retry.max_attempts' must be an integer >= 1")
+    initial_backoff_s = _opt(sec, "initial_backoff_s", 2.0)
+    if not _is_number(initial_backoff_s) or initial_backoff_s < 0:
+        raise ConfigError(
+            "config field 'ingestion.retry.initial_backoff_s' must be a non-negative number"
+        )
+    backoff_multiplier = _opt(sec, "backoff_multiplier", 2.0)
+    if not _is_number(backoff_multiplier) or backoff_multiplier <= 1:
+        raise ConfigError(
+            "config field 'ingestion.retry.backoff_multiplier' must be a number > 1"
+        )
+    backoff_jitter = _opt(sec, "backoff_jitter", 0.2)
+    if not _is_number(backoff_jitter) or not 0.0 <= float(backoff_jitter) < 1.0:
+        raise ConfigError(
+            "config field 'ingestion.retry.backoff_jitter' must be a number in [0, 1)"
+        )
+    known = {"max_attempts", "initial_backoff_s", "backoff_multiplier", "backoff_jitter"}
+    return IngestionRetryConfig(
+        max_attempts=max_attempts,
+        initial_backoff_s=float(initial_backoff_s),
+        backoff_multiplier=float(backoff_multiplier),
+        backoff_jitter=float(backoff_jitter),
+        extra=_extra(sec, known),
+    )
+
+
+def _build_ingestion_version_policy(raw: Any) -> IngestionVersionPolicyConfig:
+    """ingestion.version_policy 为可选节；整体或单字段缺失均走默认值。"""
+    sec = raw or {}
+    if not isinstance(sec, dict):
+        raise ConfigError("config section 'ingestion.version_policy' must be a mapping")
+    versions: dict[str, str] = {}
+    for key in ("parser_version", "chunk_version", "embedding_version"):
+        value = _opt(sec, key, VERSION_AUTO)
+        if not isinstance(value, str) or not value.strip():
+            raise ConfigError(
+                f"config field 'ingestion.version_policy.{key}' must be a non-empty string"
+            )
+        versions[key] = value.strip()
+    on_mismatch = _opt(sec, "on_embedding_mismatch", "stale")
+    if not isinstance(on_mismatch, str) or on_mismatch not in {"stale", "rebuild"}:
+        raise ConfigError(
+            "config field 'ingestion.version_policy.on_embedding_mismatch' must be "
+            f"stale/rebuild, got {on_mismatch!r}"
+        )
+    known = {"parser_version", "chunk_version", "embedding_version", "on_embedding_mismatch"}
+    return IngestionVersionPolicyConfig(
+        **versions,
+        on_embedding_mismatch=on_mismatch,
+        extra=_extra(sec, known),
+    )
+
+
+def resolve_ingestion_versions(
+    settings: Settings, *, loader_name: str | None = None
+) -> dict[str, str]:
+    """按 ``ingestion.version_policy`` 推导当次运行的三个版本标识。
+
+    ``auto`` 口径见 ``IngestionVersionPolicyConfig`` docstring；``loader_name``
+    由调用方传入实际使用的 Loader 类名（仅用于 ``parser_version=auto``）。
+
+    Returns:
+        ``{"parser_version", "chunk_version", "embedding_version"}``，
+        可直接作为 ``mark_success`` / ``mark_failed`` 的关键字参数展开。
+    """
+    policy = settings.ingestion.version_policy
+    parser = policy.parser_version
+    if parser == VERSION_AUTO:
+        parser = loader_name or "unknown"
+    chunk = policy.chunk_version
+    if chunk == VERSION_AUTO:
+        splitter = settings.splitter
+        refine = "llm" if settings.ingestion.chunk_refiner.use_llm else "rule"
+        chunk = (
+            f"{splitter.provider}/{splitter.chunk_size}/{splitter.chunk_overlap}/refine={refine}"
+        )
+    embedding = policy.embedding_version
+    if embedding == VERSION_AUTO:
+        emb = settings.embedding
+        embedding = f"{emb.provider}/{emb.model}/{emb.dimensions or 'default'}"
+    return {
+        "parser_version": parser,
+        "chunk_version": chunk,
+        "embedding_version": embedding,
+    }
 
 
 def _build_agentic_search(sec: dict[str, Any]) -> AgenticSearchConfig:

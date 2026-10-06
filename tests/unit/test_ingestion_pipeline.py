@@ -417,6 +417,28 @@ def test_failed_load_raises_stage_error_and_marks_failed(tmp_path):
     # 失败落账：status=failed → 不阻塞下次重跑。
     assert parts["integrity"].should_skip(file_hash) is False
     assert store.upsert_calls == []
+    record = parts["integrity"].get_record(str(source), "default")
+    assert record["status"] == "failed"
+    assert record["failed_stage"] == "load"
+    assert record["file_hash"] == file_hash
+
+
+def test_same_file_into_two_collections_is_not_skipped(tmp_path):
+    loader = FakeLoader(tmp_path)
+    store = FakeVectorStore()
+    pipeline, parts = _build_pipeline(tmp_path, loader, store)
+    source = _write_source(tmp_path)
+
+    first = pipeline.run(str(source), collection="c1")
+    second = pipeline.run(str(source), collection="c2")
+    third = pipeline.run(str(source), collection="c1")
+
+    assert (first.status, second.status, third.status) == ("success", "success", "skipped")
+    record = parts["integrity"].get_record(str(source), "c2")
+    assert record["status"] == "success"
+    assert record["parser_version"] == "FakeLoader"
+    assert record["chunk_version"].startswith("recursive/")
+    assert record["embedding_version"]
 
 
 def test_missing_file_fails_at_integrity_stage(tmp_path):

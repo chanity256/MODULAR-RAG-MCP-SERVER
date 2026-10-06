@@ -42,6 +42,17 @@ ingestion:
     enabled: false           # true 时经 Vision LLM 生成图片 caption（失败保留 image_refs 不阻塞）
     prompt_path: config/prompts/image_captioning.txt
   batch_size: 32             # 编码批大小（C10 BatchProcessor：每批一次底层调用）
+  # 以下两个子节可选，整体或单字段缺失均走默认值（见 docs/specs/INGESTION_ROBUSTNESS_SPEC.md 第 6 章）。
+  # retry:                     # 失败重试（缺省 = 不重试，行为与基线一致）
+  #   max_attempts: 1          # 1 = 关闭重试；>1 时仅可重试错误走退避
+  #   initial_backoff_s: 2.0   # 首次退避间隔（秒）
+  #   backoff_multiplier: 2.0  # 倍增系数（必须 > 1）
+  #   backoff_jitter: 0.2      # 抖动比例（±20%，取值 [0, 1)）
+  # version_policy:            # 版本元数据（写入历史表 v2）与不兼容检测
+  #   parser_version: auto     # auto = Loader 类名；可显式覆盖字符串
+  #   chunk_version: auto      # auto = splitter 类型 + chunk_size/overlap + refiner 模式
+  #   embedding_version: auto  # auto = provider + model + 维度
+  #   on_embedding_mismatch: stale   # stale = 告警并跳过 | rebuild = 提示需全量重建（不自动执行）
 
 # 检索配置
 retrieval:

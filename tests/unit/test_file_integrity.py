@@ -99,9 +99,11 @@ def test_mark_failed_not_skipped_and_records_error(checker, tmp_path, sample_fil
         ck.mark_failed(h, "pdf parse error: page 3")
         assert ck.should_skip(h) is False
         row = sqlite3.connect(str(db)).execute(
-            "SELECT file_path, status, error_msg FROM ingestion_history WHERE file_hash = ?", (h,)
+            "SELECT status, error_msg FROM ingestion_history_v2 WHERE file_hash = ?", (h,)
         ).fetchone()
-        assert row == (None, "failed", "pdf parse error: page 3")
+        assert row == ("failed", "pdf parse error: page 3")
+        [record] = ck.list_processed()
+        assert record["file_path"] is None
     finally:
         ck.close()
 
@@ -113,7 +115,7 @@ def test_mark_success_overrides_failed_and_clears_error(checker, sample_file):
     assert checker.should_skip(h) is True
     with sqlite3.connect(str(checker._db_path)) as conn:  # noqa: SLF001 - 契约断言需要读库
         status, error_msg = conn.execute(
-            "SELECT status, error_msg FROM ingestion_history WHERE file_hash = ?", (h,)
+            "SELECT status, error_msg FROM ingestion_history_v2 WHERE file_hash = ?", (h,)
         ).fetchone()
     assert status == "success"
     assert error_msg is None
@@ -125,7 +127,7 @@ def test_mark_failed_preserves_known_file_path(checker, sample_file):
     checker.mark_failed(h, "later run failed")
     with sqlite3.connect(str(checker._db_path)) as conn:  # noqa: SLF001
         file_path, status = conn.execute(
-            "SELECT file_path, status FROM ingestion_history WHERE file_hash = ?", (h,)
+            "SELECT source_path, status FROM ingestion_history_v2 WHERE file_hash = ?", (h,)
         ).fetchone()
     assert file_path == str(sample_file)
     assert status == "failed"
@@ -170,8 +172,11 @@ def test_wal_mode_enabled(checker):
 
 
 def test_table_columns_match_spec(checker, tmp_path):
-    cols = [r[1] for r in sqlite3.connect(str(checker._db_path)).execute("PRAGMA table_info(ingestion_history)")]  # noqa: SLF001
-    assert cols == ["file_hash", "file_path", "status", "processed_at", "error_msg"]
+    cols = [r[1] for r in sqlite3.connect(str(checker._db_path)).execute("PRAGMA table_info(ingestion_history_v2)")]  # noqa: SLF001
+    assert cols == [
+        "source_path", "collection", "file_hash", "status", "failed_stage",
+        "parser_version", "chunk_version", "embedding_version", "processed_at", "error_msg",
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +190,7 @@ def test_concurrent_writes_same_instance(tmp_path):
         hashes = [[f"{t:02x}{i:06x}" + "0" * 24 for i in range(20)] for t in range(4)]
         threads = [
             threading.Thread(
-                target=lambda hs=hs: [ck.mark_success(h, f"doc_{h[:4]}.pdf") for h in hs]
+                target=lambda hs=hs: [ck.mark_success(h, f"doc_{h}.pdf") for h in hs]
             )
             for hs in hashes
         ]
@@ -194,7 +199,7 @@ def test_concurrent_writes_same_instance(tmp_path):
         for t in threads:
             t.join()
         total = sqlite3.connect(str(tmp_path / "h.db")).execute(
-            "SELECT COUNT(*) FROM ingestion_history"
+            "SELECT COUNT(*) FROM ingestion_history_v2"
         ).fetchone()[0]
         assert total == 80
     finally:
@@ -224,7 +229,7 @@ def test_concurrent_writes_separate_connections(tmp_path):
     for t in threads:
         t.join()
     assert errors == []
-    total = sqlite3.connect(db).execute("SELECT COUNT(*) FROM ingestion_history").fetchone()[0]
+    total = sqlite3.connect(db).execute("SELECT COUNT(*) FROM ingestion_history_v2").fetchone()[0]
     assert total == 60
 
 
@@ -248,7 +253,9 @@ def test_list_processed_orders_by_time_then_hash(checker):
     checker.mark_failed("bb" * 32, "boom")
     rows = checker.list_processed()
     assert {row["file_hash"] for row in rows} == {"aa" * 32, "bb" * 32}
-    assert all(set(row) == {"file_hash", "file_path", "status", "processed_at", "error_msg"} for row in rows)
+    assert all(
+        {"file_hash", "file_path", "status", "processed_at", "error_msg"} <= set(row) for row in rows
+    )
     hashes = [row["file_hash"] for row in rows]
     # 同秒写入时按 file_hash 升序打破平局；无论如何必须确定性。
     assert hashes == sorted(hashes, reverse=False) or hashes == [row["file_hash"] for row in rows]
