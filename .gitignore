@@ -110,3 +110,9 @@ nonexistent_traces.jsonl/
 # sirchmunk sidecar env (SIRCHMUNK_INTEGRATION_SPEC 6.2, 密钥不入主仓库)
 .env-sirchmunk
 .venv-sirchmunk/
+
+# 本地临时/个人文件
+board.html
+
+# 测试样例 PDF（含个人票据，不入主仓库）
+tests/fixtures/sample_documents/*.pdf
