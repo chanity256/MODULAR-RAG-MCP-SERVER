@@ -9,6 +9,9 @@
 - **payload 语义**：text/metadata 取首次出现路由（dense 优先）。
 - **top_k 截断**与 fail-fast 校验。
 - trace 打点 ``fusion`` 阶段。
+- **N 路融合**（S2.1 ``fuse_routes``）：两路/三路重叠、单路空、
+  agentic-only、payload 优先级（dense>sparse>agentic，与传入顺序无关）、
+  top_k 截断、确定性与 trace ``routes`` 计数。
 """
 
 from __future__ import annotations
@@ -250,3 +253,148 @@ def test_fuse_records_trace_stage():
 
 def test_fuse_no_trace_no_error():
     assert RRFFusion(k=60).fuse([_result("a")], []) is not None
+
+
+# ---------------------------------------------------------------------------
+# fuse_routes：N 路融合（S2.1，手工基准）
+# ---------------------------------------------------------------------------
+
+
+def test_fuse_routes_two_routes_hand_computed():
+    # 与纯函数基准同构：dense [a, b]，sparse [b, a]，k=60 → 同分，id 升序。
+    fused = RRFFusion(k=60).fuse_routes(
+        {"dense": [_result("a"), _result("b")], "sparse": [_result("b"), _result("a")]}
+    )
+    assert [r.chunk_id for r in fused] == ["a", "b"]
+    assert fused[0].score == pytest.approx(round(1 / 61 + 1 / 62, 6))
+    assert fused[1].score == pytest.approx(round(1 / 62 + 1 / 61, 6))
+
+
+def test_fuse_routes_three_routes_hand_computed():
+    # 三路重叠，k=60：a 在 dense/sparse 第 1 + agentic 第 2：
+    #   1/61 + 1/61 + 1/62 ≈ 0.049155；
+    # b 在 dense 第 2 + sparse 第 2：2/62 ≈ 0.032258；
+    # c 仅 agentic 第 1：1/61 ≈ 0.016393。
+    dense = [_result("a"), _result("b")]
+    sparse = [_result("a"), _result("b")]
+    agentic = [_result("c"), _result("a")]
+    fused = RRFFusion(k=60).fuse_routes({"dense": dense, "sparse": sparse, "agentic": agentic})
+    assert [r.chunk_id for r in fused] == ["a", "b", "c"]
+    assert fused[0].score == pytest.approx(round(1 / 61 + 1 / 61 + 1 / 62, 6))
+    assert fused[1].score == pytest.approx(round(2 / 62, 6))
+    assert fused[2].score == pytest.approx(round(1 / 61, 6))
+
+
+def test_fuse_routes_single_route_empty():
+    # 只有 dense 路有结果，sparse/agentic 传空：单路排名 + RRF 分数。
+    fused = RRFFusion(k=60).fuse_routes(
+        {"dense": [_result("a"), _result("b")], "sparse": [], "agentic": []}
+    )
+    assert [r.chunk_id for r in fused] == ["a", "b"]
+    assert fused[0].score == pytest.approx(round(1 / 61, 6))
+
+
+def test_fuse_routes_agentic_only():
+    # 仅 agentic 路：c 第 1、d 第 2 → 1/61、1/62；payload 取 agentic 载荷。
+    agentic = [
+        _result("c", text="agent-c", metadata={"route": "agentic"}),
+        _result("d", text="agent-d", metadata={"route": "agentic"}),
+    ]
+    fused = RRFFusion(k=60).fuse_routes({"agentic": agentic})
+    assert [r.chunk_id for r in fused] == ["c", "d"]
+    assert fused[0].score == pytest.approx(round(1 / 61, 6))
+    assert fused[0].text == "agent-c"
+    assert fused[0].metadata == {"route": "agentic"}
+
+
+def test_fuse_routes_payload_priority_not_dict_order():
+    # 传入顺序故意打乱（sparse 在前）：payload 仍取 dense 载荷（规范优先级
+    # dense > sparse > agentic，不依赖 dict 传入顺序）。
+    sparse = [_result("shared", text="sparse-text", metadata={"from": "sparse"})]
+    agentic = [_result("shared", text="agentic-text", metadata={"from": "agentic"})]
+    dense = [_result("shared", text="dense-text", metadata={"from": "dense"})]
+    fused = RRFFusion(k=60).fuse_routes({"sparse": sparse, "agentic": agentic, "dense": dense})
+    assert len(fused) == 1
+    assert fused[0].text == "dense-text"
+    assert fused[0].metadata == {"from": "dense"}
+    # 三路同分（各第 1）：1/61 + 1/61 + 1/61。
+    assert fused[0].score == pytest.approx(round(3 / 61, 6))
+
+
+def test_fuse_routes_payload_falls_back_to_sparse_then_agentic():
+    # chunk 只在 sparse 与 agentic：payload 取 sparse（优先级居中）。
+    sparse = [_result("x", text="sparse-text", metadata={"from": "sparse"})]
+    agentic = [_result("x", text="agentic-text", metadata={"from": "agentic"})]
+    fused = RRFFusion(k=60).fuse_routes({"sparse": sparse, "agentic": agentic})
+    assert fused[0].text == "sparse-text"
+    assert fused[0].metadata == {"from": "sparse"}
+
+
+def test_fuse_routes_top_k_truncates():
+    dense = [_result(f"d{i}") for i in range(5)]
+    fused = RRFFusion(k=60).fuse_routes({"dense": dense, "sparse": []}, top_k=3)
+    assert [r.chunk_id for r in fused] == ["d0", "d1", "d2"]
+
+
+def test_fuse_routes_tie_breaks_by_chunk_id_ascending():
+    # 单路同分不可能（排名不同），用两路交叉制造同分：a/b 均为 1/61+1/62。
+    fused = RRFFusion(k=60).fuse_routes(
+        {"dense": [_result("b"), _result("a")], "sparse": [_result("a"), _result("b")]}
+    )
+    assert [r.chunk_id for r in fused] == ["a", "b"]
+
+
+def test_fuse_routes_is_deterministic():
+    routes = {
+        "dense": [_result(f"d{i}") for i in range(5)],
+        "sparse": [_result(f"s{i}") for i in reversed(range(5))],
+        "agentic": [_result("a1"), _result("d0")],
+    }
+    fusion = RRFFusion(k=60)
+    assert fusion.fuse_routes(dict(routes)) == fusion.fuse_routes(dict(routes))
+
+
+def test_fuse_routes_empty_dict_returns_empty():
+    assert RRFFusion(k=60).fuse_routes({}) == []
+
+
+def test_fuse_routes_records_trace_stage_with_route_counts():
+    dense = [_result("a"), _result("b")]
+    sparse = [_result("b"), _result("c")]
+    agentic = [_result("c"), _result("d"), _result("a")]
+    trace = TraceContext()
+    RRFFusion(k=60).fuse_routes(
+        {"dense": dense, "sparse": sparse, "agentic": agentic}, top_k=3, trace=trace
+    )
+    stage = trace.get_stage("fusion")
+    assert stage is not None
+    assert stage["method"] == "rrf"
+    assert stage["details"]["k"] == 60
+    assert stage["details"]["routes"] == {"dense": 2, "sparse": 2, "agentic": 3}
+    assert stage["details"]["fused"] == 3
+    assert "elapsed_ms" in stage["details"]
+    expected = RRFFusion(k=60).fuse_routes({"dense": dense, "sparse": sparse, "agentic": agentic})
+    assert stage["details"]["preview"] == [
+        {"chunk_id": r.chunk_id, "score": float(r.score)} for r in expected[:3]
+    ]
+
+
+def test_fuse_routes_rejects_non_dict_and_non_list():
+    fusion = RRFFusion(k=60)
+    with pytest.raises(TypeError, match="routes"):
+        fusion.fuse_routes([("dense", [])])  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="agentic"):
+        fusion.fuse_routes({"agentic": "nope"})  # type: ignore[arg-type]
+
+
+def test_fuse_routes_invalid_top_k_raises():
+    with pytest.raises(ValueError):
+        RRFFusion(k=60).fuse_routes({"dense": []}, top_k=0)
+
+
+def test_fuse_delegates_to_fuse_routes_math_identical():
+    # 委托一致性：fuse 与 fuse_routes({"dense":…, "sparse":…}) 结果逐字段相同。
+    dense = [_result("a"), _result("shared", text="dense-text", metadata={"from": "dense"})]
+    sparse = [_result("shared", text="sparse-text", metadata={"from": "sparse"}), _result("b")]
+    fusion = RRFFusion(k=60)
+    assert fusion.fuse(dense, sparse) == fusion.fuse_routes({"dense": dense, "sparse": sparse})
