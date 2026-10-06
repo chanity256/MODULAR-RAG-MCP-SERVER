@@ -16,56 +16,62 @@
 
 ### G1. 样例目录没有可摄取 PDF
 
-- 状态：`[ ]`
+- 状态：`[x]`（2026-10-06 完成）
 - 规格：I5 要求  
   `python scripts/ingest.py --path tests/fixtures/sample_documents/ --collection test` **成功**
-- 现状：目录里只有 `tests/fixtures/sample_documents/sample.md`。  
+- 现状：~~目录里只有 `tests/fixtures/sample_documents/sample.md`。  
   Loader / CLI 当前只认 `.pdf`，命令退出码 0，但输出  
-  `no supported files found under tests/fixtures/sample_documents/ (supported: ['.pdf'])`。
-- 影响：后续 query / evaluate / Dashboard 追踪都没有真实摄取产物。
+  `no supported files found under tests/fixtures/sample_documents/ (supported: ['.pdf'])`~~  
+  7 个测试 PDF（simple / with_images / complex_technical_doc / chinese 三件套 / blogger_intro）已从 `origin/main` 恢复到本分支（clean-start 重置时被删，删除提交 `b56c5f2`）。
+- 影响：~~后续 query / evaluate / Dashboard 追踪都没有真实摄取产物。~~已消除（见 G2/G3）。
 - 建议：
-  1. 把 `tests/e2e/test_data_ingestion.py` 里的极简 PDF 生成器抽成公共 fixture helper，或直接落盘 2 个文件：
-     - `tests/fixtures/sample_documents/simple.pdf`
-     - `tests/fixtures/sample_documents/with_images.pdf`
-  2. 更新 `sample.md` 注释：它只是说明文件，不是 ingest 输入。
-  3. 验收命令改为对 PDF 成功写入 Chroma / BM25 / ImageStorage。
-- 验收：
+  1. ~~把 `tests/e2e/test_data_ingestion.py` 里的极简 PDF 生成器抽成公共 fixture helper，或直接落盘 2 个文件~~ 恢复自 origin/main，无需再生成。
+  2. `sample.md` 注释已说明它只是说明文件，不是 ingest 输入（保持原样）。
+  3. 验收命令改为对 PDF 成功写入 Chroma / BM25 / ImageStorage。✅
+- 验收（已通过，collection 用 `eval`）：
   ```bash
-  python scripts/ingest.py --path tests/fixtures/sample_documents/ --collection test
-  # 期望：至少 1 个 .pdf ingested，chunks > 0，退出码 0
+  python scripts/ingest.py --path tests/fixtures/sample_documents/ --collection eval
+  # 实测：7 files ingested, 60 chunks, 9 images, vectors written 60，退出码 0
+  # 注意：含图片 PDF 曾因 Chroma metadata 不接受 dict 列表而 store 失败，
+  # 已在 chroma_store 写入侧净化 + parse_image_refs 读取侧兼容 JSON 字符串修复
   ```
 
 ### G2. query 在空库上只返回友好提示
 
-- 状态：`[ ]`
+- 状态：`[x]`（2026-10-06 完成，G1 后）
 - 规格：I5 要求  
   `python scripts/query.py --query "测试查询" --verbose` **返回结果**
-- 现状：无索引时退出码 0，输出「未找到相关文档」。这是正确的空库行为，不是检索成功。
-- 依赖：先做 G1，并配置可用的 Embedding（或确认 Dense 降级 Sparse 后 BM25 能命中）。
+- 现状：~~无索引时退出码 0，输出「未找到相关文档」。这是正确的空库行为，不是检索成功。~~  
+  空库行为保留（正确）；G1 摄取后实测 Top-3 全部命中正确文档。
+- 依赖：~~先做 G1，并配置可用的 Embedding（或确认 Dense 降级 Sparse 后 BM25 能命中）。~~ Embedding 已配置为智谱兼容端点（`config/settings.yaml`，`api_key: ${ZAI_API_KEY}` 环境变量注入，dim=2048）。
 - 建议验收查询（摄取完成后）：
   ```bash
   python scripts/query.py --query "RAG" --collection test --verbose --no-rerank
-  # 期望：Top-K 至少 1 条，verbose 打出 dense/sparse/fusion 段
+  # 期望：Top-K 至少 1 条，verbose 打出 dense/sparse/fusion 段 ✅
   ```
 - 备注：无 API Key 时 Dense 会 401 并降级 Sparse。只要 PDF 文本被 BM25 索引，`--no-rerank` 仍应能命中。
 
 ### G3. evaluate 指标全是 0，golden set 未回填
 
-- 状态：`[ ]`
+- 状态：`[x]`（2026-10-06 完成）
 - 规格：H3 / H5 / I5。`tests/fixtures/golden_test_set.json` 应在真实摄取后回填 `expected_chunk_ids`。
-- 现状：5 条用例的 `expected_chunk_ids` 都是 `[]`，`expected_sources` 指向仓库里不存在的  
+- 现状：~~5 条用例的 `expected_chunk_ids` 都是 `[]`，`expected_sources` 指向仓库里不存在的  
   `azure_setup.pdf` / `bm25_guide.pdf` / `config_guide.pdf` / `ingest_guide.pdf` / `retrieval_guide.pdf`。  
-  `python scripts/evaluate.py --evaluator custom` 输出 5/5 evaluated，指标全 `0.0000`。
+  `python scripts/evaluate.py --evaluator custom` 输出 5/5 evaluated，指标全 `0.0000`。~~  
+  5 条用例已重写为指向恢复后的真实文档（`chinese_table_chart_doc` / `chinese_technical_doc` / `chinese_long_doc` / `complex_technical_doc` / `simple.pdf`），`expected_chunk_ids` 按实际检索命中回填。
 - 说明：`tests/e2e/test_recall.py` 自己在 tmp 里造语料，**不依赖**这份 fixture。仓库级评估脚本才依赖它。
 - 建议：
-  1. 用 G1 的真实 PDF（或单独准备 5 篇短 PDF）摄取到固定 collection（例如 `eval`）。
-  2. 跑一次 query，把实际 `chunk_id` 回填进 `expected_chunk_ids`。
-  3. `expected_sources` 改成真实文件名。
+  1. ~~用 G1 的真实 PDF（或单独准备 5 篇短 PDF）摄取到固定 collection（例如 `eval`）。~~ ✅
+  2. ~~跑一次 query，把实际 `chunk_id` 回填进 `expected_chunk_ids`。~~ ✅
+  3. ~~`expected_sources` 改成真实文件名。~~ ✅
   4. 再跑：
      ```bash
      python scripts/evaluate.py --evaluator custom --collection eval
-     # 期望：hit_rate / mrr / hit_at_k 非 0；H5 阈值可参考 hit_at_k@5 ≥ 0.8、mrr ≥ 0.5
+     # 实测：5/5 evaluated，hit_at_k=1.0000 / hit_rate=1.0000 / mrr=1.0000
+     #（超过 H5 阈值 hit_at_k@5 ≥ 0.8、mrr ≥ 0.5）
      ```
+     注意：golden set 的 chunk_id 是摄取产物的确定性哈希（对同一语料稳定），
+     但若重新生成或修改 PDF 语料需重跑摄取并回填。
 
 ### G4. Dashboard 追踪页没有真实 ingest/query trace
 

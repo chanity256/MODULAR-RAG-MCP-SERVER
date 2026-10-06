@@ -267,3 +267,14 @@ def test_parse_image_refs_malformed_raises_readable_errors():
     with pytest.raises(ValueError) as exc_info:
         parse_image_refs({"images": [{"id": "x"}]})
     assert "non-empty 'id' and 'path'" in str(exc_info.value)
+
+
+def test_parse_image_refs_accepts_json_string():
+    """向量库落库侧把 dict 列表序列化为 JSON 字符串，读取侧需兼容还原。"""
+    refs = [ImageRef(id="h1_0_1", path="data/images/h1_0_1.png", text_offset=3, text_length=16, page=0)]
+    metadata = {"source_path": "a.pdf", "images": json.dumps([r.to_dict() for r in refs], ensure_ascii=False)}
+    assert parse_image_refs(metadata, owner="Chunk.metadata") == refs
+    # 非法 JSON 字符串报可读错误而非裸异常
+    with pytest.raises(TypeError) as exc_info:
+        parse_image_refs({"images": "{not-json"})
+    assert "not valid JSON" in str(exc_info.value)

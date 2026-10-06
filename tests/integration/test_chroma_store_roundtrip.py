@@ -24,6 +24,7 @@ from textwrap import dedent
 import pytest
 
 from core.settings import load_settings
+from core.types import parse_image_refs
 from libs.vector_store.base_vector_store import QueryResult, VectorRecord
 from libs.vector_store.chroma_store import ChromaStore
 from libs.vector_store.vector_store_factory import VectorStoreFactory
@@ -379,3 +380,48 @@ def test_delete_by_metadata_multi_key_and_stats(store):
     assert stats["collections"][0]["name"] == "docs"
     with pytest.raises(ValueError):
         store.delete_by_metadata({})
+
+
+# ---------------------------------------------------------------------------
+# 复杂 metadata 净化：dict / 混合列表序列化为 JSON 字符串（G1 修复）
+# ---------------------------------------------------------------------------
+
+
+def test_upsert_sanitizes_non_primitive_metadata(store):
+    """dict 列表（metadata.images）等复杂值不再令 upsert 崩溃，落库为 JSON 字符串。"""
+    image_meta = [
+        {"id": "h1_0_1", "path": "data/images/h1_0_1.png", "page": 0, "text_offset": 152},
+    ]
+    store.upsert([
+        VectorRecord(
+            id="s1_c1",
+            vector=[1.0, 0.0],
+            text="含图片的 chunk",
+            metadata={"source_path": "a.pdf", "images": image_meta, "tags": ["a", "b"], "page": 0},
+        ),
+    ])
+    back = store.get_by_ids(["s1_c1"])[0]
+    # 同构原始列表与标量原样保留；dict 列表转 JSON 字符串。
+    assert back["metadata"]["tags"] == ["a", "b"]
+    assert back["metadata"]["page"] == 0
+    assert isinstance(back["metadata"]["images"], str)
+    # 读取侧 parse_image_refs 兼容 JSON 字符串，图片引用可完整还原。
+    refs = parse_image_refs(back["metadata"], owner="Chunk.metadata")
+    assert [r.id for r in refs] == ["h1_0_1"]
+    assert refs[0].path == "data/images/h1_0_1.png"
+    assert refs[0].text_offset == 152
+
+
+def test_upsert_drops_none_metadata_values(store):
+    """None 值键被丢弃而非令整个 upsert 失败。"""
+    store.upsert([
+        VectorRecord(
+            id="s2_c1",
+            vector=[1.0, 0.0],
+            text="t",
+            metadata={"source_path": "a.pdf", "optional": None},
+        ),
+    ])
+    back = store.get_by_ids(["s2_c1"])[0]
+    assert back["metadata"]["source_path"] == "a.pdf"
+    assert "optional" not in back["metadata"]

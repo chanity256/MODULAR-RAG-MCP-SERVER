@@ -446,6 +446,13 @@ def parse_image_refs(metadata: dict[str, Any], owner: str = "metadata") -> list[
     images = metadata.get("images")
     if images is None:
         return []
+    if isinstance(images, str):
+        # 向量库（Chroma）侧 dict 列表无法落库，序列化为 JSON 字符串
+        # （见 chroma_store._chroma_safe_value）；读取侧在此还原。
+        try:
+            images = json.loads(images)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise TypeError(f"{owner}.images is a str but not valid JSON: {exc}") from exc
     if not isinstance(images, list):
         raise TypeError(f"{owner}.images must be a list, got {type(images).__name__}")
     refs: list[ImageRef] = []

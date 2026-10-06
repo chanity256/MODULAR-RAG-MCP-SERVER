@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, Sequence
 
 import chromadb
@@ -25,6 +26,22 @@ __all__ = ["ChromaStore", "register_chroma_provider"]
 
 
 _DEFAULT_COLLECTION = "knowledge_hub"
+
+# Chroma metadata 仅接受 str/int/float/bool 标量与同构原始类型列表；
+# dict / 混合列表（如 metadata["images"] 的 dict 列表）会整个 upsert 失败。
+# 序列化为 JSON 字符串落库，读取侧由 core.types.parse_image_refs 兼容还原。
+_PRIMITIVE = (str, int, float, bool)
+
+
+def _chroma_safe_value(value: Any) -> Any | None:
+    """把单个 metadata 值转换为 Chroma 可存储的形态（不可存返回 None 表示丢弃）。"""
+    if isinstance(value, _PRIMITIVE):
+        return value
+    if isinstance(value, list) and all(isinstance(v, _PRIMITIVE) for v in value):
+        return value  # 同构原始类型列表 Chroma 原生支持
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return None  # 其余类型（None 等）无法存储，丢弃该键
 
 
 class ChromaStore(BaseVectorStore):
@@ -57,8 +74,9 @@ class ChromaStore(BaseVectorStore):
         ids = [r.id for r in records]
         embeddings = [r.vector for r in records]
         documents = [r.text for r in records]
-        # Chroma 拒绝空 dict metadata，用 None 替代。
-        metadatas = [r.metadata if r.metadata else None for r in records]
+        # Chroma 拒绝空 dict metadata，用 None 替代；再净化 Chroma 不支持的
+        # 值类型（dict / 混合列表 → JSON 字符串，None 值丢弃），见 _chroma_safe_value。
+        metadatas = [self._sanitize(r.metadata) if r.metadata else None for r in records]
         self._collection.upsert(
             ids=ids,
             embeddings=embeddings,
@@ -227,6 +245,16 @@ class ChromaStore(BaseVectorStore):
             "document_count": len(sources),
             "collections": collections,
         }
+
+    @staticmethod
+    def _sanitize(metadata: dict[str, Any]) -> dict[str, Any]:
+        """净化 metadata 为 Chroma 可存储形态（dict/混合列表 → JSON 字符串）。"""
+        out: dict[str, Any] = {}
+        for k, v in metadata.items():
+            safe = _chroma_safe_value(v)
+            if safe is not None:
+                out[k] = safe
+        return out
 
     def _safe_count(self) -> int:
         try:

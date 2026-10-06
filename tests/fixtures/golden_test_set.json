@@ -1,29 +1,29 @@
 {
   "test_cases": [
     {
-      "query": "How to configure Azure OpenAI?",
-      "expected_chunk_ids": [],
-      "expected_sources": ["azure_setup.pdf"]
+      "query": "How to configure Azure OpenAI model settings?",
+      "expected_chunk_ids": ["cb73e07b5de20bfaf3240eb662787b69743952dcbcab229fa5c8e126dbf61b24_0002_8691333d"],
+      "expected_sources": ["chinese_table_chart_doc.pdf"]
     },
     {
-      "query": "What is BM25 scoring?",
-      "expected_chunk_ids": [],
-      "expected_sources": ["bm25_guide.pdf"]
+      "query": "What is BM25 scoring algorithm?",
+      "expected_chunk_ids": ["148b71f5c9162dd2a6507e2bc7e4532e85f43af17f1c2de468be7ba2316007df_0004_df4bf3d1"],
+      "expected_sources": ["chinese_technical_doc.pdf"]
     },
     {
-      "query": "如何配置 Azure OpenAI？",
-      "expected_chunk_ids": [],
-      "expected_sources": ["config_guide.pdf"]
-    },
-    {
-      "query": "How does incremental ingestion skip unchanged files?",
-      "expected_chunk_ids": [],
-      "expected_sources": ["ingest_guide.pdf"]
+      "query": "文档分块策略有哪些",
+      "expected_chunk_ids": ["148b71f5c9162dd2a6507e2bc7e4532e85f43af17f1c2de468be7ba2316007df_0003_7532365c"],
+      "expected_sources": ["chinese_technical_doc.pdf"]
     },
     {
       "query": "How does RRF fusion combine dense and sparse rankings?",
-      "expected_chunk_ids": [],
-      "expected_sources": ["retrieval_guide.pdf"]
+      "expected_chunk_ids": ["81d8141b708464255e5dc6f5fd68205bd1b56f662b377b1feddcbd02b9839efe_0007_69eaadc6"],
+      "expected_sources": ["complex_technical_doc.pdf"]
+    },
+    {
+      "query": "What is this sample PDF document for?",
+      "expected_chunk_ids": ["b6cc294aacce6c495bf4cee5ecd99b5c6508214bcc4375288b9c5917900384f8_0000_46b08cc2"],
+      "expected_sources": ["simple.pdf"]
     }
   ]
 }

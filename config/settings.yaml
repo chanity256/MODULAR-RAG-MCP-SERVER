@@ -10,7 +10,10 @@ llm:
 # Embedding 配置
 embedding:
   provider: openai           # openai | azure | ollama
-  model: text-embedding-3-small
+  # 智谱 OpenAI 兼容端点（G1/G3 落地：摄取与查询共用，保证向量空间一致）
+  base_url: https://open.bigmodel.cn/api/paas/v4
+  api_key: ${ZAI_API_KEY}
+  model: embedding-3
 
 # Vision LLM 配置（图片描述）
 vision_llm:
