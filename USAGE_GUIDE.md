@@ -64,6 +64,9 @@ python scripts/ingest.py --path data/documents/ -v                             #
 python scripts/query.py --query "如何配置 Azure？" --verbose
 python scripts/query.py --query "bm25 scoring" --collection default --top-k 5
 python scripts/query.py --query "部署密钥" --no-rerank   # 跳过精排
+# 启用 agentic 第三路并打印中间结果（触发状态/证据文件/Token/耗时）；
+# 需 agentic_search.enabled=true（见第 4 节），否则退出码 2
+python scripts/query.py --query "ING-2044 错误码在哪定义" --agentic --verbose
 ```
 
 ### 2.3 启动 MCP Server（stdio）
@@ -101,6 +104,7 @@ python scripts/start_dashboard.py          # http://localhost:8501，六页面�
 
 python scripts/evaluate.py                 # 默认 golden set + composite 后端
 python scripts/evaluate.py --evaluator custom --top-k 5   # 纯离线指标
+python scripts/evaluate.py --retrieval-mode hybrid+agentic --agentic-trigger always   # agentic A/B（需 sidecar 启用）
 ```
 
 ---
@@ -120,7 +124,7 @@ Sirchmunk 是 modelscope 开源的「**无索引 Agentic 检索**」引擎：用
 
 **代价**：FAST 模式约 2–5s，DEEP 模式数十秒；每次查询 2~N 次 LLM 调用（有 Token 成本）；结果非确定性。
 
-**当前状态**：主项目侧适配（S1）已完成并合入；sidecar 已在 2026-10-05 实际跑通并完成旁路对比，**闸门 G0 未通过**（FAST 干净口径命中 1/6、延迟 77–256s/条），故 `agentic_search` 保持 `enabled: false` 默认关闭，S2/S3 不启动。结论与数据见 `SIRCHMUNK_INTEGRATION_SPEC.md` 第 7 章 S0 执行记录。
+**当前状态**：主项目侧适配（S1）已完成并合入；sidecar 已在 2026-10-05 实际跑通并完成旁路对比，**闸门 G0 未通过**，`agentic_search` 保持 `enabled: false` 默认关闭。G0 终裁后经显式指令重启：S2（HybridSearch 可选第三路 + `--agentic` CLI）与 S3（source 级 A/B 评估框架 + Dashboard agentic 展示）均已交付（2026-10-06），但**默认关闭口径不变**，真实 sidecar A/B 实测数据未执行（受 `RAG_AGENTIC_INTEGRATION` 门控与 G0 结论约束）。结论与数据见 `SIRCHMUNK_INTEGRATION_SPEC.md` 第 7 章与 S3 阶段进度备注。
 
 ---
 

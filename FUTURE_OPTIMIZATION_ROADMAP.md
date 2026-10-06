@@ -405,7 +405,7 @@ pytest -q
 
 - 评估迁移至官方 MCP SDK，减少自维护协议细节；
 - 在保留 stdio 的基础上按需求增加 Streamable HTTP transport；
-- 增加更细粒度的 Agentic RAG tools，例如文档预览、关键词检索和事实核查；
+- 增加更细粒度的 Agentic RAG tools，例如文档预览、关键词检索和事实核查（**部分落地**：Sirchmunk 整合 S2/S3 已交付 agentic 第三路——AgenticTrigger 三策略触发 + RRF N 路融合 + source 级 A/B 评估与 Dashboard 展示，见 `SIRCHMUNK_INTEGRATION_SPEC.md`；G0 终裁裸 rg 严格优于 sidecar，该能力默认关闭（`enabled: false`），是否启用由真实语料决定）；
 - 为 Tool schema、错误响应和多模态内容增加契约测试；
 - 保持 MCP 接口与 Dashboard REST API 职责分离。
 

@@ -224,6 +224,28 @@ agentic_search:
 
 **旁路对比**：`python scripts/sirchmunk/compare.py --base-url http://127.0.0.1:8584 --token "$SIRCHMUNK_API_TOKEN" --repo-root .` 用 `tests/fixtures/agentic/golden_questions.json` 逐条调用 sidecar，输出命中文件、耗时与 Token 用量表（真实 LLM 调用，产生费用）。
 
+**Agentic 第三路（HybridSearch 可选路由，S2，默认关闭）**：除独立 MCP 工具外，agentic 检索还可作为 HybridSearch 的可选第三路（Dense + BM25 + RRF + Rerank 主链路之外按条件触发）。`agentic_search.enabled` 默认为 `false`，关闭或未触发时与基线行为完全一致。关键配置（`config/settings.yaml` → `agentic_search` 节）：
+
+- `trigger`：第三路触发策略——`tool_only`（默认，永不自动触发，只由 MCP 工具显式调用）/ `fallback`（主路信号不足时触发）/ `always`（仅实验/评估）；
+- `trigger_score_threshold` / `trigger_min_results`：fallback 判定阈值（0.5 为未校准占位值，须在独立校准集上标定，禁止用评估 golden set 调参）；
+- `mode` / `allow_deep` / `timeout_s` / `allowed_roots` / `denied_substrings`：与 MCP 工具共用，PathGuard fail-closed 同样适用（越权路径保留原 snippet 不抛错）。
+
+CLI 用法：
+
+```bash
+# 查询时启用第三路并打印中间结果（触发状态/证据文件/Token/耗时）；
+# enabled=false 时退出码 2 并提示改 config/settings.yaml
+python scripts/query.py --query "如何配置 Azure？" --agentic --verbose
+
+# 评估 A/B：hybrid（基线）/ agentic（纯第三路）/ hybrid+agentic（第三路注入 HybridSearch）
+# source 级 hit/MRR（基于 expected_sources）与 chunk 级指标并列不混算，报告含延迟/Token 列
+python scripts/evaluate.py --retrieval-mode hybrid+agentic --agentic-trigger always
+```
+
+**Dashboard 展示**：Query 追踪页基于 trace 的 `agentic_search` 阶段动态渲染（模式/Token/调用次数/证据文件列表），未启用时自然隐藏；系统总览页配置卡显示 agentic 开关与 backend。
+
+**安全边界与默认关闭**：第三路复用 PathGuard fail-closed 防护，且 `enabled: false` 为默认口径——G0 终裁结论是本仓库自指语料上裸 rg 6/6 严格优于 sidecar，故 agentic 路默认不参与检索；是否启用由真实语料场景决定。真实 sidecar 的相关测试永不自动运行，须显式 `RAG_AGENTIC_INTEGRATION=1` 门控（见第 8 节）。
+
 ### 6. 启动 Dashboard
 
 ```bash
@@ -249,6 +271,7 @@ streamlit run src/observability/dashboard/app.py
 python scripts/evaluate.py                                   # 默认 golden set + composite 后端
 python scripts/evaluate.py --evaluator custom --top-k 5      # 纯离线指标
 python scripts/evaluate.py --test-set tests/fixtures/golden_test_set.json --collection default
+python scripts/evaluate.py --retrieval-mode hybrid+agentic   # A/B：agentic 第三路（见 5.1，默认关闭）
 ```
 
 ### 8. 运行测试

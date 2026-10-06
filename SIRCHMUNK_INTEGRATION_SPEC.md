@@ -33,7 +33,7 @@
 | 能否整合？ | **可以**。协议兼容（本项目 MIT，sirchmunk Apache-2.0，依赖无版本冲突），本项目的可插拔架构天然留有接入点。 |
 | 应该怎么定位？ | **作为「无索引 Agentic 检索」独立 MCP Tool 与（P2 门控后）条件第三路**，与现有 Dense + BM25 + Rerank 互补，**不替换** Chroma/BM25 主链路。 |
 | 运行方式（已决策） | **HTTP Sidecar（进程外隔离）**：sirchmunk 装在独立 venv，以 `sirchmunk serve`（FastAPI，绑定 127.0.0.1 + Bearer Token）常驻；本项目通过同步 httpx 调用 `POST /api/v1/search`。**主 venv 永不 import sirchmunk。** |
-| 实施范围（已决策） | **P0–P1 为承诺任务**（S0/S1）；**P2/P3 为门控任务**（S2/S3）：仅当 P0 对比与 P1 工具验收证明有明确增益后才启动（**2026-10-06 最终裁决：G0 关闭，S2/S3 不启动**，见第 7 章「G0 重开复测与最终裁决」）。 |
+| 实施范围（已决策） | **P0–P1 为承诺任务**（S0/S1）；**P2/P3 为门控任务**（S2/S3）（**2026-10-06 最终裁决：G0 关闭**，见第 7 章「G0 重开复测与最终裁决」；后经显式指令重启并全部交付：**S2 已交付（S2.1–S2.5）、S3 已交付（离线框架与指标口径），真实 sidecar A/B 实测数据待门控运行回填**，见 S3 阶段进度备注）。 |
 | 主要代价 | 延迟（FAST 规格预估 2–5s，S0 实测 4.6–13.6s/条（`deepseek-v4-flash`，见 7 章「S0 延迟分析与优化」）；DEEP 数十秒）、每次查询 2～N 次 LLM 调用、结果非确定性、sidecar 依赖重（torch / kreuzberg / duckdb / igraph / rg / rga）、0.x API 无 changelog 演进快。 |
 
 ### 1.2 Sirchmunk 是什么
@@ -495,11 +495,13 @@ DEEP 补充发现：Q6 为**「答对引错」**——答案内容完整梳理�
 
 #### 阶段 S3：评估 A/B 与 Dashboard（P3，门控：S2 零回归后启动）
 
+> **进度备注（2026-10-06，S3 完成与 A/B 数据结论）**：S3.1–S3.3 全部完成，全套件离线全绿（见 S3.3 行）。**A/B 数据结论：离线评估框架与指标口径（source 级 hit/MRR、延迟/Token 对比列）已交付；但真实 sidecar A/B 实验未执行——受 `RAG_AGENTIC_INTEGRATION` 门控与 G0 终裁约束（本仓库自指语料上裸 rg 6/6 严格优于 sidecar，agentic 路默认关闭），无实测数据可回填，本文档不记录任何编造数据。** `--retrieval-mode agentic/hybrid+agentic` 是否产生有效结果取决于真实 sidecar 是否启用，该决策由真实语料场景决定（重开 G0 即重测）。
+
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 验收标准 |
 |---------|---------|------|---------|---------|
-| S3.1 | 评估 A/B（source 级指标） | [ ] | | `scripts/evaluate.py --retrieval-mode hybrid\|agentic\|hybrid+agentic`；**source 级** hit/MRR（基于 `expected_sources`）——agentic 确定性 ID 与 `expected_chunk_ids` 永不匹配（4.6），不得混入 chunk 级指标；报告含延迟与 Token 对比列；fake runner 离线单测 |
-| S3.2 | Dashboard agentic 展示 | [ ] | | Query Traces 页渲染 `agentic_search` 阶段（模式/Token/调用次数/证据文件列表）；Overview 配置卡显示 agentic 开关与 backend；基于 trace `method` 动态渲染（未启用时自然隐藏）；AppTest 冒烟 |
-| S3.3 | 文档收口与决策记录 | [ ] | | README/FAQ 更新；本文档进度表勾完 + A/B 数据结论写回第 1.1 节；FUTURE_OPTIMIZATION_ROADMAP 对应展望项（6.3 Agentic tools）标记落地状态；全套件离线全绿 |
+| S3.1 | 评估 A/B（source 级指标） | [x] | 2026-10-06 | `scripts/evaluate.py --retrieval-mode hybrid\|agentic\|hybrid+agentic`（`hybrid` 为默认基线，行为零回归）；**source 级** hit/MRR（基于 `expected_sources`）与 chunk 级指标并列不混算（agentic 确定性 ID 与 `expected_chunk_ids` 永不匹配）；报告含延迟与 Token 对比列；另有 `--agentic-trigger` 可覆盖 `settings.agentic_search.trigger`（如 `always` 逐题触发）；fake runner 离线单测；真实 sidecar 永不自动调用（`RAG_AGENTIC_INTEGRATION=1` 门控） |
+| S3.2 | Dashboard agentic 展示 | [x] | 2026-10-06 | Query Traces 页基于 trace `method` 动态渲染 `agentic_search` 阶段（模式/Token/调用次数/证据文件列表），无该阶段时自然隐藏；Overview 配置卡显示 agentic 开关与 backend；AppTest 冒烟覆盖 |
+| S3.3 | 文档收口与决策记录 | [x] | 2026-10-06 | README「Agentic 检索（sidecar）」小节增量增补第三路内容（配置项/CLI 用法/Dashboard 展示/安全边界与默认关闭口径/真实 sidecar 门控）；USAGE_GUIDE 补 `--agentic` 与 `--retrieval-mode` 用法并同步当前状态；FUTURE_OPTIMIZATION_ROADMAP 6.3 Agentic tools 标记落地状态；本文档进度表勾完 + A/B 数据结论写回第 1.1 节（见上方进度备注）；全套件 `pytest tests -q` 离线全绿（**1245 passed / 3 skipped**） |
 
 ---
 
