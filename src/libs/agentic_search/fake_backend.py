@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import sys
-from typing import Sequence
+from typing import Any, Sequence
 
 if __package__ in (None, ""):  # pragma: no cover - 直接运行兜底
     sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[2]))
@@ -30,6 +30,7 @@ class FakeAgenticSearch(BaseAgenticSearch):
 
     def __init__(
         self,
+        agentic_config: Any | None = None,
         *,
         answer: str = "fake agentic answer",
         evidences: Sequence[AgenticEvidence] | None = None,
@@ -39,6 +40,9 @@ class FakeAgenticSearch(BaseAgenticSearch):
         error: Exception | None = None,
     ) -> None:
         """Args:
+            agentic_config: 工厂统一签名首参（``AgenticSearchFactory.create``
+                以 ``ctor(config)`` 调用）；fake 忽略配置，输出由构造参数
+                完全决定。
             error: 非 None 时 ``search`` 抛出该异常（测试降级路径）。
         """
         self._answer = answer

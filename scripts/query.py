@@ -41,7 +41,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -58,10 +57,11 @@ from core.settings import ConfigError, Settings, load_settings  # noqa: E402
 from core.trace.persist import persist_trace  # noqa: E402
 from core.trace.trace_context import TRACE_TYPE_QUERY, TraceContext  # noqa: E402
 from core.types import RetrievalResult  # noqa: E402
-from libs.agentic_search import (  # noqa: E402
-    AgenticSearchFactory,
-    AgenticSearchRequest,
-    evidence_to_retrieval_results,
+# S3.1：适配器平移到 libs/agentic_search/adapter.py（评估入口成为第二个
+# 消费者）；此处 re-import 保持 ``AgenticRouteAdapter`` 等符号可用。
+from libs.agentic_search.adapter import (  # noqa: E402
+    AgenticRouteAdapter,
+    build_agentic_retriever,
 )
 
 __all__ = [
@@ -211,47 +211,6 @@ def build_search(settings: Settings, *, agentic_retriever: Any | None = None) ->
             注入；``None`` 时与基线行为逐字节一致）。
     """
     return HybridSearch(settings, agentic_retriever=agentic_retriever)
-
-
-class AgenticRouteAdapter:
-    """把 ``BaseAgenticSearch`` 包装成第三路 ``retrieve`` 形态（S2.5）。
-
-    ``HybridSearch`` 的 ``agentic_retriever`` 注入契约（S2.3）是鸭子类型
-    ``retrieve(query, top_k, trace=...) -> list[RetrievalResult]``；本适配器
-    在其下调用 ``backend.search(AgenticSearchRequest)`` 并经
-    ``evidence_to_retrieval_results`` 转换证据。``last_response`` /
-    ``last_elapsed_ms`` 供 ``--verbose`` 展示 Token 与耗时。
-
-    落点说明：仅 CLI 需要此包装，故收敛在脚本内（最小侵入）；如后续
-    MCP tool 等入口也要注入第三路，可平移到 ``libs/agentic_search/``。
-    """
-
-    def __init__(self, backend: Any) -> None:
-        self._backend = backend
-        self.last_response: Any | None = None
-        self.last_elapsed_ms: float | None = None
-
-    @property
-    def backend_name(self) -> str:
-        return getattr(self._backend, "backend_name", type(self._backend).__name__)
-
-    def retrieve(
-        self,
-        query: str,
-        top_k: int | None = None,
-        trace: Any = None,
-    ) -> list[RetrievalResult]:
-        """执行一次 Agentic 检索并转换为 ``RetrievalResult`` 列表。"""
-        started = time.perf_counter()
-        response = self._backend.search(AgenticSearchRequest(query=query))
-        self.last_response = response
-        self.last_elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
-        return evidence_to_retrieval_results(response, top_k=top_k)
-
-
-def build_agentic_retriever(settings: Settings) -> AgenticRouteAdapter:
-    """按 ``settings.agentic_search.backend`` 构建第三路检索适配器（S2.5）。"""
-    return AgenticRouteAdapter(AgenticSearchFactory.create(settings))
 
 
 def build_reranker(settings: Settings) -> Reranker:

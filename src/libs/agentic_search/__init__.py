@@ -17,6 +17,7 @@ from libs.agentic_search.base_agentic_search import (
     AgenticSearchTimeoutError,
     BaseAgenticSearch,
 )
+from libs.agentic_search.adapter import AgenticRouteAdapter, build_agentic_retriever
 from libs.agentic_search.agentic_search_factory import (
     AgenticSearchBackendRouteError,
     AgenticSearchFactory,
@@ -46,6 +47,8 @@ __all__ = [
     "SirchmunkHttpBackend",
     "PathGuard",
     "PathGuardError",
+    "AgenticRouteAdapter",
+    "build_agentic_retriever",
     "parse_search_context",
     "evidence_to_retrieval_results",
     "make_agentic_id",
