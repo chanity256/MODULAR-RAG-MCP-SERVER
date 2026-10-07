@@ -46,7 +46,50 @@ Sirchmunk sidecar（独立 venv + 独立进程，127.0.0.1:8584 + Bearer）
 
 前置：`source .venv/bin/activate`，在仓库根目录执行。
 
-### 2.1 摄取（Ingest）
+### 2.1 目录结构速览
+
+树形总览（格式对齐 [DEV_SPEC 5.2](../frozen/DEV_SPEC.md)）：
+
+```
+Modular-RAG-MCP-Server/
+│
+├── AGENTS.md                 # AI 编码代理项目纪律（模块地图 + 关键红线，改动前必读）
+├── README.md                 # 项目入口：功能总览、快速开始、开发文档导航
+├── main.py                   # 最小启动入口（加载配置自检；真正的 MCP 入口在 src/mcp_server/server.py）
+├── pyproject.toml            # 依赖与 pytest 配置（pythonpath / markers；可选组 ingest-formats）
+├── requirements.txt          # pip 依赖清单
+├── board.html                # 本地生成的笔记看板页面（agent-notes-board 产物，非核心功能）
+│
+├── config/                   # 配置文件目录
+│   ├── settings.yaml         # 主配置：LLM / Embedding / Splitter / Rerank / 检索 / ingestion / agentic 全部在此
+│   └── prompts/              # Prompt 模板（chunk_refinement / image_captioning / rerank）
+│
+├── src/                      # 源代码主目录（分层依赖自上而下，见 DEV_SPEC 5.1）
+│   ├── mcp_server/           # MCP 协议层：stdio JSON-RPC server + tools
+│   ├── core/                 # 业务核心：settings / query_engine / types 契约
+│   ├── ingestion/            # 摄取管线：Loader → Split → Transform → Embed → Upsert + DocumentManager
+│   ├── libs/                 # 可插拔抽象层：各组件 Base* + 工厂（loader / embedding / vector_store / agentic_search 等）
+│   └── observability/        # TraceContext（JSON Lines 落盘）+ Streamlit Dashboard（七页面）
+│
+├── scripts/                  # CLI 脚本
+│   ├── ingest.py             # 摄取（含 --sync / --prune / --dry-run / --retry-failed，见 2.2）
+│   ├── query.py              # 查询（--verbose / --agentic，见 2.3）
+│   ├── evaluate.py           # RAG 评估（golden set + composite 指标）
+│   ├── start_dashboard.py    # Dashboard 启动器（自动托管 sidecar，见第 5 节）
+│   └── sirchmunk/            # sidecar 环境与旁路对比工具（setup_venv / start_sidecar / preflight / compare）
+│
+├── tests/                    # 离线测试套件（unit / integration / e2e；fixtures/ 为测试夹具与金标准集）
+│
+├── data/                     # 本地数据（不入库 git）
+│   ├── documents/            # 待摄取语料目录
+│   ├── db/                   # 存储：chroma/（向量）、bm25/（稀疏索引）、image_index.db、ingestion_history.db、sirchmunk/
+│   └── images/               # 摄取抽取的图片文件（按 doc_hash 分目录）
+│
+├── logs/                     # 运行日志：traces.jsonl（全链路 trace 落盘）+ sidecar 日志与对比报告
+└── cache/                    # 运行时缓存（captions / embeddings / processing，可安全清除重建）
+```
+
+### 2.2 摄取（Ingest）
 
 把文档放入 `data/documents/`，然后：
 
@@ -71,7 +114,7 @@ python scripts/ingest.py --collection default --retry-failed                    
 
 产物：Chroma 向量库（`data/db/chroma/`）、BM25 索引（`data/db/bm25/`）、图片索引与摄取历史（`data/db/`）。摄取历史表为 `ingestion_history_v2`，首次打开旧库时自动迁移，旧表改名 `ingestion_history_legacy_backup` 保留（需回滚时手工改回表名）。设计见 [INGESTION_ROBUSTNESS_SPEC.md](../specs/INGESTION_ROBUSTNESS_SPEC.md)。
 
-### 2.2 查询
+### 2.3 查询
 
 ```bash
 python scripts/query.py --query "如何配置 Azure？" --verbose
@@ -82,7 +125,7 @@ python scripts/query.py --query "部署密钥" --no-rerank   # 跳过精排
 python scripts/query.py --query "ING-2044 错误码在哪定义" --agentic --verbose
 ```
 
-### 2.3 启动 MCP Server（stdio）
+### 2.4 启动 MCP Server（stdio）
 
 ```bash
 PYTHONPATH=src python -m mcp_server.server
@@ -90,7 +133,7 @@ PYTHONPATH=src python -m mcp_server.server
 
 默认暴露 3 个工具：`query_knowledge_hub`、`list_collections`、`get_document_summary`。开启 `agentic_search.enabled` 后多出第 4 个工具 `agentic_search`。
 
-### 2.4 MCP Client 配置
+### 2.5 MCP Client 配置
 
 **GitHub Copilot（VS Code）** — `.vscode/mcp.json`：
 
@@ -110,7 +153,7 @@ PYTHONPATH=src python -m mcp_server.server
 
 Claude Desktop 同理，配置块为 `mcpServers`。
 
-### 2.5 Dashboard 与评估
+### 2.6 Dashboard 与评估
 
 ```bash
 python scripts/start_dashboard.py          # http://localhost:8501，七页面管理平台
@@ -120,7 +163,7 @@ python scripts/evaluate.py --evaluator custom --top-k 5   # 纯离线指标
 python scripts/evaluate.py --retrieval-mode hybrid+agentic --agentic-trigger always   # agentic A/B（需 sidecar 启用）
 ```
 
-### 2.6 Dashboard「在线检索」页（S4）
+### 2.7 Dashboard「在线检索」页（S4）
 
 Dashboard 导航「检索」分组 → 「在线检索」：三模式在线查询，不写代码、不敲 CLI 也能检索。
 
