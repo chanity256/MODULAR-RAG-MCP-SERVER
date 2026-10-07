@@ -870,6 +870,62 @@ def _resolve_resources(
     return _Resources(pipeline, integrity, manager, bm25, settings)
 
 
+@dataclass
+class _StoredDocument:
+    source_path: str
+
+
+class _ReadOnlyCatalog:
+    """dry-run 的 ``list_documents`` 替身：只读向量库，缺失时视为空。
+
+    ``DocumentManager.list_documents`` 会顺带懒建图片存储（新建 SQLite 与
+    图片目录），dry-run 不能有这种副作用。
+    """
+
+    def __init__(self, store: Any | None) -> None:
+        self._store = store
+
+    def list_documents(self, collection: str | None = None) -> list[_StoredDocument]:
+        if self._store is None:
+            return []
+        filters = {"collection": collection} if collection else None
+        sources: set[str] = set()
+        for record in self._store.get_by_metadata(filters):
+            metadata = record.get("metadata") or {}
+            source = metadata.get("source_path") or metadata.get("source")
+            if source:
+                sources.add(str(source))
+        return [_StoredDocument(source) for source in sorted(sources)]
+
+
+def _resolve_dry_run_resources(
+    args: argparse.Namespace, *, settings: Settings | None, emit: Emit
+) -> _Resources | int:
+    """dry-run 装配：只打开已存在的存储，不存在的按空处理，绝不新建文件。"""
+    if settings is None:
+        try:
+            settings = load_settings(args.config)
+        except (ConfigError, FileNotFoundError) as exc:
+            emit(f"[usage] 配置加载失败: {exc}")
+            return EXIT_USAGE
+    from libs.loader.file_integrity import DEFAULT_DB_PATH, SQLiteIntegrityChecker
+    from libs.vector_store import VectorStoreFactory
+
+    try:
+        history_db = DEFAULT_DB_PATH if Path(DEFAULT_DB_PATH).is_file() else ":memory:"
+        integrity = SQLiteIntegrityChecker(history_db)
+        vs = settings.vector_store
+        persist = vs.persist_path or "./data/db/chroma"
+        if vs.backend == "chroma" and not Path(persist).exists():
+            store = None
+        else:
+            store = VectorStoreFactory.create(settings)
+    except Exception as exc:
+        emit(f"[usage] 存储初始化失败: {type(exc).__name__}: {exc}")
+        return EXIT_USAGE
+    return _Resources(None, integrity, _ReadOnlyCatalog(store), None, settings)
+
+
 def _reload_bm25(bm25: Any | None) -> None:
     # 共享的 BM25 实例是「整份内存态 + 整体 save」：删除前必须与磁盘对齐，
     # 否则空的内存索引会在 save 时覆盖掉磁盘上的全量索引。
@@ -896,7 +952,15 @@ def _main_sync(
             emit(f"[usage] {exc}")
             return EXIT_USAGE
 
-    resources = _resolve_resources(args, need_manager=True, emit=emit, **injected)
+    if args.dry_run and all(
+        injected.get(key) is None
+        for key in ("pipeline", "integrity_checker", "document_manager")
+    ):
+        resources = _resolve_dry_run_resources(
+            args, settings=injected.get("settings"), emit=emit
+        )
+    else:
+        resources = _resolve_resources(args, need_manager=True, emit=emit, **injected)
     if isinstance(resources, int):
         return resources
 

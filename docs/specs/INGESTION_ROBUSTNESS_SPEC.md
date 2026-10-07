@@ -2,7 +2,9 @@
 
 # 摄取管线健壮性规格 (INGESTION_ROBUSTNESS_SPEC)
 
-> 版本：0.1 — 由路线图 6.2「数据摄取」立项为可执行规格（现状审计 + 模块设计 + 项目排期）
+> 版本：1.0 — IR0–IR6 全部交付收口（2026-10-07），实现偏差见 7.1
+>
+> 0.1 — 由路线图 6.2「数据摄取」立项为可执行规格（现状审计 + 模块设计 + 项目排期）
 >
 > 起源：[FUTURE_OPTIMIZATION_ROADMAP.md](../reference/FUTURE_OPTIMIZATION_ROADMAP.md) 6.2「数据摄取」（增强增量更新、删除检测、失败重试、版本元数据、阶段诊断）
 >
@@ -298,51 +300,67 @@ ingestion:
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 验收标准 |
 |---------|---------|------|---------|---------|
-| IR0.1 | 现状缺陷回归测试（红） | [ ] |  | `tests/unit/` 新增用例覆盖 A1–A7 七项缺陷（A1 双 collection 误跳、A2 修改后旧 chunk 残留、A3 混合版本删除不彻底、A5 failed_stage 缺失、A6 扩展名单一、A7 store 部分失败不一致）；以 `xfail` 或独立文件标记，M 落地后逐个转正；既有全套件零回归 |
-| IR0.2 | 历史表现状快照 | [ ] |  | 对现有 `data/db/ingestion_history.db` 记录行数与列集写入测试 fixture（脱敏），作为 IR1 迁移正确性的对照基线 |
+| IR0.1 | 现状缺陷回归测试（红） | [x] | 2026-10-07 | `tests/unit/` 新增用例覆盖 A1–A7 七项缺陷（A1 双 collection 误跳、A2 修改后旧 chunk 残留、A3 混合版本删除不彻底、A5 failed_stage 缺失、A6 扩展名单一、A7 store 部分失败不一致）；以 `xfail` 或独立文件标记，M 落地后逐个转正；既有全套件零回归；**完成**：d2de90e：`test_ingestion_robustness_baseline.py`，缺陷用例随 IR1–IR5 逐个转正 |
+| IR0.2 | 历史表现状快照 | [x] | 2026-10-07 | 对现有 `data/db/ingestion_history.db` 记录行数与列集写入测试 fixture（脱敏），作为 IR1 迁移正确性的对照基线；**完成**：d2de90e：以 `test_file_integrity_v2.py` 的合成旧表 fixture（`_create_legacy_db`，含 success/failed/同路径多哈希）替代真实库快照（偏差见 7.1） |
 
 #### 阶段 IR1：历史表 v2（M1）
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 验收标准 |
 |---------|---------|------|---------|---------|
-| IR1.1 | 表 v2 schema + 自动迁移 | [ ] |  | `SQLiteIntegrityChecker` 建 v2 表（3.2 结构）；三种初始状态迁移单测全绿（旧表含记录 / 全新安装 / 二次启动）；旧表改名 `_legacy_backup` 保留；迁移逻辑离线（仅 SQLite） |
-| IR1.2 | `should_skip` 签名扩展 | [ ] |  | 判定改为 `(source_path, collection, file_hash)`；抽象基类与全部注入 fake 同步；A1 回归测试转正（双 collection 互不跳过）；`FileIntegrityChecker` docstring 更新判定语义 |
-| IR1.3 | `failed_stage` + 版本三列 | [ ] |  | `mark_success` / `mark_failed` 接受 `failed_stage` 与三个版本参数（pipeline 从 settings 推导传入）；A5 回归测试转正；版本推导规则写入 `settings.py` docstring（`auto` 口径） |
-| IR1.4 | 配置节 `retry` / `version_policy` | [ ] |  | `IngestionRetryConfig` / `IngestionVersionPolicyConfig` dataclass + builder；可选节缺失走默认、非法值 fail-fast 参数化单测；`config/settings.yaml` 补注释样例（第 6 章） |
+| IR1.1 | 表 v2 schema + 自动迁移 | [x] | 2026-10-07 | `SQLiteIntegrityChecker` 建 v2 表（3.2 结构）；三种初始状态迁移单测全绿（旧表含记录 / 全新安装 / 二次启动）；旧表改名 `_legacy_backup` 保留；迁移逻辑离线（仅 SQLite）；**完成**：d2de90e：`ingestion_history_v2` + 自动迁移（旧表改名 `ingestion_history_legacy_backup`） |
+| IR1.2 | `should_skip` 签名扩展 | [x] | 2026-10-07 | 判定改为 `(source_path, collection, file_hash)`；抽象基类与全部注入 fake 同步；A1 回归测试转正（双 collection 互不跳过）；`FileIntegrityChecker` docstring 更新判定语义；**完成**：d2de90e：签名为 `should_skip(file_hash, *, source_path, collection)`（偏差见 7.1） |
+| IR1.3 | `failed_stage` + 版本三列 | [x] | 2026-10-07 | `mark_success` / `mark_failed` 接受 `failed_stage` 与三个版本参数（pipeline 从 settings 推导传入）；A5 回归测试转正；版本推导规则写入 `settings.py` docstring（`auto` 口径）；**完成**：d2de90e：`resolve_ingestion_versions` 推导 `auto` 口径 |
+| IR1.4 | 配置节 `retry` / `version_policy` | [x] | 2026-10-07 | `IngestionRetryConfig` / `IngestionVersionPolicyConfig` dataclass + builder；可选节缺失走默认、非法值 fail-fast 参数化单测；`config/settings.yaml` 补注释样例（第 6 章）；**完成**：d2de90e：`IngestionRetryConfig` / `IngestionVersionPolicyConfig`；`test_ingestion_config.py` |
 
 #### 阶段 IR2：版本替换与删除修复（M2）
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 验收标准 |
 |---------|---------|------|---------|---------|
-| IR2.1 | `_doc_hashes_of` 全量收集 | [ ] |  | 收集 metadata 两键 + chunk_id 前缀全部去重哈希；`delete_document` 遍历清理 BM25/图片/历史并聚合计数；A3 回归测试转正（预置两代哈希的 fake store 全清）；单值消费点口径（`sorted()[0]`）写入 docstring |
-| IR2.2 | 版本替换前置清理 | [ ] |  | pipeline integrity 判定后、store 前按旧 file_hash 定向清理（3.3 顺序）；清理失败记 `failed_stage="store"` 并中止；集成测试：文件修改 → 重摄取 → 三存储无旧版本残留（A2 回归转正）；清理顺序幂等性单测（连续两次执行结果一致） |
+| IR2.1 | `_doc_hashes_of` 全量收集 | [x] | 2026-10-07 | 收集 metadata 两键 + chunk_id 前缀全部去重哈希；`delete_document` 遍历清理 BM25/图片/历史并聚合计数；A3 回归测试转正（预置两代哈希的 fake store 全清）；单值消费点口径（`sorted()[0]`）写入 docstring；**完成**：3cee333：`_doc_hashes_of` + `delete_document` 遍历清理 |
+| IR2.2 | 版本替换前置清理 | [x] | 2026-10-07 | pipeline integrity 判定后、store 前按旧 file_hash 定向清理（3.3 顺序）；清理失败记 `failed_stage="store"` 并中止；集成测试：文件修改 → 重摄取 → 三存储无旧版本残留（A2 回归转正）；清理顺序幂等性单测（连续两次执行结果一致）；**完成**：3cee333：`DocumentManager.prepare_version_replacement` |
 
 #### 阶段 IR3：同步模式（M3）
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 验收标准 |
 |---------|---------|------|---------|---------|
-| IR3.1 | 目录对比 + `--dry-run` | [ ] |  | `collect_and_diff`：四态（新增/修改/删除/未变）判定以历史 v2 + 存储反查为基准；`--dry-run` 打印计划清单且零写入断言（fake store 记录调用）；参数化单测覆盖四态 × 组合 |
-| IR3.2 | `--sync` / `--prune` 落地 | [ ] |  | 删除动作复用 `delete_document` 单一实现；`--prune` 零摄取断言；扩展名清单随 M5 常量推导；子进程 E2E 冒烟（离线 fixture 目录）全绿；退出码语义沿用既有矩阵（0 成功 / 1 部分失败 / 2 用法错误，无新增） |
+| IR3.1 | 目录对比 + `--dry-run` | [x] | 2026-10-07 | `collect_and_diff`：四态（新增/修改/删除/未变）判定以历史 v2 + 存储反查为基准；`--dry-run` 打印计划清单且零写入断言（fake store 记录调用）；参数化单测覆盖四态 × 组合；**完成**：cb059f1：`collect_and_diff` 五态（new/modified/unchanged/deleted/stale）+ `render_plan` |
+| IR3.2 | `--sync` / `--prune` 落地 | [x] | 2026-10-07 | 删除动作复用 `delete_document` 单一实现；`--prune` 零摄取断言；扩展名清单随 M5 常量推导；子进程 E2E 冒烟（离线 fixture 目录）全绿；退出码语义沿用既有矩阵（0 成功 / 1 部分失败 / 2 用法错误，无新增）；**完成**：cb059f1：`test_ingest_sync.py`；退出码 0/1/2 不变 |
 
 #### 阶段 IR4：重试与诊断（M4）
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 验收标准 |
 |---------|---------|------|---------|---------|
-| IR4.1 | 错误分类 + 指数退避 | [ ] |  | 分类表参数化单测（≥6 类，含边界：`IngestionPipelineError` 带 stage 的映射）；退避用 fake 时钟断言序列与抖动界；`retry.max_attempts=1` 时零重试（基线行为逐字节一致）；重试计入 trace（`attempt` 序号） |
-| IR4.2 | store 回滚 + `--retry-failed` | [ ] |  | store 失败按 doc_hash 回滚三存储，A7 回归测试转正（注入 upsert 失败 → 断言 BM25/图片无残留）；回滚自身失败仅记录不掩盖原始异常（单测）；`--retry-failed` 扫描 v2 failed 记录重跑，`failed_stage` 在日志输出 |
+| IR4.1 | 错误分类 + 指数退避 | [x] | 2026-10-07 | 分类表参数化单测（≥6 类，含边界：`IngestionPipelineError` 带 stage 的映射）；退避用 fake 时钟断言序列与抖动界；`retry.max_attempts=1` 时零重试（基线行为逐字节一致）；重试计入 trace（`attempt` 序号）；**完成**：cb059f1：`src/ingestion/errors.py`（`is_retryable` / `compute_backoff`，上限 30s） |
+| IR4.2 | store 回滚 + `--retry-failed` | [x] | 2026-10-07 | store 失败按 doc_hash 回滚三存储，A7 回归测试转正（注入 upsert 失败 → 断言 BM25/图片无残留）；回滚自身失败仅记录不掩盖原始异常（单测）；`--retry-failed` 扫描 v2 failed 记录重跑，`failed_stage` 在日志输出；**完成**：cb059f1：`_rollback_store` + `--retry-failed`；`test_ingestion_retry.py` |
 
 #### 阶段 IR5：通用格式 Loader（M5）
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 验收标准 |
 |---------|---------|------|---------|---------|
-| IR5.1 | `MarkitdownLoader` + 路由 | [ ] |  | 四扩展名（docx/pptx/xlsx/html）路由 + 依赖缺失错误含安装指引（`stage="load"`）；metadata 契约（source_path/doc_type/sha256，无图片）；fake convert 单测；`pyproject.toml` optional 组登记、主依赖零新增 |
-| IR5.2 | 双登记同步 + 集成 | [ ] |  | `pipeline._SUPPORTED_EXTENSIONS` 与 `scripts/ingest.py` 清单同步且 drift guard 全绿；`.md` 显式不在清单（断言）；端到端集成：fake markitdown 产物走完整 chunk → store 管线，与 PDF chunk 同构断言 |
+| IR5.1 | `MarkitdownLoader` + 路由 | [x] | 2026-10-07 | 四扩展名（docx/pptx/xlsx/html）路由 + 依赖缺失错误含安装指引（`stage="load"`）；metadata 契约（source_path/doc_type/sha256，无图片）；fake convert 单测；`pyproject.toml` optional 组登记、主依赖零新增；**完成**：d2de90e：`markitdown_loader.py`；extra `ingest-formats`（偏差见 7.1） |
+| IR5.2 | 双登记同步 + 集成 | [x] | 2026-10-07 | `pipeline._SUPPORTED_EXTENSIONS` 与 `scripts/ingest.py` 清单同步且 drift guard 全绿；`.md` 显式不在清单（断言）；端到端集成：fake markitdown 产物走完整 chunk → store 管线，与 PDF chunk 同构断言；**完成**：3cee333：`test_ingestion_loader_routing.py`；`.md` 显式排除 |
 
 #### 阶段 IR6：收口
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 验收标准 |
 |---------|---------|------|---------|---------|
-| IR6.1 | 全量回归 + 文档收口 | [ ] |  | `pytest tests -q` 离线全绿（零回归 + 新增用例统计回填本表）；README「开发文档」表与 USAGE_GUIDE 增补同步格式/同步模式用法；FUTURE_OPTIMIZATION_ROADMAP 6.2 标记落地状态；本文档进度表勾完 |
+| IR6.1 | 全量回归 + 文档收口 | [x] | 2026-10-07 | **完成**：1484 passed / 3 skipped（基线 1273 → +211 新增用例，零回归）；子进程 E2E `tests/e2e/test_ingest_cli_subprocess.py` 发现并修复 `--dry-run` 首次运行会建库落盘的问题（改走只读资源装配）。原验收：`pytest tests -q` 离线全绿（零回归 + 新增用例统计回填本表）；README「开发文档」表与 USAGE_GUIDE 增补同步格式/同步模式用法；FUTURE_OPTIMIZATION_ROADMAP 6.2 标记落地状态；本文档进度表勾完 |
+
+### 7.1 实现偏差 / 收口记录
+
+> IR0–IR5 已于 2026-10-07 在 `feat/ingestion-robustness` 分支交付：d2de90e（IR0 / IR1 / IR5.1）、3cee333（IR2 / IR5.2）、cb059f1（IR3 / IR4）。以下为与第 3–6 章设计不一致之处，以代码为准。
+
+| 设计（章节） | 实际实现 | 原因 |
+|------|------|------|
+| `should_skip(source_path, collection, file_hash)`（3.2） | `should_skip(file_hash, *, source_path=None, collection=None)`：`file_hash` 仍为首个位置参数，新参数 keyword-only；省略 `source_path` 时按旧语义（任一 success 哈希命中） | 兼容既有调用点与注入的 fake，避免一次性改签名 |
+| `source_path` 按 realpath 归一（3.2 表注释） | 原样存储，不做 realpath；归一化由调用方负责（CLI 同步模式按 `abspath` 比较） | 与 Chroma `metadata.source_path` 的键保持一致，否则反查对不上 |
+| 依赖缺失抛 `IngestionPipelineError(stage="load")`（3.6） | `MarkitdownLoader` 抛 `MarkitdownNotInstalledError`（同时是 `ImportError` 子类，含安装指引），由 pipeline `_stage` 包装为 `stage="load"` | 保持 `libs → ingestion` 单向分层，libs 层不 import ingestion 的异常 |
+| 空文本处理未明确（8.2） | markitdown 抽取为空文本时抛 `MarkitdownLoaderError`，按 load 失败记 `failed_stage` | 空 Document 静默入库无法诊断 |
+| 测试文件 `tests/unit/test_ingest_retry.py`（3.1） | 实际为 `tests/unit/test_ingestion_retry.py` | 与 `test_ingestion_*` 系列命名对齐 |
+| IR0.2 真实库快照 | 用合成旧表 fixture（`_create_legacy_db`）覆盖迁移对照 | 本地库内容不稳定且不应入库，合成数据可确定复现 |
+| 同步四态（3.4） | `collect_and_diff` 为五态：new / modified / unchanged / deleted / stale（`embedding_version` 与当前配置不同，按 `on_embedding_mismatch` 告警并跳过；迁移来的 `legacy` 版本不判 stale） | 4.5 的不兼容检测需要独立的动作分类 |
+
+**已知遗留问题（建议后续立项）**：chunk_id 为 `{doc_hash}_{index}_{content_hash}`，不含 collection；而所有 collection 共用同一个物理 Chroma collection（BM25 / 图片同样按哈希寻址）。同一文件摄取到两个 collection 时会共享 chunk_id，后一次 upsert 会覆盖前一次的 `metadata.collection`。当前清理逻辑已有防护（哈希仍被其他 `(source_path, collection)` 引用时不清 BM25 / 图片），不会因为一个 collection 的删除或替换误删另一个 collection 的数据，但覆盖问题仍在。修复方向是把 collection 纳入 chunk_id（或 BM25 / 图片的键），需要配套数据迁移。
 
 ---
 

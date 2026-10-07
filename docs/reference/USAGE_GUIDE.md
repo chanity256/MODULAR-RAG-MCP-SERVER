@@ -36,7 +36,7 @@ Sirchmunk sidecar（独立 venv + 独立进程，127.0.0.1:8584 + Bearer）
     └─ rg / rga 词法召回 + LLM 迭代探索，直接搜活文件
 ```
 
-- **主链路（Indexed RAG）**：必须先 `ingest`，仅支持 PDF，低延迟、确定性高。
+- **主链路（Indexed RAG）**：必须先 `ingest`，支持 PDF（DOCX/PPTX/XLSX/HTML 需装可选依赖），低延迟、确定性高。
 - **Agentic（Sirchmunk）**：不建索引、指定路径直接搜，支持 MD/代码/JSON/YAML/CSV/HTML/PDF/DOCX/XLSX/PPTX/EPUB，每次查询消耗 2~N 次 LLM 调用。
 - **进程边界**：主项目 venv 永远不 import sirchmunk，只通过 HTTP 调用。
 
@@ -48,15 +48,28 @@ Sirchmunk sidecar（独立 venv + 独立进程，127.0.0.1:8584 + Bearer）
 
 ### 2.1 摄取（Ingest）
 
-把 PDF 放入 `data/documents/`，然后：
+把文档放入 `data/documents/`，然后：
 
 ```bash
 python scripts/ingest.py --path data/documents/ --collection default
-python scripts/ingest.py --path data/documents/ --collection default --force   # 内容变更后强制重摄
+python scripts/ingest.py --path data/documents/ --collection default --force   # 跳过增量判定强制重摄
 python scripts/ingest.py --path data/documents/ -v                             # 查看逐阶段进度
+
+# 同步 / 重试（--sync / --prune / --retry-failed 三者互斥）
+python scripts/ingest.py --path data/documents/ --collection default --sync            # 摄取新增/修改 + 清理已删除
+python scripts/ingest.py --path data/documents/ --collection default --prune           # 只清理已删除，不摄取
+python scripts/ingest.py --path data/documents/ --collection default --sync --dry-run  # 只打印计划，不写存储
+python scripts/ingest.py --collection default --retry-failed                           # 重跑历史中失败的文件（--path 可选）
 ```
 
-产物：Chroma 向量库（`data/db/chroma/`）、BM25 索引（`data/db/bm25/`）、图片索引与 SHA256 增量记录（`data/db/`）。
+- **格式**：`.pdf` 开箱即用；`.docx` / `.pptx` / `.xlsx` / `.html` 需 `pip install '.[ingest-formats]'`（markitdown，可选依赖）；`.md` 不支持。
+- **增量判定**：按 `(source_path, collection)` + 文件哈希；内容变更后重摄取会先清理旧版本残留。
+- **组合约束**：`--dry-run` 必须配合 `--sync` / `--prune`；`--force` 不能与 `--sync` / `--prune` 同用。
+- **`--dry-run` 计划分类**：new / modified / unchanged / deleted / stale（stale = 历史记录的 embedding 版本与当前配置不同，按 `ingestion.version_policy.on_embedding_mismatch` 告警并跳过，不自动重建）。
+- **退出码**：`0` 全部成功或跳过；`1` 有文件失败；`2` 用法或配置错误。
+- **可选配置**：`ingestion.retry`（缺省不重试）、`ingestion.version_policy`（缺省 `auto`），样例见 `config/settings.yaml` 注释。
+
+产物：Chroma 向量库（`data/db/chroma/`）、BM25 索引（`data/db/bm25/`）、图片索引与摄取历史（`data/db/`）。摄取历史表为 `ingestion_history_v2`，首次打开旧库时自动迁移，旧表改名 `ingestion_history_legacy_backup` 保留（需回滚时手工改回表名）。设计见 [INGESTION_ROBUSTNESS_SPEC.md](../specs/INGESTION_ROBUSTNESS_SPEC.md)。
 
 ### 2.2 查询
 
@@ -133,7 +146,7 @@ Sirchmunk 是 modelscope 开源的「**无索引 Agentic 检索**」引擎：用
 | 场景 | 原因 |
 |------|------|
 | 新文件/未摄取的文件立即检索 | 无需 ingest，指定路径即可搜 |
-| 非 PDF 格式（MD/Word/Excel/代码/配置） | 主链路仅支持 PDF，sirchmunk 覆盖多格式 |
+| 主链路未覆盖的格式（MD/代码/配置等） | 主链路仅支持 PDF 与 DOCX/PPTX/XLSX/HTML，sirchmunk 覆盖更多格式且无需摄取 |
 | 精确标识符（错误码/函数名/配置键） | grep 精确匹配天然强项 |
 | 跨文件多跳问题 | ReAct 迭代探索弥补单轮 Top-K 上限 |
 

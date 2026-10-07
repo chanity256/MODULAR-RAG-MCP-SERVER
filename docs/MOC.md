@@ -8,7 +8,7 @@
 
 | 文档 | 说明 |
 |------|------|
-| [INGESTION_ROBUSTNESS_SPEC.md](specs/INGESTION_ROBUSTNESS_SPEC.md) | 摄取管线健壮性规格（IR 系列，IR0–IR6 未开始；现状审计 A1–A7、历史表 v2 / 版本替换 / 同步模式 / 重试诊断 / 通用格式 Loader） |
+| [INGESTION_ROBUSTNESS_SPEC.md](specs/INGESTION_ROBUSTNESS_SPEC.md) | 摄取管线健壮性规格（IR 系列，IR0–IR6 已交付收口，实现偏差见 7.1；现状审计 A1–A7、历史表 v2 / 版本替换 / 同步模式 / 重试诊断 / 通用格式 Loader） |
 
 新规格格式对齐 frozen/ 中 SIRCHMUNK / OBSIDIAN 先例：含模块设计、测试方案、任务排期与进度跟踪表，任务编号用新前缀避免冲突。
 

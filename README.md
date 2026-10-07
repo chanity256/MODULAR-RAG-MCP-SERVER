@@ -20,7 +20,7 @@
 | 目录 | 内容 |
 |------|------|
 | [docs/frozen/](docs/frozen/) | 已冻结文档：[DEV_SPEC.md](docs/frozen/DEV_SPEC.md)（主规格，架构参考）、[SIRCHMUNK_INTEGRATION_SPEC.md](docs/frozen/SIRCHMUNK_INTEGRATION_SPEC.md)、[ACCEPTANCE_GAPS.md](docs/frozen/ACCEPTANCE_GAPS.md) |
-| [docs/specs/](docs/specs/) | 开发规格：[INGESTION_ROBUSTNESS_SPEC.md](docs/specs/INGESTION_ROBUSTNESS_SPEC.md)（IR 系列，待开工） |
+| [docs/specs/](docs/specs/) | 开发规格：[INGESTION_ROBUSTNESS_SPEC.md](docs/specs/INGESTION_ROBUSTNESS_SPEC.md)（IR 系列，IR0–IR6 已交付收口） |
 | [docs/analysis/](docs/analysis/) | 分析与规划：[MICROSERVICES_ANALYSIS.md](docs/analysis/MICROSERVICES_ANALYSIS.md)、[SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md](docs/analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md) |
 | [docs/backlog/](docs/backlog/) | 候选功能与待开发规格：[OBSIDIAN_RAG_SPEC.md](docs/backlog/OBSIDIAN_RAG_SPEC.md) 等 |
 | [docs/reference/](docs/reference/) | 使用参考：[USAGE_GUIDE.md](docs/reference/USAGE_GUIDE.md)（速查手册）、[FUTURE_OPTIMIZATION_ROADMAP.md](docs/reference/FUTURE_OPTIMIZATION_ROADMAP.md)（优化路线图） |
@@ -172,17 +172,36 @@ embedding:
 
 ### 3. 首次摄取
 
-把 PDF 文档放入 `data/documents/`（或任意目录），然后：
+把文档放入 `data/documents/`（或任意目录），然后：
 
 ```bash
 python scripts/ingest.py --path data/documents/ --collection default
-# 强制重摄取（内容变更后）
+# 强制重摄取（跳过增量判定）
 python scripts/ingest.py --path data/documents/ --collection default --force
 # 查看逐阶段进度
 python scripts/ingest.py --path data/documents/ -v
 ```
 
-摄取产物：Chroma 向量库（`data/db/chroma/`）、BM25 索引（`data/db/bm25/`）、图片索引（`data/db/image_index.db`）、SHA256 增量记录（`data/db/ingestion_history.db`）。
+**支持格式**：`.pdf` 开箱即用；`.docx` / `.pptx` / `.xlsx` / `.html` 走 markitdown，需额外安装可选依赖 `pip install '.[ingest-formats]'`（未安装时这些文件在 load 阶段失败并给出安装提示）。`.md` 刻意不支持（归 [OBSIDIAN_RAG_SPEC](docs/backlog/OBSIDIAN_RAG_SPEC.md) 的 V 系列）。
+
+**增量与版本替换**：按 `(source_path, collection)` 判定，同一文件可分别摄取到不同 collection；文件内容变更后重摄取会先清理旧版本的 chunk / BM25 / 图片，不留残留。
+
+**同步与重试模式**（`--sync` / `--prune` / `--retry-failed` 三者互斥）：
+
+```bash
+# 目录与存储对比：摄取新增/修改文件，清理磁盘上已删除的文档
+python scripts/ingest.py --path data/documents/ --collection default --sync
+# 只清理已删除的文档，不摄取
+python scripts/ingest.py --path data/documents/ --collection default --prune
+# 只打印计划（new / modified / unchanged / deleted / stale），不写任何存储；必须配合 --sync 或 --prune
+python scripts/ingest.py --path data/documents/ --collection default --sync --dry-run
+# 重跑该集合历史中失败的文件（--path 可省略，给出时限定范围）
+python scripts/ingest.py --collection default --retry-failed
+```
+
+`--force` 不能与 `--sync` / `--prune` 同用。退出码：`0` 全部成功或跳过；`1` 有文件失败；`2` 用法或配置错误。
+
+摄取产物：Chroma 向量库（`data/db/chroma/`）、BM25 索引（`data/db/bm25/`）、图片索引（`data/db/image_index.db`）、摄取历史（`data/db/ingestion_history.db`，表 `ingestion_history_v2`；首次打开旧库时自动迁移，旧表改名为 `ingestion_history_legacy_backup` 保留）。设计细节见 [INGESTION_ROBUSTNESS_SPEC.md](docs/specs/INGESTION_ROBUSTNESS_SPEC.md)。
 
 ### 4. 查询验证
 
@@ -345,6 +364,8 @@ RAG_AGENTIC_INTEGRATION=1 pytest tests/e2e/test_agentic_mcp.py -v               
 | `vector_store.backend / persist_path` | 向量库（chroma）与持久化目录 |
 | `splitter.chunk_size / chunk_overlap` | 分块大小与重叠 |
 | `ingestion.*` | Transform 开关（chunk_refiner / metadata_enricher / image_captioner 的 use_llm）与批大小 |
+| `ingestion.retry.*` | 可选：失败重试（`max_attempts` 缺省 1 即不重试；>1 时仅超时/连接/5xx/429 等可重试错误按指数退避，上限 30s） |
+| `ingestion.version_policy.*` | 可选：写入历史表的 parser / chunk / embedding 版本（缺省 `auto` 推导）；`on_embedding_mismatch: stale`（告警跳过）/ `rebuild`（提示全量重建，不自动执行） |
 | `retrieval.top_k_dense / top_k_sparse / top_k_final / rrf_k` | 混合检索各级候选数与 RRF 平滑常数 |
 | `rerank.backend / model / top_m` | 精排后端（none / cross_encoder / llm） |
 | `evaluation.backends / golden_test_set` | 评估后端组合与黄金测试集路径 |
@@ -594,11 +615,9 @@ Skill 采用 **"写作原则 + 项目亮点 + 用户画像 = 定制化简历"** 
 
 ### 4. 想摄取 PDF 以外的文档格式（Word / Markdown / HTML 等）怎么办？
 
-**直接问 AI 帮你扩展即可。**
+Word / PowerPoint / Excel / HTML（`.docx` / `.pptx` / `.xlsx` / `.html`）已内置支持，安装可选依赖 `pip install '.[ingest-formats]'` 即可（见运行手册第 3 节）。
 
-项目的 Loader 层采用了可插拔的抽象设计（`BaseLoader`），目前默认实现了 PDF Loader。如果你需要支持 Word、Markdown、HTML 等其他格式，整体架构已经设计好了扩展点，让 AI 帮你新增一个对应的 Loader 实现就可以了。
-
-比如告诉 AI："帮我新增一个 Word 文档的 Loader，参考现有的 PDF Loader 实现"，AI 完全可以搞定。
+其他格式（如 Markdown）可以**直接问 AI 帮你扩展**：Loader 层采用可插拔的抽象设计（`BaseLoader`），新增一个对应的 Loader 实现，并在 `src/ingestion/pipeline.py` 与 `scripts/ingest.py` 两处登记扩展名即可（drift guard 单测会检查两处一致）。比如告诉 AI："帮我新增一个 Markdown 的 Loader，参考现有的 MarkitdownLoader 实现"。
 
 ### 5. 如何集成到 AI 工具中（Copilot / Cursor / Claude Code 等）？
 
