@@ -286,6 +286,35 @@ def test_engine_markitdown_required_but_missing_raises(images_pdf, images_root, 
     assert "markitdown" in str(exc_info.value)
 
 
+def _install_raw_passthrough_markitdown(monkeypatch):
+    """markitdown 0.1.8 实测行为：PDF 转换失败时把原始字节当文本透传。"""
+    fake = types.ModuleType("markitdown")
+
+    class _FakeMarkItDown:
+        def convert(self, path):
+            return types.SimpleNamespace(text_content="%PDF-1.4\nraw pdf body passthrough\n%%EOF")
+
+    fake.MarkItDown = _FakeMarkItDown
+    monkeypatch.setitem(sys.modules, "markitdown", fake)
+
+
+def test_engine_auto_raw_pdf_passthrough_falls_back_to_pypdf(images_pdf, images_root, monkeypatch):
+    _install_raw_passthrough_markitdown(monkeypatch)
+    loader = PdfLoader(str(images_root), engine="auto")
+    doc = loader.load(str(images_pdf))
+    # 原始 PDF 字节透传不算成功转换：auto 引擎降级 pypdf 真解析。
+    assert loader.last_engine == "pypdf"
+    assert "First page about system architecture" in doc.text
+
+
+def test_engine_markitdown_forced_raw_pdf_content_raises(images_pdf, images_root, monkeypatch):
+    _install_raw_passthrough_markitdown(monkeypatch)
+    loader = PdfLoader(str(images_root), engine="markitdown")
+    with pytest.raises(PdfLoaderError) as exc_info:
+        loader.load(str(images_pdf))
+    assert "raw PDF content" in str(exc_info.value)
+
+
 def test_engine_unknown_raises(images_root):
     with pytest.raises(PdfLoaderError) as exc_info:
         PdfLoader(str(images_root), engine="docx")

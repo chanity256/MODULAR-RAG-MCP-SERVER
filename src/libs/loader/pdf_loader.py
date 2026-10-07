@@ -143,6 +143,14 @@ class PdfLoader(BaseLoader):
         if self._engine in ("auto", "markitdown"):
             try:
                 text = self._extract_with_markitdown(file_path)
+                if text.lstrip().startswith("%PDF-"):
+                    # markitdown 未装 [pdf] 依赖时可能把原始 PDF 字节经
+                    # 纯文本兜底转换器原样透传（0.1.8 实测），这不构成
+                    # 成功转换——按转换失败处理（降级 pypdf / 强制引擎报错）。
+                    raise PdfLoaderError(
+                        f"markitdown returned raw PDF content for {file_path} "
+                        "(install 'markitdown[pdf]' for real PDF conversion)"
+                    )
                 self._last_engine = "markitdown"
                 return text, None
             except ImportError:
@@ -156,6 +164,8 @@ class PdfLoader(BaseLoader):
             except Exception as exc:
                 if self._engine == "markitdown":
                     raise PdfLoaderError(f"markitdown failed to convert {file_path}: {exc}") from exc
+                # Note: 原始字节透传守卫的取舍 — 见
+                # .agents/notes/implemented/bug-fix/2026-10-07-pdf-loader-raw-passthrough-guard.md
                 self._logger.warning(
                     "markitdown conversion failed (%s); falling back to pypdf for %s", exc, file_path
                 )
