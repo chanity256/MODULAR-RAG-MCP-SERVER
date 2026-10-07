@@ -1,12 +1,17 @@
-<!-- 扩展规格：Sirchmunk 无索引 Agentic 检索整合。格式与架构分层对齐 DEV_SPEC.md；基线为「阶段 A–I 已完成」状态（OBSIDIAN_RAG_SPEC V 系列为独立增量，互不阻塞）。 -->
+<!-- 扩展规格：Sirchmunk 无索引 Agentic 检索整合。格式与架构分层对齐 DEV_SPEC_frozen.md；基线为「阶段 A–I 已完成」状态（OBSIDIAN_RAG_SPEC V 系列为独立增量，互不阻塞）。 -->
 
 # Sirchmunk Agentic 检索整合规格 (SIRCHMUNK_INTEGRATION_SPEC)
+
+> **📌 冻结记录**
+>
+> - 冻结时间：2026-10-06（移入 docs/frozen/，重命名为 SIRCHMUNK_INTEGRATION_SPEC_frozen.md）
+> - 完成概要：S 系列 S0–S4 已交付收口——sidecar 进程隔离 HTTP 整合（主 venv 永不 import sirchmunk）、G0 终裁（裸 rg 严格优于 sidecar，`agentic_search` 默认 `enabled: false`）、S2 HybridSearch 可选第三路 + `--agentic` CLI、S3 source 级 A/B 评估框架与 Dashboard 展示。
 
 > 版本：0.2 — 由《整合可行性分析》升级为可执行规格（调研结论 + 整合注意事项 + 项目排期）
 >
 > 调研对象：[modelscope/sirchmunk](https://github.com/modelscope/sirchmunk)（`main` 分支，版本 `0.2.1+main`，Apache-2.0，Beta；**锁定 commit `b314e11`**）项目已经下载到本地 /Users/wanghaonan/Desktop/Project/Job-Search/sirchmunk 可直接使用其项目代码。
 >
-> 基线：DEV_SPEC.md 阶段 A–I 全部完成（PDF Ingestion / Hybrid Search / MCP Server / Dashboard / Evaluation / E2E 均已落地）
+> 基线：DEV_SPEC_frozen.md 阶段 A–I 全部完成（PDF Ingestion / Hybrid Search / MCP Server / Dashboard / Evaluation / E2E 均已落地）
 >
 > 调研日期：2026-10-04（源码审计：2026-10-05，所有 file:line 引用基于 `b314e11`）
 
@@ -384,7 +389,7 @@ LENS_HARD_TOKEN_BUDGET=true            # 超预算硬失败，防客户端断连
 
 | # | 问题 | 根因归属 | 处置 | 验证 |
 |---|------|---------|------|------|
-| F1 | 排除 `tests/fixtures/**` 不生效，Q6 引用问题集文件（泄题） | **本项目 bug**：`scripts/sirchmunk/compare.py` 传 `"exclude"`，上游 `SearchRequest` 字段为 `exclude_patterns`，FastAPI 静默丢弃未知字段 | 改为 `"exclude_patterns": ["tests/fixtures/**"]` | ①直跑 `rg -l -g '!tests/fixtures/**' <仓库根>`，fixtures 文件全部消失（`rga` 同）；②真实 sidecar 单跑 Q6（FAST）：**命中**，首个证据 `src/libs/loader/pdf_loader.py`，sidecar 日志中证据文件仅 `pdf_loader.py`、`DEV_SPEC.md`，无 `tests/fixtures/*`；~~耗时 473,461 ms~~（**作废**：运行期间 Mac 进入 Idle Sleep，`pmset -g log` 22:52 起多次 Sleep/DarkWake 已确认；sidecar 日志时间戳跨度 1,940s 而 `perf_counter` 仅计 473s，两者均不代表真实处理耗时），LLM 调用 2 次，Token 38,649；命中结论仍有效 |
+| F1 | 排除 `tests/fixtures/**` 不生效，Q6 引用问题集文件（泄题） | **本项目 bug**：`scripts/sirchmunk/compare.py` 传 `"exclude"`，上游 `SearchRequest` 字段为 `exclude_patterns`，FastAPI 静默丢弃未知字段 | 改为 `"exclude_patterns": ["tests/fixtures/**"]` | ①直跑 `rg -l -g '!tests/fixtures/**' <仓库根>`，fixtures 文件全部消失（`rga` 同）；②真实 sidecar 单跑 Q6（FAST）：**命中**，首个证据 `src/libs/loader/pdf_loader.py`，sidecar 日志中证据文件仅 `pdf_loader.py`、`DEV_SPEC_frozen.md`，无 `tests/fixtures/*`；~~耗时 473,461 ms~~（**作废**：运行期间 Mac 进入 Idle Sleep，`pmset -g log` 22:52 起多次 Sleep/DarkWake 已确认；sidecar 日志时间戳跨度 1,940s 而 `perf_counter` 仅计 473s，两者均不代表真实处理耗时），LLM 调用 2 次，Token 38,649；命中结论仍有效 |
 | F2 | sidecar 启动崩溃（缺 `python-multipart`） | 上游未声明依赖 | `setup_venv.sh` 在安装 sirchmunk 后显式 `pip install python-multipart`（不改上游 `pyproject`） | `bash -n` 语法检查通过；现有 venv 已含该包，sidecar 启动 + preflight 三连全绿；未从零重建 venv 实测 |
 | F3 | 无 token 返回 500 而非 401 | 上游 `auth_middleware` 写法 | **不修复，记录偏差**：拒绝访问本身生效；本项目 `http_backend.py` 对任何非 2xx 一律映射为 `AgenticSearchBackendError`，不受状态码口径影响 | — |
 | F4 | FAST 延迟 77–256 s/条（~~77–473~~，473s 因系统睡眠作废） | ~~模型速度 + 全仓扫描~~ **勘误（2026-10-06）**：①`glm-5.3-flash` 强制思考且上游 `zhipu` profile 无法关闭（4.5.1）；②流式中途断连（12 次检索中 7 次遇断连/SDK 重试），每次整轮重来；rg 扫描仅 0.07–1.36s，与检索根无关 | 换供应商 DeepSeek `deepseek-v4-flash`（上游自动 `thinking: disabled`），仅改 `.env-sirchmunk`，不改上游源码 | 6 题复测 4.6–13.6s/条、0 断连，见「S0 延迟分析与优化」 |
@@ -436,11 +441,11 @@ LENS_HARD_TOKEN_BUDGET=true            # 超预算硬失败，防客户端断连
 | id | 类别 | 命中 | 耗时 ms | 查询分析/grep/回答 s | Token | 首个证据文件 |
 |----|------|------|---------|----------------------|-------|--------------|
 | Q1 | identifier | ✅ | 9,422 | 1.16 / 0.12 / 8.13 | 28,614 | `src/ingestion/storage/bm25_indexer.py` |
-| Q2 | identifier | ❌ | 4,632 | 1.04 / 0.03 / 3.56 | 16,553 | `DEV_SPEC.md` |
+| Q2 | identifier | ❌ | 4,632 | 1.04 / 0.03 / 3.56 | 16,553 | `DEV_SPEC_frozen.md` |
 | Q3 | format | ❌ | 6,688 | 1.20 / 0.05 / 5.44 | 37,938 | `FUTURE_OPTIMIZATION_ROADMAP.md` |
 | Q4 | format | ✅ | 6,438 | 1.18 / 0.03 / 5.22 | 37,555 | `FUTURE_OPTIMIZATION_ROADMAP.md` |
-| Q5 | multihop | ❌ | 9,448 | 3.24 / 0.03 / 6.17 | 36,180 | `DEV_SPEC.md` |
-| Q6 | multihop | ❌ | 13,617 | 1.40 / 0.09 / 12.12 | 38,379 | `DEV_SPEC.md` |
+| Q5 | multihop | ❌ | 9,448 | 3.24 / 0.03 / 6.17 | 36,180 | `DEV_SPEC_frozen.md` |
+| Q6 | multihop | ❌ | 13,617 | 1.40 / 0.09 / 12.12 | 38,379 | `DEV_SPEC_frozen.md` |
 
 断连 0 次、SDK 重试 0 次；每条固定 2 次 LLM 调用；合计耗时 4.6–13.6s/条。分类命中：identifier 1/2，format 1/2，multihop 0/2。
 
@@ -456,8 +461,8 @@ LENS_HARD_TOKEN_BUDGET=true            # 超预算硬失败，防客户端断连
 
 **G0 未通过机制分析（2026-10-06 补充取证，针对命中质量）**：
 
-1. **FAST 单文件结构是 multihop 0/6 的根因（结构性，非偶发）**：FAST 每次检索只选**一个** best file 构建证据（≤40k 字符），而 Q5/Q6 的期望来源各为 3 个 `src/` 文件，best file 选错即必挂——两题日志均显示选中 `DEV_SPEC.md`。跨文件迭代本就是 DEEP/ReAct 的设计目标（`allow_deep=false` 门控中）。
-2. **词法文件选择：提及关键词的文档击败实现文件**：Q2 期望 `protocol_handler.py`（`-32602` 定义于该文件，已核实 `:34`），但选择器按词法得分选中 `DEV_SPEC.md`（文档措辞与问题关键词更贴近）。只有**字面标识符**能让 grep 直达真文件——Q1 命中正是 grep fallback 路径（`bm25_indexer.py` 15 hits）。这解释了 identifier 类「应强却 1/2」。
+1. **FAST 单文件结构是 multihop 0/6 的根因（结构性，非偶发）**：FAST 每次检索只选**一个** best file 构建证据（≤40k 字符），而 Q5/Q6 的期望来源各为 3 个 `src/` 文件，best file 选错即必挂——两题日志均显示选中 `DEV_SPEC_frozen.md`。跨文件迭代本就是 DEEP/ReAct 的设计目标（`allow_deep=false` 门控中）。
+2. **词法文件选择：提及关键词的文档击败实现文件**：Q2 期望 `protocol_handler.py`（`-32602` 定义于该文件，已核实 `:34`），但选择器按词法得分选中 `DEV_SPEC_frozen.md`（文档措辞与问题关键词更贴近）。只有**字面标识符**能让 grep 直达真文件——Q1 命中正是 grep fallback 路径（`bm25_indexer.py` 15 hits）。这解释了 identifier 类「应强却 1/2」。
 3. **问题集自身存在坏题**：Q3 问「README 中摄取 CLI 的验收标准」，核实 README 无任何 `acceptance/验收` 字样——期望来源在语料中不存在，属 golden 集缺陷（F5 实例），format 类被拖为 1/2。
 4. **非确定性机制**：LLM 关键词抽取逐轮不同（三轮 Primary/Fallback 关键词列表均不同）→ 文件打分随之漂移 → 命中翻转（Q1 ❌❌→✅、Q2 ✅❌→❌）。翻转源于此，而非网络抖动。
 
@@ -476,7 +481,7 @@ LENS_HARD_TOKEN_BUDGET=true            # 超预算硬失败，防客户端断连
 | Q5 | ✅（multihop 首次命中） | 12.8 s | 6 | 66,421 | 多跳能力确实存在，但 token ≈ FAST 的 2 倍 |
 | Q6 | ❌ | 12.1 s | 0 | 0 | 走 DocQA 直析文档路径，见下两条 |
 
-DEEP 补充发现：Q6 为**「答对引错」**——答案内容完整梳理了图片引用流，但引用 DEV_SPEC.md 等文档而非期望的 3 个 `src/` 实现文件，source 级 <50% 判负；且 **DocQA 支路记账异常**——telemetry 记 0 次 LLM 调用 / 0 token，该路径的 LLM 消耗未进 `total_llm_tokens`，凡涉成本口径的对比均须对此打折扣。
+DEEP 补充发现：Q6 为**「答对引错」**——答案内容完整梳理了图片引用流，但引用 DEV_SPEC_frozen.md 等文档而非期望的 3 个 `src/` 实现文件，source 级 <50% 判负；且 **DocQA 支路记账异常**——telemetry 记 0 次 LLM 调用 / 0 token，该路径的 LLM 消耗未进 `total_llm_tokens`，凡涉成本口径的对比均须对此打折扣。
 
 三方对照：
 

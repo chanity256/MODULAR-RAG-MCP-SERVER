@@ -23,7 +23,7 @@
       "id": "Q4",
       "category": "format",
       "query": "List the tool names registered by the MCP server and their one-line purposes from the docs.",
-      "expected_sources": ["README.md", "docs/frozen/DEV_SPEC.md"]
+      "expected_sources": ["README.md", "docs/frozen/DEV_SPEC_frozen.md"]
     },
     {
       "id": "Q5",

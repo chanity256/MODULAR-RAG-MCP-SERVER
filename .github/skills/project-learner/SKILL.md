@@ -23,7 +23,7 @@ Discovery → Check History → User Intent → Select Domain → Select Sub-top
 
 Autonomously build project understanding. Do NOT ask user anything yet.
 
-1. Read `DEV_SPEC.md` — project goals, architecture, tech stack, module design
+1. Read `DEV_SPEC_frozen.md` — project goals, architecture, tech stack, module design
 2. Read `config/settings.yaml` — configuration system
 3. List `src/` directory tree — module structure (core/, ingestion/, libs/, mcp_server/, observability/)
 4. Read key entry points: `main.py`, `scripts/ingest.py`, `scripts/query.py`
@@ -36,7 +36,7 @@ Build an internal mental model covering these **10 Knowledge Domains**, each con
 | ID | 知识域 / 知识点 | Key Code Areas |
 |----|----------------|---------------|
 | **D1** | **RAG Pipeline 整体架构** | |
-| D1.1 | 端到端数据流：从文档上传到生成回答的完整链路 | `DEV_SPEC.md`, `main.py`, `scripts/` |
+| D1.1 | 端到端数据流：从文档上传到生成回答的完整链路 | `DEV_SPEC_frozen.md`, `main.py`, `scripts/` |
 | D1.2 | 三层架构设计：core/ingestion/libs 各层职责与依赖方向 | `src/core/`, `src/ingestion/`, `src/libs/` |
 | D1.3 | Pipeline 组装：配置驱动的组件组合机制 | `main.py`, `config/settings.yaml`, `src/core/settings.py` |
 | D1.4 | 核心数据类型：Document、Chunk、QueryResult 等类型系统 | `src/core/types.py` |
@@ -272,7 +272,7 @@ Immediately after evaluation, provide targeted study resources (中文):
 - [file_path](file_path#LX-LY) — 说明这段代码的作用和关键逻辑
 
 ### 📄 相关文档
-- [DEV_SPEC.md 对应章节](../../docs/frozen/DEV_SPEC.md) — 设计原理
+- [DEV_SPEC_frozen.md 对应章节](../../docs/frozen/DEV_SPEC_frozen.md) — 设计原理
 - [config/settings.yaml](../../config/settings.yaml) — 相关配置项
 
 ### 🔗 参考资料
@@ -350,7 +350,7 @@ After persisting, ask the user (中文):
 | File | Purpose |
 |------|---------|
 | `.github/skills/project-learner/references/LEARNING_PROGRESS.md` | Persistent learning state (45 sub-topics) |
-| `DEV_SPEC.md` | Project specification & architecture |
+| `DEV_SPEC_frozen.md` | Project specification & architecture |
 | `config/settings.yaml` | Configuration reference |
 | `src/` | All source code modules |
 | `tests/` | Test suite for understanding test strategy |
