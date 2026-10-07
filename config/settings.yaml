@@ -42,7 +42,7 @@ ingestion:
     enabled: false           # true 时经 Vision LLM 生成图片 caption（失败保留 image_refs 不阻塞）
     prompt_path: config/prompts/image_captioning.txt
   batch_size: 32             # 编码批大小（C10 BatchProcessor：每批一次底层调用）
-  # 以下三个子节可选，整体或单字段缺失均走默认值（见 docs/specs/INGESTION_ROBUSTNESS_SPEC.md 第 6 章）。
+  # 以下三个子节可选，整体或单字段缺失均走默认值（见 docs/frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md 第 6 章）。
   # source_filters:            # 目录扫描 include/exclude（IR7，设计见该规格 3.8；缺省即下方默认值）
   #   include_patterns: []     # glob 列表；空 = 全部受理
   #   exclude_patterns:        # glob 列表；优先于 include（对扫描根目录的 POSIX 相对路径匹配）

@@ -2,8 +2,9 @@
 
 # 摄取管线健壮性规格 (INGESTION_ROBUSTNESS_SPEC)
 
-> **📌 状态：IR0–IR7 全部交付收口**（2026-10-07）
+> **📌 冻结记录**
 >
+> - 冻结时间：2026-10-07（v1.1 冻结——IR0–IR7 全部交付收口，移入 docs/frozen/，重命名为 INGESTION_ROBUSTNESS_SPEC_frozen.md）
 > - 2026-10-07：v1.1 IR7（M6 Markdown 摄取）交付完毕——MarkdownLoader、`.md` 双登记转正、source_filters 目录过滤、幂等集成与 vault E2E（1564 passed / 3 skipped）；IR7 收口时的唯一 e2e 失败（markitdown 0.1.8 对畸形 PDF 字节透传）已随后由 7df2893 修复，修复后全量离线 0 failed。实现观察见 IR7.5 行注。
 > - 2026-10-07：v1.1 重新打开——承接 [OBSIDIAN_RAG_SPEC](../backlog/OBSIDIAN_RAG_SPEC.md) M1/M2（Markdown 摄取）为本规格 M6 / 阶段 IR7，文档移入 docs/specs/ 恢复执行状态。
 > - 2026-10-07：v1.0 曾冻结收口（IR0–IR6 交付完毕）——摄取历史表 v2（版本三列 + `failed_stage`）、SHA256 增量判定与版本替换、`--sync` / `--prune` / `--dry-run` CLI、可重试错误退避 + `--retry-failed`、store 回滚、DOCX/PPTX/XLSX/HTML 多格式 Loader；实现偏差见 7.1。
@@ -510,5 +511,5 @@ ingestion:
 - 删除协调：[src/ingestion/document_manager.py](../../src/ingestion/document_manager.py)（`delete_document :251`、`_doc_hash_of :336`）
 - chunk_id 生成：[src/ingestion/chunking/document_chunker.py](../../src/ingestion/chunking/document_chunker.py)（`_generate_chunk_id :67`）
 - CLI 入口与双登记：[scripts/ingest.py](../../scripts/ingest.py)（`SUPPORTED_EXTENSIONS`、drift guard `tests/unit/test_ingest_entry.py`）
-- 关联规格：[DEV_SPEC_frozen.md](../frozen/DEV_SPEC_frozen.md)（C2 历史表 / C4 chunk_id / C11–C12 存储契约）、[SIRCHMUNK_INTEGRATION_SPEC_frozen.md](../frozen/SIRCHMUNK_INTEGRATION_SPEC_frozen.md)（格式先例；agentic 路与本规格无耦合）、[OBSIDIAN_RAG_SPEC.md](../backlog/OBSIDIAN_RAG_SPEC.md)（v1.1 起其 M1/M2 Markdown 摄取由本规格 IR7 承接；该规格保留 M3/M4）
+- 关联规格：[DEV_SPEC_frozen.md](DEV_SPEC_frozen.md)（C2 历史表 / C4 chunk_id / C11–C12 存储契约）、[SIRCHMUNK_INTEGRATION_SPEC_frozen.md](SIRCHMUNK_INTEGRATION_SPEC_frozen.md)（格式先例；agentic 路与本规格无耦合）、[OBSIDIAN_RAG_SPEC.md](../backlog/OBSIDIAN_RAG_SPEC.md)（v1.1 起其 M1/M2 Markdown 摄取由本规格 IR7 承接；该规格保留 M3/M4）
 - 立项来源：[FUTURE_OPTIMIZATION_ROADMAP.md](../reference/FUTURE_OPTIMIZATION_ROADMAP.md) 6.2「数据摄取」

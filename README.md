@@ -19,8 +19,7 @@
 
 | 目录 | 内容 |
 |------|------|
-| [docs/specs/](docs/specs/) | 执行中规格：[INGESTION_ROBUSTNESS_SPEC.md](docs/specs/INGESTION_ROBUSTNESS_SPEC.md)（IR 系列，IR0–IR7 已全部收口：摄取健壮性 + Markdown 摄取） |
-| [docs/frozen/](docs/frozen/) | 已冻结文档：[DEV_SPEC_frozen.md](docs/frozen/DEV_SPEC_frozen.md)（主规格，架构参考）、[SIRCHMUNK_INTEGRATION_SPEC_frozen.md](docs/frozen/SIRCHMUNK_INTEGRATION_SPEC_frozen.md)、[ACCEPTANCE_GAPS_frozen.md](docs/frozen/ACCEPTANCE_GAPS_frozen.md) |
+| [docs/frozen/](docs/frozen/) | 已冻结文档：[DEV_SPEC_frozen.md](docs/frozen/DEV_SPEC_frozen.md)（主规格，架构参考）、[SIRCHMUNK_INTEGRATION_SPEC_frozen.md](docs/frozen/SIRCHMUNK_INTEGRATION_SPEC_frozen.md)、[INGESTION_ROBUSTNESS_SPEC_frozen.md](docs/frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md)（IR 系列，IR0–IR7 已交付收口：摄取健壮性 + Markdown 摄取）、[ACCEPTANCE_GAPS_frozen.md](docs/frozen/ACCEPTANCE_GAPS_frozen.md) |
 | [docs/specs/](docs/specs/) | 开发规格落点（立项后的新规格存放处，当前为空） |
 | [docs/analysis/](docs/analysis/) | 分析与规划：[MICROSERVICES_ANALYSIS.md](docs/analysis/MICROSERVICES_ANALYSIS.md)、[SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md](docs/analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md) |
 | [docs/backlog/](docs/backlog/) | 候选功能与待开发规格：[OBSIDIAN_RAG_SPEC.md](docs/backlog/OBSIDIAN_RAG_SPEC.md) 等 |
@@ -183,7 +182,7 @@ python scripts/ingest.py --path data/documents/ --collection default --force
 python scripts/ingest.py --path data/documents/ -v
 ```
 
-**支持格式**：`.pdf` 开箱即用；`.md` / `.markdown` 走 MarkdownLoader（Obsidian 语法感知：frontmatter / tags / wikilinks / 笔记嵌入，图片引用落盘图片索引）；`.docx` / `.pptx` / `.xlsx` / `.html` 走 markitdown，需额外安装可选依赖 `pip install '.[ingest-formats]'`（未安装时这些文件在 load 阶段失败并给出安装提示）。摄取 Obsidian 库时，`.obsidian/`、`.trash/`、`templates/` 目录默认被排除（`ingestion.source_filters` 可定制，见 [INGESTION_ROBUSTNESS_SPEC](docs/specs/INGESTION_ROBUSTNESS_SPEC.md) 3.8，承接自 [OBSIDIAN_RAG_SPEC](docs/backlog/OBSIDIAN_RAG_SPEC.md) M1/M2）。
+**支持格式**：`.pdf` 开箱即用；`.md` / `.markdown` 走 MarkdownLoader（Obsidian 语法感知：frontmatter / tags / wikilinks / 笔记嵌入，图片引用落盘图片索引）；`.docx` / `.pptx` / `.xlsx` / `.html` 走 markitdown，需额外安装可选依赖 `pip install '.[ingest-formats]'`（未安装时这些文件在 load 阶段失败并给出安装提示）。摄取 Obsidian 库时，`.obsidian/`、`.trash/`、`templates/` 目录默认被排除（`ingestion.source_filters` 可定制，见 [INGESTION_ROBUSTNESS_SPEC_frozen.md](docs/frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md) 3.8，承接自 [OBSIDIAN_RAG_SPEC](docs/backlog/OBSIDIAN_RAG_SPEC.md) M1/M2）。
 
 **增量与版本替换**：按 `(source_path, collection)` 判定，同一文件可分别摄取到不同 collection；文件内容变更后重摄取会先清理旧版本的 chunk / BM25 / 图片，不留残留。
 
@@ -202,7 +201,7 @@ python scripts/ingest.py --collection default --retry-failed
 
 `--force` 不能与 `--sync` / `--prune` 同用。退出码：`0` 全部成功或跳过；`1` 有文件失败；`2` 用法或配置错误。
 
-摄取产物：Chroma 向量库（`data/db/chroma/`）、BM25 索引（`data/db/bm25/`）、图片索引（`data/db/image_index.db`）、摄取历史（`data/db/ingestion_history.db`，表 `ingestion_history_v2`；首次打开旧库时自动迁移，旧表改名为 `ingestion_history_legacy_backup` 保留）。设计细节见 [INGESTION_ROBUSTNESS_SPEC.md](docs/specs/INGESTION_ROBUSTNESS_SPEC.md)。
+摄取产物：Chroma 向量库（`data/db/chroma/`）、BM25 索引（`data/db/bm25/`）、图片索引（`data/db/image_index.db`）、摄取历史（`data/db/ingestion_history.db`，表 `ingestion_history_v2`；首次打开旧库时自动迁移，旧表改名为 `ingestion_history_legacy_backup` 保留）。设计细节见 [INGESTION_ROBUSTNESS_SPEC_frozen.md](docs/frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md)。
 
 ### 4. 查询验证
 

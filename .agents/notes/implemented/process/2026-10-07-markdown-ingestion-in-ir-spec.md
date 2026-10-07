@@ -26,10 +26,10 @@ Status: implemented
 
 - **收益**：Markdown 摄取复用 IR 的幂等替换、历史表 v2、drift guard、同步模式全套基线（后由 IR7.1–IR7.5 兑现，全量 1564 passed）；MarkdownLoader 设计只有 3.8 节一个权威来源。
 - **代价**：治理规则出现一个显式例外（收口规格经用户指令重开），AGENTS.md 需要为此改写条款；`docs/specs/` 的语义从「仅新规格落点」变为「含重开的收口规格」。
-- **开放项**：IR7 收口后本规格再次全收口，是否按惯例移回 `docs/frozen/`（重命名 `_frozen`）由用户决定，规格内部不自行回迁。
+- **回迁已执行**（2026-10-07，用户拍板）：IR7 收口后规格已按惯例移回 `docs/frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md` 冻结；全仓库引用同步更新。
 
 ## Verification
 
-- `docs/specs/INGESTION_ROBUSTNESS_SPEC.md` 头部状态行与 7 章 IR7 进度表（IR7.1–IR7.5 全 `[x]`，2026-10-07）。
+- `INGESTION_ROBUSTNESS_SPEC_frozen.md` 头部冻结记录与 7 章 IR7 进度表（IR7.1–IR7.5 全 `[x]`，2026-10-07）。
 - 全仓库 `rg INGESTION_ROBUSTNESS_SPEC_frozen` 零残留（测试、配置注释、README、MOC、AGENTS、路线图均已改指新路径）。
 - 关联设计取舍：[MarkdownLoader 的 vault_root 与缓存取舍](../feature/2026-10-07-markdown-loader-vault-root-no-cache.md)。

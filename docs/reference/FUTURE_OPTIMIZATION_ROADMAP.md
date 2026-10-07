@@ -401,7 +401,7 @@ pytest -q
 - 保存解析器版本、Chunk 策略版本和 Embedding 模型版本；
 - 对失败文档提供可诊断的阶段信息。
 
-> **已完成（IR 系列）**：本节方向已由 [INGESTION_ROBUSTNESS_SPEC.md](../specs/INGESTION_ROBUSTNESS_SPEC.md) 落地（2026-10-07）：历史表 v2（含版本三列与 `failed_stage`）、版本替换与删除修复、`--sync` / `--prune` / `--dry-run`、可重试错误退避与 `--retry-failed`、store 回滚、DOCX/PPTX/XLSX/HTML Loader（markitdown 可选依赖）。Markdown 摄取已由同规格 v1.1 承接并交付（M6 / 阶段 IR7：MarkdownLoader + `.md` 路由 + source_filters，原 OBSIDIAN V 系列 M1/M2）；chunk_id 不含 collection 的遗留问题见该规格 7.1。
+> **已完成（IR 系列）**：本节方向已由 [INGESTION_ROBUSTNESS_SPEC.md](../frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md) 落地（2026-10-07）：历史表 v2（含版本三列与 `failed_stage`）、版本替换与删除修复、`--sync` / `--prune` / `--dry-run`、可重试错误退避与 `--retry-failed`、store 回滚、DOCX/PPTX/XLSX/HTML Loader（markitdown 可选依赖）。Markdown 摄取已由同规格 v1.1 承接并交付（M6 / 阶段 IR7：MarkdownLoader + `.md` 路由 + source_filters，原 OBSIDIAN V 系列 M1/M2）；chunk_id 不含 collection 的遗留问题见该规格 7.1。
 
 ### 6.3 MCP 能力
 
@@ -453,7 +453,7 @@ pytest -q
 
 **实验设计**（前置条件满足后执行）：
 
-1. 前置：Markdown 摄取落地——**已交付**（[INGESTION_ROBUSTNESS_SPEC.md](../specs/INGESTION_ROBUSTNESS_SPEC.md) 阶段 IR7，2026-10-07：MarkdownLoader + `.md` 路由 + source_filters，承接 OBSIDIAN_RAG_SPEC M1/M2）；`.py` 等代码文件的 Code Loader 仍待评估；
+1. 前置：Markdown 摄取落地——**已交付**（[INGESTION_ROBUSTNESS_SPEC.md](../frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md) 阶段 IR7，2026-10-07：MarkdownLoader + `.md` 路由 + source_filters，承接 OBSIDIAN_RAG_SPEC M1/M2）；`.py` 等代码文件的 Code Loader 仍待评估；
 2. 将仓库源码与文档摄取进独立 collection（现成链路：`ingest.py` + 智谱 embedding 端点已验证可用）；
 3. 用同一份 `tests/fixtures/agentic/golden_questions.json`（必要时扩充每类题量）跑 `evaluate.py`，三方对比 source 级命中 / MRR / 延迟 / Token 成本；
 4. **裸 rg 基线（`scripts/sirchmunk/rg_baseline.py`）必须列为对照项**——G0 的教训即是：任何 LLM 检索路径的优势主张，都要先过免费的词法下界这一关。

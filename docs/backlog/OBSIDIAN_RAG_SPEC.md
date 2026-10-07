@@ -1,7 +1,7 @@
 <!-- 扩展规格：本地笔记库（Obsidian Vault）RAG 能力。格式与架构分层对齐 DEV_SPEC_frozen.md；基线为 clean-start 分支「阶段 A–I 已完成」状态。 -->
 # Obsidian Vault RAG 扩展规格 (OBSIDIAN_RAG_SPEC)
 
-> 版本：0.2 — M1/M2（MarkdownLoader + 路由/排除）已移交 [INGESTION_ROBUSTNESS_SPEC](../specs/INGESTION_ROBUSTNESS_SPEC.md) M6 / 阶段 IR7 排期执行，本规格保留 M3/M4
+> 版本：0.2 — M1/M2（MarkdownLoader + 路由/排除）已移交 [INGESTION_ROBUSTNESS_SPEC_frozen](../frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md) M6 / 阶段 IR7（已交付收口），本规格保留 M3/M4
 >
 > 0.1 — 对标 Analogy 插件（liaocaoxuezhe/obsidian-extension）核心能力的增量开发规格
 >
@@ -62,7 +62,7 @@
 
 | 模块 | 名称 | 优先级 | 一句话目标 |
 |------|------|--------|-----------|
-| ~~M1~~ | ~~MarkdownLoader（Vault 感知解析器）~~ | ~~P0~~ | **已移交** [INGESTION_ROBUSTNESS_SPEC](../specs/INGESTION_ROBUSTNESS_SPEC.md) M6 / IR7.1–IR7.2 |
+| ~~M1~~ | ~~MarkdownLoader（Vault 感知解析器）~~ | ~~P0~~ | **已移交** [INGESTION_ROBUSTNESS_SPEC](../frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md) M6 / IR7.1–IR7.2 |
 | ~~M2~~ | ~~摄取路由 + 目录扫描/排除规则~~ | ~~P0~~ | **已移交** 同上（IR7.3–IR7.4） |
 | M3 | 进程内本地 Embedding provider | P1（可选） | 新增 `sentence_transformers` backend，零后台服务完成摄取+查询向量化 |
 | M4 | Semantic Walk 探索页 | P2（可选） | Dashboard 第 7 页，chunk 级相似度图探索 |
@@ -82,11 +82,11 @@
 
 ### 3.1 M1：MarkdownLoader（Vault 感知解析器）〔已移交〕
 
-> **v0.2 移交**：本节设计全文已迁移至 [INGESTION_ROBUSTNESS_SPEC](../specs/INGESTION_ROBUSTNESS_SPEC.md) **3.8.1**（M6），后续维护以该节为准。移交原因：Markdown 摄取是摄取管线格式能力的自然延伸，与 IR 系列的双登记 / 同步模式 / 重试链路直接耦合，合并排期（IR7）可复用 IR0–IR6 已交付的版本替换、filtered 计数与 drift guard 基础设施。
+> **v0.2 移交**：本节设计全文已迁移至 [INGESTION_ROBUSTNESS_SPEC](../frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md) **3.8.1**（M6），后续维护以该节为准。移交原因：Markdown 摄取是摄取管线格式能力的自然延伸，与 IR 系列的双登记 / 同步模式 / 重试链路直接耦合，合并排期（IR7）可复用 IR0–IR6 已交付的版本替换、filtered 计数与 drift guard 基础设施。
 
 ### 3.2 M2：摄取路由 + 目录扫描/排除规则〔已移交〕
 
-> **v0.2 移交**：本节设计全文已迁移至 [INGESTION_ROBUSTNESS_SPEC](../specs/INGESTION_ROBUSTNESS_SPEC.md) **3.8.2**（路由登记 + source_filters），对应任务 IR7.3–IR7.4。
+> **v0.2 移交**：本节设计全文已迁移至 [INGESTION_ROBUSTNESS_SPEC](../frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md) **3.8.2**（路由登记 + source_filters），对应任务 IR7.3–IR7.4。
 
 ### 3.3 M3：进程内本地 Embedding（sentence-transformers）
 
@@ -148,7 +148,7 @@ src/observability/dashboard/
 
 ### 4.1 测试夹具〔已移交〕
 
-- **v0.2 移交**：`tests/fixtures/vault/` 最小 vault 夹具定义随 M1/M2 迁移至 [INGESTION_ROBUSTNESS_SPEC](../specs/INGESTION_ROBUSTNESS_SPEC.md) 第 5 章「M6 测试夹具」，IR7.1 落地时创建。
+- **v0.2 移交**：`tests/fixtures/vault/` 最小 vault 夹具定义随 M1/M2 迁移至 [INGESTION_ROBUSTNESS_SPEC](../frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md) 第 5 章「M6 测试夹具」，IR7.1 落地时创建。
 
 ### 4.2 单元测试
 
@@ -161,7 +161,7 @@ src/observability/dashboard/
 
 ### 4.3 集成测试
 
-- **`.md` 全链路与幂等**（v0.2 移交）：随 M1/M2 迁移至 [INGESTION_ROBUSTNESS_SPEC](../specs/INGESTION_ROBUSTNESS_SPEC.md) 第 5 章，对应 IR7.5 验收。
+- **`.md` 全链路与幂等**（v0.2 移交）：随 M1/M2 迁移至 [INGESTION_ROBUSTNESS_SPEC](../frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md) 第 5 章，对应 IR7.5 验收。
 
 ### 4.4 E2E 测试
 
