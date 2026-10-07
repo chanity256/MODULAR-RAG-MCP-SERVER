@@ -395,5 +395,5 @@ ingestion:
 - 删除协调：[src/ingestion/document_manager.py](../../src/ingestion/document_manager.py)（`delete_document :251`、`_doc_hash_of :336`）
 - chunk_id 生成：[src/ingestion/chunking/document_chunker.py](../../src/ingestion/chunking/document_chunker.py)（`_generate_chunk_id :67`）
 - CLI 入口与双登记：[scripts/ingest.py](../../scripts/ingest.py)（`SUPPORTED_EXTENSIONS`、drift guard `tests/unit/test_ingest_entry.py`）
-- 关联规格：[DEV_SPEC.md](../frozen/DEV_SPEC.md)（C2 历史表 / C4 chunk_id / C11–C12 存储契约）、[SIRCHMUNK_INTEGRATION_SPEC.md](../frozen/SIRCHMUNK_INTEGRATION_SPEC.md)（格式先例；agentic 路与本规格无耦合）、[OBSIDIAN_RAG_SPEC.md](../backlog/OBSIDIAN_RAG_SPEC.md)（Markdown 归其 V 系列 M1/M2）
+- 关联规格：[DEV_SPEC.md](DEV_SPEC.md)（C2 历史表 / C4 chunk_id / C11–C12 存储契约）、[SIRCHMUNK_INTEGRATION_SPEC.md](SIRCHMUNK_INTEGRATION_SPEC.md)（格式先例；agentic 路与本规格无耦合）、[OBSIDIAN_RAG_SPEC.md](../backlog/OBSIDIAN_RAG_SPEC.md)（Markdown 归其 V 系列 M1/M2）
 - 立项来源：[FUTURE_OPTIMIZATION_ROADMAP.md](../reference/FUTURE_OPTIMIZATION_ROADMAP.md) 6.2「数据摄取」

@@ -6,7 +6,8 @@
 
 其余文档**按需选读**，不必预先通读：
 
-- `docs/specs/` — 立项后新规格的落点（当前：INGESTION_ROBUSTNESS_SPEC.md，IR 系列摄取健壮性，IR0–IR5 已交付；改动摄取链路前先读其 7.1 实现偏差）。
+- `docs/specs/` — 立项后新规格的落点（当前为空；既有规格均已收口入 frozen/）。
+- `docs/frozen/INGESTION_ROBUSTNESS_SPEC.md` — IR 系列摄取健壮性（已收口；改动摄取链路前先读其 7.1 实现偏差）。
 - `docs/analysis/` — 架构分析与演进方向（微服务分析、优化路线图）。
 - `docs/reference/USAGE_GUIDE.md` — 使用速查（启动、配置、sidecar 用法）。
 - `docs/backlog/` — 候选功能与待开发规格（OBSIDIAN V 系列在此待排期；新提案约定见其 README）。

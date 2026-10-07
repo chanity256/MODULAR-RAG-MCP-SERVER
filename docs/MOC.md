@@ -4,11 +4,7 @@
 
 ## specs/ — 开发规格（落点）
 
-**立项后新规格的存放处**（从 [backlog/](backlog/) 晋升）。
-
-| 文档 | 说明 |
-|------|------|
-| [INGESTION_ROBUSTNESS_SPEC.md](specs/INGESTION_ROBUSTNESS_SPEC.md) | 摄取管线健壮性规格（IR 系列，IR0–IR6 已交付收口，实现偏差见 7.1；现状审计 A1–A7、历史表 v2 / 版本替换 / 同步模式 / 重试诊断 / 通用格式 Loader） |
+**立项后新规格的存放处**（从 [backlog/](backlog/) 晋升）。当前为空——既有规格均已收口，见 [frozen/](frozen/)。
 
 新规格格式对齐 frozen/ 中 SIRCHMUNK / OBSIDIAN 先例：含模块设计、测试方案、任务排期与进度跟踪表，任务编号用新前缀避免冲突。
 
@@ -20,6 +16,7 @@
 |------|------|
 | [DEV_SPEC.md](frozen/DEV_SPEC.md) | 主开发规格：架构设计、模块设计、技术选型、测试方案、阶段 A–I 排期（已冻结为架构参考） |
 | [SIRCHMUNK_INTEGRATION_SPEC.md](frozen/SIRCHMUNK_INTEGRATION_SPEC.md) | Sirchmunk Agentic 检索整合规格（S 系列，S0–S4 已交付收口，G0 终裁记录） |
+| [INGESTION_ROBUSTNESS_SPEC.md](frozen/INGESTION_ROBUSTNESS_SPEC.md) | 摄取管线健壮性规格（IR 系列，IR0–IR6 已交付收口，实现偏差见 7.1；现状审计 A1–A7、历史表 v2 / 版本替换 / 同步模式 / 重试诊断 / 通用格式 Loader） |
 | [ACCEPTANCE_GAPS.md](frozen/ACCEPTANCE_GAPS.md) | 验收缺口台账（G1–G3，已关闭） |
 
 ## analysis/ — 分析与规划

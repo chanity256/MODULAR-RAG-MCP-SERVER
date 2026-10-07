@@ -401,7 +401,7 @@ pytest -q
 - 保存解析器版本、Chunk 策略版本和 Embedding 模型版本；
 - 对失败文档提供可诊断的阶段信息。
 
-> **已完成（IR 系列）**：本节方向已由 [INGESTION_ROBUSTNESS_SPEC.md](../specs/INGESTION_ROBUSTNESS_SPEC.md) 落地（2026-10-07）：历史表 v2（含版本三列与 `failed_stage`）、版本替换与删除修复、`--sync` / `--prune` / `--dry-run`、可重试错误退避与 `--retry-failed`、store 回滚、DOCX/PPTX/XLSX/HTML Loader（markitdown 可选依赖）。Markdown 仍归 OBSIDIAN V 系列；chunk_id 不含 collection 的遗留问题见该规格 7.1。
+> **已完成（IR 系列）**：本节方向已由 [INGESTION_ROBUSTNESS_SPEC.md](../frozen/INGESTION_ROBUSTNESS_SPEC.md) 落地（2026-10-07）：历史表 v2（含版本三列与 `failed_stage`）、版本替换与删除修复、`--sync` / `--prune` / `--dry-run`、可重试错误退避与 `--retry-failed`、store 回滚、DOCX/PPTX/XLSX/HTML Loader（markitdown 可选依赖）。Markdown 仍归 OBSIDIAN V 系列；chunk_id 不含 collection 的遗留问题见该规格 7.1。
 
 ### 6.3 MCP 能力
 

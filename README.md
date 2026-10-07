@@ -19,8 +19,8 @@
 
 | 目录 | 内容 |
 |------|------|
-| [docs/frozen/](docs/frozen/) | 已冻结文档：[DEV_SPEC.md](docs/frozen/DEV_SPEC.md)（主规格，架构参考）、[SIRCHMUNK_INTEGRATION_SPEC.md](docs/frozen/SIRCHMUNK_INTEGRATION_SPEC.md)、[ACCEPTANCE_GAPS.md](docs/frozen/ACCEPTANCE_GAPS.md) |
-| [docs/specs/](docs/specs/) | 开发规格：[INGESTION_ROBUSTNESS_SPEC.md](docs/specs/INGESTION_ROBUSTNESS_SPEC.md)（IR 系列，IR0–IR6 已交付收口） |
+| [docs/frozen/](docs/frozen/) | 已冻结文档：[DEV_SPEC.md](docs/frozen/DEV_SPEC.md)（主规格，架构参考）、[SIRCHMUNK_INTEGRATION_SPEC.md](docs/frozen/SIRCHMUNK_INTEGRATION_SPEC.md)、[INGESTION_ROBUSTNESS_SPEC.md](docs/frozen/INGESTION_ROBUSTNESS_SPEC.md)（IR 系列，IR0–IR6 已交付收口）、[ACCEPTANCE_GAPS.md](docs/frozen/ACCEPTANCE_GAPS.md) |
+| [docs/specs/](docs/specs/) | 开发规格落点（立项后的新规格存放处，当前为空） |
 | [docs/analysis/](docs/analysis/) | 分析与规划：[MICROSERVICES_ANALYSIS.md](docs/analysis/MICROSERVICES_ANALYSIS.md)、[SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md](docs/analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md) |
 | [docs/backlog/](docs/backlog/) | 候选功能与待开发规格：[OBSIDIAN_RAG_SPEC.md](docs/backlog/OBSIDIAN_RAG_SPEC.md) 等 |
 | [docs/reference/](docs/reference/) | 使用参考：[USAGE_GUIDE.md](docs/reference/USAGE_GUIDE.md)（速查手册）、[FUTURE_OPTIMIZATION_ROADMAP.md](docs/reference/FUTURE_OPTIMIZATION_ROADMAP.md)（优化路线图） |
@@ -201,7 +201,7 @@ python scripts/ingest.py --collection default --retry-failed
 
 `--force` 不能与 `--sync` / `--prune` 同用。退出码：`0` 全部成功或跳过；`1` 有文件失败；`2` 用法或配置错误。
 
-摄取产物：Chroma 向量库（`data/db/chroma/`）、BM25 索引（`data/db/bm25/`）、图片索引（`data/db/image_index.db`）、摄取历史（`data/db/ingestion_history.db`，表 `ingestion_history_v2`；首次打开旧库时自动迁移，旧表改名为 `ingestion_history_legacy_backup` 保留）。设计细节见 [INGESTION_ROBUSTNESS_SPEC.md](docs/specs/INGESTION_ROBUSTNESS_SPEC.md)。
+摄取产物：Chroma 向量库（`data/db/chroma/`）、BM25 索引（`data/db/bm25/`）、图片索引（`data/db/image_index.db`）、摄取历史（`data/db/ingestion_history.db`，表 `ingestion_history_v2`；首次打开旧库时自动迁移，旧表改名为 `ingestion_history_legacy_backup` 保留）。设计细节见 [INGESTION_ROBUSTNESS_SPEC.md](docs/frozen/INGESTION_ROBUSTNESS_SPEC.md)。
 
 ### 4. 查询验证
 
