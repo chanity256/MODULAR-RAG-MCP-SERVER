@@ -393,7 +393,7 @@ pytest -q
 
 原则：先通过评估数据证明瓶颈，再增加更复杂的检索链路。
 
-### 6.2 数据摄取
+### 6.2 数据摄取（已完成）
 
 - 扩展 DOCX、Markdown、HTML、PPTX、XLSX 等 Loader；
 - 增强增量更新、删除检测和失败重试；
@@ -401,13 +401,13 @@ pytest -q
 - 保存解析器版本、Chunk 策略版本和 Embedding 模型版本；
 - 对失败文档提供可诊断的阶段信息。
 
-> **已完成（IR 系列）**：本节方向已由 [INGESTION_ROBUSTNESS_SPEC.md](../frozen/INGESTION_ROBUSTNESS_SPEC.md) 落地（2026-10-07）：历史表 v2（含版本三列与 `failed_stage`）、版本替换与删除修复、`--sync` / `--prune` / `--dry-run`、可重试错误退避与 `--retry-failed`、store 回滚、DOCX/PPTX/XLSX/HTML Loader（markitdown 可选依赖）。Markdown 仍归 OBSIDIAN V 系列；chunk_id 不含 collection 的遗留问题见该规格 7.1。
+> **已完成（IR 系列）**：本节方向已由 [INGESTION_ROBUSTNESS_SPEC.md](../specs/INGESTION_ROBUSTNESS_SPEC.md) 落地（2026-10-07）：历史表 v2（含版本三列与 `failed_stage`）、版本替换与删除修复、`--sync` / `--prune` / `--dry-run`、可重试错误退避与 `--retry-failed`、store 回滚、DOCX/PPTX/XLSX/HTML Loader（markitdown 可选依赖）。Markdown 摄取已由同规格 v1.1 承接并交付（M6 / 阶段 IR7：MarkdownLoader + `.md` 路由 + source_filters，原 OBSIDIAN V 系列 M1/M2）；chunk_id 不含 collection 的遗留问题见该规格 7.1。
 
 ### 6.3 MCP 能力
 
 - 评估迁移至官方 MCP SDK，减少自维护协议细节；
 - 在保留 stdio 的基础上按需求增加 Streamable HTTP transport；
-- 增加更细粒度的 Agentic RAG tools，例如文档预览、关键词检索和事实核查（**部分落地**：Sirchmunk 整合 S2/S3 已交付 agentic 第三路——AgenticTrigger 三策略触发 + RRF N 路融合 + source 级 A/B 评估与 Dashboard 展示，见 `SIRCHMUNK_INTEGRATION_SPEC.md`；G0 终裁裸 rg 严格优于 sidecar，该能力默认关闭（`enabled: false`），是否启用由真实语料决定）；
+- 增加更细粒度的 Agentic RAG tools，例如文档预览、关键词检索和事实核查（**部分落地**：Sirchmunk 整合 S2/S3 已交付 agentic 第三路——AgenticTrigger 三策略触发 + RRF N 路融合 + source 级 A/B 评估与 Dashboard 展示，见 `SIRCHMUNK_INTEGRATION_SPEC_frozen.md`；G0 终裁裸 rg 严格优于 sidecar，该能力默认关闭（`enabled: false`），是否启用由真实语料决定）；
 - 为 Tool schema、错误响应和多模态内容增加契约测试；
 - 保持 MCP 接口与 Dashboard REST API 职责分离。
 
@@ -453,7 +453,7 @@ pytest -q
 
 **实验设计**（前置条件满足后执行）：
 
-1. 前置：OBSIDIAN_RAG_SPEC 的 MarkdownLoader（V 系列）落地；`.py` 等代码文件的 Code Loader 可一并评估；
+1. 前置：Markdown 摄取落地——**已交付**（[INGESTION_ROBUSTNESS_SPEC.md](../specs/INGESTION_ROBUSTNESS_SPEC.md) 阶段 IR7，2026-10-07：MarkdownLoader + `.md` 路由 + source_filters，承接 OBSIDIAN_RAG_SPEC M1/M2）；`.py` 等代码文件的 Code Loader 仍待评估；
 2. 将仓库源码与文档摄取进独立 collection（现成链路：`ingest.py` + 智谱 embedding 端点已验证可用）；
 3. 用同一份 `tests/fixtures/agentic/golden_questions.json`（必要时扩充每类题量）跑 `evaluate.py`，三方对比 source 级命中 / MRR / 延迟 / Token 成本；
 4. **裸 rg 基线（`scripts/sirchmunk/rg_baseline.py`）必须列为对照项**——G0 的教训即是：任何 LLM 检索路径的优势主张，都要先过免费的词法下界这一关。
@@ -461,6 +461,24 @@ pytest -q
 **预期与决策点**：identifier 类预期主链路 BM25 路即强（与 rg 同理）；format 类补齐 Loader 后可覆盖；multihop（跨文件多跳）是 chunk 级 Top-K 检索的固有弱项，是该实验真正要回答的问题——若主链路 + rg 后处理能覆盖，sidecar 依此彻底归档；若确有缺口，再以真实收益数据重开 sidecar 评估（而非假想优势）。
 
 **与第 10 章决策原则的对照**：本实验回答的正是「它解决了哪个已经观察到的问题」（multihop 缺口是否真实存在）与「如何确认有效」（三方同题集量化对比）。
+
+
+### 6.9 embedding 模型，是否更换为多模态模型
+1. 下面是我们当前的项目架构以及实现的功能：
+
+当前配置的是文本嵌入模型，不是直接接收图片、音频或视频的多模态嵌入模型。 配置中使用 OpenAI 兼容接口，模型为智谱的 embedding-3；代码把 chunk.text 作为字符串列表发送给嵌入接口，而不是把原始文件或图片传给它。可见 config/settings.yaml、src/ingestion/embedding/dense_encoder.py 和 src/libs/embedding/openai_embedding.py。
+当前可摄取的文件格式：.pdf、.docx、.pptx、.xlsx、.html（依赖可选的 MarkItDown 安装）
+解析后，系统主要把抽取出的文本切成 chunks，再做文本向量化。.md、独立图片文件（如 PNG/JPEG）、音频、视频和代码文件目前不在默认摄取格式清单中。格式路由见 src/ingestion/pipeline.py，MarkItDown 格式清单见 src/libs/loader/markitdown_loader.py。
+
+图片处理是另一条独立链路，不代表嵌入模型是多模态的： PDF Loader 可以提取 PDF 内的图片；配置中另有 Vision LLM 用于生成图片描述，但 ingestion.image_captioner.enabled 当前为 false。而且描述会写入 metadata，向量编码器目前只编码 chunk.text，因此图片本身和描述都不会直接进入当前的文本嵌入向量。相关实现见 src/libs/loader/pdf_loader.py、config/settings.yaml 和 src/ingestion/transform/image_captioner.py。
+简言之：目前是“文本嵌入 + PDF 图片提取/可选视觉描述”，不是“多模态嵌入”。
+
+
+2. 参考搜集的数据，后续需要做基准测试，选取合适的嵌入模型进行基准测试，进而选取合适的模型：
+README 的「运行手册 → 配置 API Key」里给了两种示例：
+- OpenAI 托管：text-embedding-3-small（README 配置示例，README.md:164–169）
+- 完全离线：通过 Ollama 部署 nomic-embed-text（README.md:171）
+- obsidian://adv-uri?vault=Document&uid=27800ccb-7f57-49f2-aff4-0aaaaf4e2906
 
 ## 7. 优先级建议
 

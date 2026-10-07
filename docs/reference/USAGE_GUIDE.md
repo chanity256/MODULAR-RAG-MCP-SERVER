@@ -1,7 +1,7 @@
 # 项目使用指南（含 Sirchmunk Agentic 检索）
 
 > 本文档是速查手册，覆盖：① 主项目（Indexed RAG）基本用法；② Sirchmunk sidecar 的启动与 `agentic_search` 工具用法。
-> 详细设计见 [README.md](../../README.md)、[SIRCHMUNK_INTEGRATION_SPEC.md](../frozen/SIRCHMUNK_INTEGRATION_SPEC.md)。
+> 详细设计见 [README.md](../../README.md)、[SIRCHMUNK_INTEGRATION_SPEC_frozen.md](../frozen/SIRCHMUNK_INTEGRATION_SPEC_frozen.md)。
 
 ---
 
@@ -36,7 +36,7 @@ Sirchmunk sidecar（独立 venv + 独立进程，127.0.0.1:8584 + Bearer）
     └─ rg / rga 词法召回 + LLM 迭代探索，直接搜活文件
 ```
 
-- **主链路（Indexed RAG）**：必须先 `ingest`，支持 PDF（DOCX/PPTX/XLSX/HTML 需装可选依赖），低延迟、确定性高。
+- **主链路（Indexed RAG）**：必须先 `ingest`，支持 PDF / Markdown / DOCX/PPTX/XLSX/HTML（后四者需装可选依赖），低延迟、确定性高。
 - **Agentic（Sirchmunk）**：不建索引、指定路径直接搜，支持 MD/代码/JSON/YAML/CSV/HTML/PDF/DOCX/XLSX/PPTX/EPUB，每次查询消耗 2~N 次 LLM 调用。
 - **进程边界**：主项目 venv 永远不 import sirchmunk，只通过 HTTP 调用。
 
@@ -48,7 +48,7 @@ Sirchmunk sidecar（独立 venv + 独立进程，127.0.0.1:8584 + Bearer）
 
 ### 2.1 目录结构速览
 
-树形总览（格式对齐 [DEV_SPEC 5.2](../frozen/DEV_SPEC.md)）：
+树形总览（格式对齐 [DEV_SPEC 5.2](../frozen/DEV_SPEC_frozen.md)）：
 
 ```
 Modular-RAG-MCP-Server/
@@ -105,14 +105,14 @@ python scripts/ingest.py --path data/documents/ --collection default --sync --dr
 python scripts/ingest.py --collection default --retry-failed                           # 重跑历史中失败的文件（--path 可选）
 ```
 
-- **格式**：`.pdf` 开箱即用；`.docx` / `.pptx` / `.xlsx` / `.html` 需 `pip install '.[ingest-formats]'`（markitdown，可选依赖）；`.md` 不支持。
+- **格式**：`.pdf` 开箱即用；`.md` / `.markdown` 走 MarkdownLoader（Obsidian 语法感知：frontmatter / tags / wikilinks / 笔记嵌入；`.obsidian/`、`.trash/`、`templates/` 目录默认排除，`ingestion.source_filters` 可定制）；`.docx` / `.pptx` / `.xlsx` / `.html` 需 `pip install '.[ingest-formats]'`（markitdown，可选依赖）。
 - **增量判定**：按 `(source_path, collection)` + 文件哈希；内容变更后重摄取会先清理旧版本残留。
 - **组合约束**：`--dry-run` 必须配合 `--sync` / `--prune`；`--force` 不能与 `--sync` / `--prune` 同用。
 - **`--dry-run` 计划分类**：new / modified / unchanged / deleted / stale（stale = 历史记录的 embedding 版本与当前配置不同，按 `ingestion.version_policy.on_embedding_mismatch` 告警并跳过，不自动重建）。
 - **退出码**：`0` 全部成功或跳过；`1` 有文件失败；`2` 用法或配置错误。
 - **可选配置**：`ingestion.retry`（缺省不重试）、`ingestion.version_policy`（缺省 `auto`），样例见 `config/settings.yaml` 注释。
 
-产物：Chroma 向量库（`data/db/chroma/`）、BM25 索引（`data/db/bm25/`）、图片索引与摄取历史（`data/db/`）。摄取历史表为 `ingestion_history_v2`，首次打开旧库时自动迁移，旧表改名 `ingestion_history_legacy_backup` 保留（需回滚时手工改回表名）。设计见 [INGESTION_ROBUSTNESS_SPEC.md](../frozen/INGESTION_ROBUSTNESS_SPEC.md)。
+产物：Chroma 向量库（`data/db/chroma/`）、BM25 索引（`data/db/bm25/`）、图片索引与摄取历史（`data/db/`）。摄取历史表为 `ingestion_history_v2`，首次打开旧库时自动迁移，旧表改名 `ingestion_history_legacy_backup` 保留（需回滚时手工改回表名）。设计见 [INGESTION_ROBUSTNESS_SPEC.md](../specs/INGESTION_ROBUSTNESS_SPEC.md)。
 
 ### 2.3 查询
 
@@ -189,13 +189,13 @@ Sirchmunk 是 modelscope 开源的「**无索引 Agentic 检索**」引擎：用
 | 场景 | 原因 |
 |------|------|
 | 新文件/未摄取的文件立即检索 | 无需 ingest，指定路径即可搜 |
-| 主链路未覆盖的格式（MD/代码/配置等） | 主链路仅支持 PDF 与 DOCX/PPTX/XLSX/HTML，sirchmunk 覆盖更多格式且无需摄取 |
+| 主链路未覆盖的格式（代码/配置等） | 主链路支持 PDF/Markdown 与 DOCX/PPTX/XLSX/HTML，代码与配置文件等 sirchmunk 覆盖更多格式且无需摄取 |
 | 精确标识符（错误码/函数名/配置键） | grep 精确匹配天然强项 |
 | 跨文件多跳问题 | ReAct 迭代探索弥补单轮 Top-K 上限 |
 
 **代价**：FAST 模式约 2–5s，DEEP 模式数十秒；每次查询 2~N 次 LLM 调用（有 Token 成本）；结果非确定性。
 
-**当前状态**：主项目侧适配（S1）已完成并合入；sidecar 已在 2026-10-05 实际跑通并完成旁路对比，**闸门 G0 未通过**，`agentic_search` 保持 `enabled: false` 默认关闭。G0 终裁后经显式指令重启：S2（HybridSearch 可选第三路 + `--agentic` CLI）与 S3（source 级 A/B 评估框架 + Dashboard agentic 展示）均已交付（2026-10-06），但**默认关闭口径不变**，真实 sidecar A/B 实测数据未执行（受 `RAG_AGENTIC_INTEGRATION` 门控与 G0 结论约束）。结论与数据见 `SIRCHMUNK_INTEGRATION_SPEC.md` 第 7 章与 S3 阶段进度备注。
+**当前状态**：主项目侧适配（S1）已完成并合入；sidecar 已在 2026-10-05 实际跑通并完成旁路对比，**闸门 G0 未通过**，`agentic_search` 保持 `enabled: false` 默认关闭。G0 终裁后经显式指令重启：S2（HybridSearch 可选第三路 + `--agentic` CLI）与 S3（source 级 A/B 评估框架 + Dashboard agentic 展示）均已交付（2026-10-06），但**默认关闭口径不变**，真实 sidecar A/B 实测数据未执行（受 `RAG_AGENTIC_INTEGRATION` 门控与 G0 结论约束）。结论与数据见 `SIRCHMUNK_INTEGRATION_SPEC_frozen.md` 第 7 章与 S3 阶段进度备注。
 
 ---
 

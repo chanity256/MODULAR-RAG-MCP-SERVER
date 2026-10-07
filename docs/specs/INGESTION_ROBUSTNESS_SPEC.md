@@ -1,14 +1,22 @@
-<!-- 扩展规格：摄取管线健壮性（增量判定 / 版本替换 / 同步模式 / 重试诊断 / 通用格式）。格式与章节对齐 SIRCHMUNK_INTEGRATION_SPEC.md；基线为「阶段 A–I 已完成 + S 系列 S0–S4 已交付收口」状态（OBSIDIAN_RAG_SPEC V 系列为独立增量，互不阻塞）。 -->
+<!-- 扩展规格：摄取管线健壮性（增量判定 / 版本替换 / 同步模式 / 重试诊断 / 通用格式 / Markdown 摄取）。格式与章节对齐 SIRCHMUNK_INTEGRATION_SPEC_frozen.md；基线为「阶段 A–I 已完成 + S 系列 S0–S4 已交付收口」状态。 -->
 
 # 摄取管线健壮性规格 (INGESTION_ROBUSTNESS_SPEC)
 
-> 版本：1.0 — IR0–IR6 全部交付收口（2026-10-07），实现偏差见 7.1
+> **📌 状态：IR0–IR7 全部交付收口**（2026-10-07）
+>
+> - 2026-10-07：v1.1 IR7（M6 Markdown 摄取）交付完毕——MarkdownLoader、`.md` 双登记转正、source_filters 目录过滤、幂等集成与 vault E2E（1564 passed / 3 skipped，唯一 failed 为 pypdf 既有问题）；实现观察见 IR7.5 行注。
+> - 2026-10-07：v1.1 重新打开——承接 [OBSIDIAN_RAG_SPEC](../backlog/OBSIDIAN_RAG_SPEC.md) M1/M2（Markdown 摄取）为本规格 M6 / 阶段 IR7，文档移入 docs/specs/ 恢复执行状态。
+> - 2026-10-07：v1.0 曾冻结收口（IR0–IR6 交付完毕）——摄取历史表 v2（版本三列 + `failed_stage`）、SHA256 增量判定与版本替换、`--sync` / `--prune` / `--dry-run` CLI、可重试错误退避 + `--retry-failed`、store 回滚、DOCX/PPTX/XLSX/HTML 多格式 Loader；实现偏差见 7.1。
+
+> 版本：1.1 — 重新打开，新增 M6 / 阶段 IR7（Markdown 摄取，承接 OBSIDIAN V 系列 M1/M2，任务编号 IR7.x 续编）
+>
+> 1.0 — IR0–IR6 全部交付收口（2026-10-07），实现偏差见 7.1
 >
 > 0.1 — 由路线图 6.2「数据摄取」立项为可执行规格（现状审计 + 模块设计 + 项目排期）
 >
-> 起源：[FUTURE_OPTIMIZATION_ROADMAP.md](../reference/FUTURE_OPTIMIZATION_ROADMAP.md) 6.2「数据摄取」（增强增量更新、删除检测、失败重试、版本元数据、阶段诊断）
+> 起源：[FUTURE_OPTIMIZATION_ROADMAP.md](../reference/FUTURE_OPTIMIZATION_ROADMAP.md) 6.2「数据摄取」（增强增量更新、删除检测、失败重试、版本元数据、阶段诊断）；v1.1 扩展起源：路线图 6.8 三方对比实验的格式前置（主链路需能摄取 `.md`）
 >
-> 基线：DEV_SPEC.md 阶段 A–I 全部完成；SIRCHMUNK_INTEGRATION_SPEC S0–S4 已交付收口（agentic 路默认关闭，与本规格无耦合）
+> 基线：DEV_SPEC_frozen.md 阶段 A–I 全部完成；SIRCHMUNK_INTEGRATION_SPEC S0–S4 已交付收口（agentic 路默认关闭，与本规格无耦合）
 >
 > 审计日期：2026-10-06（所有 file:line 引用基于当前 `feat/sirchmunk-agentic-search` 分支）
 
@@ -94,10 +102,11 @@
 | M3 | 同步模式 | `--sync`（目录对比：新增/修改/删除三向同步）、`--prune`（只清删除）、`--dry-run`（只报告不写入） |
 | M4 | 重试与诊断 | 可重试错误分类、指数退避、`--retry-failed`、store 阶段失败按 doc_hash 回滚 |
 | M5 | 通用格式 Loader | 基于 markitdown（可选依赖）支持 DOCX/PPTX/XLSX/HTML；遵守双登记约束 |
+| M6 | Markdown 摄取（v1.1 承接 OBSIDIAN M1/M2） | MarkdownLoader（Vault 感知解析器）+ `.md` 路由登记 + 目录扫描 include/exclude 规则 |
 
 ### 2.2 Out of Scope（明确不做）
 
-- **不做 Markdown 摄取**：结构化解析（标题树/锚点/双链）归 [OBSIDIAN_RAG_SPEC.md](../backlog/OBSIDIAN_RAG_SPEC.md) 的 V 系列（其 M1/M2 MarkdownLoader），本规格 M5 不与 `text/markdown` 扩展名登记，避免双登记冲突。
+- **Markdown 的富抽取增强不做**（v1.1 起）：M6 承接的 MarkdownLoader 只做结构化解析（frontmatter / wikilink / tag / embed），格式能力之外不扩展范围。
 - **不做文件监听（watchdog / fswatch）**：目录变化检测统一由 M3 的显式 `--sync` 命令承载；常驻监听进程与 stdio MCP server / 离线测试纪律冲突，留作未来展望。
 - **不做分布式任务队列（Celery / RQ）**：摄取仍是单机 CLI 驱动的同步流程，M4 的重试是进程内有限次退避重试，不引入 broker。
 - **不做 OCR**：扫描版 PDF / 图片内文字识别不在本范围（现 `PdfLoader` 的 pypdf 路径对扫描件抽取为空文本，行为保持不变），仅在展望中提及。
@@ -117,6 +126,7 @@
 | M3 同步 | [scripts/ingest.py](../../scripts/ingest.py) | `--sync` / `--prune` / `--dry-run` 参数与目录对比逻辑 |
 | M4 重试 | [src/ingestion/pipeline.py](../../src/ingestion/pipeline.py)、[scripts/ingest.py](../../scripts/ingest.py) | 错误分类 + 退避重试 + `--retry-failed` + store 回滚 |
 | M5 Loader | `src/libs/loader/markitdown_loader.py`（新增）、[src/ingestion/pipeline.py](../../src/ingestion/pipeline.py)、[scripts/ingest.py](../../scripts/ingest.py) | 新 Loader + 扩展名路由 + 双登记同步 |
+| M6 Loader | `src/libs/loader/markdown_loader.py`（新增）、[src/ingestion/pipeline.py](../../src/ingestion/pipeline.py)、[scripts/ingest.py](../../scripts/ingest.py)、[src/core/settings.py](../../src/core/settings.py) | MarkdownLoader + `.md`/`.markdown` 路由双登记 + `ingestion.source_filters` 配置与目录扫描过滤（设计见 3.8） |
 | 依赖 | [pyproject.toml](../../pyproject.toml) | optional 组登记 `markitdown`（不进主依赖） |
 | 测试 | `tests/unit/test_file_integrity.py`（增量）、`tests/unit/test_ingest_retry.py`（新增）等 | 见第 5 章 |
 
@@ -178,7 +188,7 @@ CREATE TABLE IF NOT EXISTS ingestion_history_v2 (
 
 - 新增 `src/libs/loader/markitdown_loader.py`（IR5.1 落地时创建）：实现 `BaseLoader` 契约（`load(path) -> Document`），内部调 `markitdown.MarkItDown().convert(path)` 取纯文本；`Document.id` 沿用内容 SHA256（对齐 `PdfLoader`），metadata 约定 `source_path` / `doc_type`（docx/pptx/xlsx/html）/ `sha256`（无图片抽取，`image_refs` 恒空）。
 - **可选依赖**：`markitdown` 登记到 [pyproject.toml](../../pyproject.toml) optional 组（如 `[project.optional-dependencies] ingest-formats`）；`_resolve_loader` 路由到该扩展名而依赖未安装时，抛带安装指引的 `IngestionPipelineError`（`stage="load"`），**不在模块 import 期触发**，保证主依赖零新增、未装依赖时其余功能零影响。
-- **双登记约束**：`.docx/.pptx/.xlsx/.html` 同时登记进 `pipeline._SUPPORTED_EXTENSIONS` 与 `scripts/ingest.py` `SUPPORTED_EXTENSIONS`，drift guard 单测（`tests/unit/test_ingest_entry.py`）自动锁死两处一致；`.pdf` 之外新增 `.md`/`.markdown` **显式排除**（Out of Scope，归 V 系列）。
+- **双登记约束**：`.docx/.pptx/.xlsx/.html` 同时登记进 `pipeline._SUPPORTED_EXTENSIONS` 与 `scripts/ingest.py` `SUPPORTED_EXTENSIONS`，drift guard 单测（`tests/unit/test_ingest_entry.py`）自动锁死两处一致；`.pdf` 之外新增 `.md`/`.markdown` **显式排除**（Out of Scope，归 V 系列）。〔v1.1 注：`.md` 排除已由 M6（3.8）取代，IR7 落地时登记并翻转断言〕
 - 图片/表格的富抽取（如图表转描述）不做——M5 只做「文本可检索」的一等目标，与 agentic 侧 rg/rga 的原生抽取兜底定位互补。
 
 ### 3.7 核心流程图（integrity 判定与版本替换）
@@ -205,6 +215,74 @@ flowchart TD
     L --> N[raise IngestionPipelineError]
 ```
 
+### 3.8 M6 Markdown 摄取（v1.1 承接 OBSIDIAN_RAG_SPEC M1/M2）
+
+> 设计全文自 [OBSIDIAN_RAG_SPEC](../backlog/OBSIDIAN_RAG_SPEC.md) 3.1/3.2 迁移而来，后续以本节为准；该规格仅保留 M3/M4。
+
+#### 3.8.1 MarkdownLoader（Vault 感知解析器）
+
+**新增文件**：`src/libs/loader/markdown_loader.py`（参考 `pdf_loader.py` 的实现模式与降级风格）
+
+**接口契约**（对齐 `BaseLoader`）：
+
+```python
+class MarkdownLoader(BaseLoader):
+    def __init__(self, *, vault_root: str | None = None,
+                 images_root: str | None = None) -> None: ...
+    def load(self, source: str) -> Document: ...
+```
+
+- `vault_root`：解析 `![[image.png]]` / `![](relative.png)` 相对引用的根目录；缺省按 `source` 所在目录解析。
+- `images_root`：图片落盘根目录，对齐 DEV_SPEC C3/C13 的 `ImageStorage.images_root` 约定。
+
+**解析管线（有序，逐段降级不阻塞）**：
+
+1. **读取**：UTF-8 读全文；编码错误抛可读 `LoaderError`（不静默替换）。
+2. **YAML frontmatter**：文件以 `---` 行开头时提取至下一个 `---` 行；用简单行级解析（`key: value`、`key: [a, b]`、多行 `- item` 列表）优先零新依赖；环境内已有 PyYAML（chromadb 传递依赖）时可用其解析。**解析失败降级**：frontmatter 原样拼回正文，`metadata["frontmatter_parse_error"]=true`，不阻塞摄取。
+3. **title**：`frontmatter.title` > 正文首个 `# H1` > 文件名 stem，三级兜底保证非空。
+4. **heading_outline**：收集全部 ATX 标题行（`#`~`######`），供定位与回溯。
+5. **行内 tags**：匹配 `(^|\s)#([\w\u4e00-\u9fff][\w\u4e00-\u9fff/-]*)`（排除标题行与代码块内），与 frontmatter `tags` 合并 → `metadata["tags"]`（去重保序）。
+6. **wikilinks**：`[[target]]` / `[[target|alias]]` → 正文替换为 `alias 或 target`（去掉双方括号，保留可检索语义、消除 token 噪音），`target` 记入 `metadata["wikilinks"]`（去重保序）。
+7. **嵌入引用 `![[target]]` 与 `![alt](path)`**：
+   - 目标为图片扩展名（png/jpg/jpeg/gif/webp/svg/bmp）→ 按 `vault_root` 解析路径；**存在**：生成 `image_id`（沿用 `make_image_id` 语义）+ `[IMAGE: {image_id}]` 占位符 + `ImageRef` 落盘 `images_root`（对齐 C3 约定）；**不存在**：保留原文并记入 `metadata["missing_image_refs"]`，告警不阻塞。
+   - 目标为笔记（`![[note.md]]`）：**不递归展开**，保留文本引用并记入 `metadata["embeds"]`（防止索引体积失控与环引用）。
+8. **doc_type**：`metadata["doc_type"] = "markdown"`；无 `page` 字段（不适用）。
+
+**输出 metadata 契约**（在 PDF 基础字段之上扩展）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `source_path` | str | 绝对路径 |
+| `doc_type` | str | 固定 `"markdown"` |
+| `sha256` | str | 文件指纹（与 C2 同算法） |
+| `title` | str | 三级兜底非空 |
+| `heading_outline` | list[str] | 标题行列表 |
+| `tags` | list[str] | frontmatter + 行内合并 |
+| `wikilinks` | list[str] | 出链目标（文件名，不含扩展名） |
+| `embeds` | list[str] | 笔记嵌入引用（未展开） |
+| `images` | list[ImageRef] | 图片引用（对齐既有六字段规范） |
+
+**确定性**：同输入同输出（无随机性、无时间戳入 metadata）；单图失败降级不阻塞整体（对齐 C3 语义）。
+
+#### 3.8.2 路由登记与目录扫描/排除规则
+
+**路由登记（两处同步，drift guard 锁死）**：
+
+- [src/ingestion/pipeline.py](../../src/ingestion/pipeline.py)：`_SUPPORTED_EXTENSIONS` 追加 `{".md", ".markdown"}`；`_resolve_loader()` 新增分支 `suffix in {".md", ".markdown"}` → `MarkdownLoader(vault_root=..., images_root=str(self._image_storage.images_root))`。
+- [scripts/ingest.py](../../scripts/ingest.py)：`SUPPORTED_EXTENSIONS` 同步追加（drift guard 单测自动约束两处一致）。
+- IR5 交付时 drift guard 对 `.md` 的「显式排除」断言随本模块落地**转正翻转**（改为断言两处均含 `.md`），不放松一致性约束。
+
+**目录扫描与排除（`collect_files` 扩展）**：
+
+- 新增配置节 `ingestion.source_filters`（见第 6 章）：
+  - `include_patterns: list[str]`（glob，空列表 = 全部受理）
+  - `exclude_patterns: list[str]`（glob，默认 `[".obsidian/**", ".trash/**", "templates/**"]`）
+- **匹配语义**：对「扫描根目录」的 POSIX 相对路径做 `fnmatch` 匹配（目录段参与匹配，如 `.obsidian/attachments/x.png` 命中 `.obsidian/**`）；include 与 exclude 同时命中时 **exclude 优先**。
+- **作用范围**：过滤仅作用于**目录递归扫描**；`--path` 显式指向单个文件时视为用户明确意图，**不过滤**（仅当扩展名不支持时维持现有 usage 报错）。
+- **CLI 汇总**：`IngestSummary` 新增 `filtered` 计数；汇总块输出 `filtered: N (excluded by source_filters)`；被过滤文件不出现在逐文件行中。
+- **配置校验**：`include_patterns` / `exclude_patterns` 必须为 `list[str]`（元素非空字符串），否则 `ConfigError` 可读报错；空 glob 串拒绝。
+- **与 M3 同步模式的交互**：`--sync` / `--prune` 的目录对比遵守同一套过滤规则（被过滤路径视为不存在，已入库的此类路径按既有 `--prune` 语义清理）。
+
 ---
 
 ## 4. 注意事项（源码实证）
@@ -223,7 +301,7 @@ flowchart TD
 
 ### 4.3 双登记约束与 drift guard
 
-- M5 新增扩展名必须同步 `pipeline._SUPPORTED_EXTENSIONS` 与 `scripts/ingest.py` `SUPPORTED_EXTENSIONS` 两处，drift guard 单测失败即 CI 拦截；`.md` 不登记（2.2）。
+- M5 新增扩展名必须同步 `pipeline._SUPPORTED_EXTENSIONS` 与 `scripts/ingest.py` `SUPPORTED_EXTENSIONS` 两处，drift guard 单测失败即 CI 拦截；`.md` 不登记（2.2）。〔v1.1 注：M6/IR7 落地后 `.md`/`.markdown` 转为登记，断言同步翻转〕
 - CLI 帮助文本（`build_parser` 的 epilog）中的扩展名清单从常量推导，不再手写第二份。
 
 ### 4.4 stdout 纪律
@@ -247,10 +325,27 @@ flowchart TD
 | Unit | M3 | 目录对比逻辑参数化：新增/修改/删除/未变四态 × `--dry-run` 只读断言（fake checker + fake store，断言无写入调用） |
 | Unit | M4 | 错误分类表参数化（可重试/不可重试各 ≥3 类）；退避序列（fake 时钟，断言 2s/4s/8s 与抖动界）；store 回滚幂等（连续两次回滚结果一致） |
 | Unit | M5 | markitdown fake（monkeypatch `MarkItDown.convert`）：四扩展名路由、metadata 契约、依赖缺失时错误信息含安装指引、drift guard（`.md` 不在清单） |
+| M6 | MarkdownLoader：frontmatter 三级 title 兜底、tags 合并去重、wikilink 替换与出链收集、embed 图片存在/缺失两路、坏 frontmatter 降级不阻塞、确定性（同输入两次 load 相等）；source_filters：glob 匹配语义（目录段参与）、include 空全受理、exclude 优先、默认排除生效、显式单文件不过滤、非法配置 fail-fast、filtered 计数（参数化 pattern×path 矩阵） |
 | Integration | 管线全链路 | fake embedding + `tmp_path`：文件修改 → 重摄取 → 断言 Chroma/BM25 无旧版本 chunk（A2 回归）；双 collection 同文件互不跳过（A1 回归）；store 中途失败注入 → 回滚后三存储一致（A7 回归） |
 | E2E / 门控 | CLI | `scripts/ingest.py --sync --dry-run` 子进程冒烟（离线 fixture 目录）；无新增网络门控 |
 
 回归红线：既有 `tests/`（约 1273 passed / 3 skipped）零回归；drift guard 单测语义随 M5 扩展同步更新但不放松（两处清单仍必须相等）。
+
+**M6 测试夹具**（自 OBSIDIAN_RAG_SPEC 4.1 迁移，IR7 落地时创建 `tests/fixtures/vault/` 最小 vault）：
+
+```
+tests/fixtures/vault/
+├── .obsidian/app.json              # 应被默认 exclude 过滤
+├── templates/daily.md              # 应被默认 exclude 过滤
+├── notes/
+│   ├── frontmatter.md              # 完整 YAML frontmatter（title/tags/aliases）
+│   ├── wikilinks.md                # [[note]] / [[note|alias]] / ![[note.md]]
+│   ├── inline-tags.md              # 行内 #tag 中文英文混合
+│   ├── embeds-image.md             # ![[assets/pic.png]] + ![](rel.png)（含存在与缺失两种）
+│   ├── bad-frontmatter.md          # 非法 YAML → 降级路径
+│   └── 中文笔记.md                  # CJK 内容 + CJK 标签
+└── assets/pic.png                  # 1x1 PNG
+```
 
 ---
 
@@ -261,6 +356,13 @@ flowchart TD
 ```yaml
 ingestion:
   # ……既有 chunk_refiner / metadata_enricher / image_captioner / batch_size 不变……
+
+  source_filters:              # M6：目录扫描 include/exclude（v1.1 承接 OBSIDIAN；缺省默认排除 Obsidian 噪音目录）
+    include_patterns: []       # glob 列表；空 = 全部受理
+    exclude_patterns:          # glob 列表；优先于 include
+      - ".obsidian/**"
+      - ".trash/**"
+      - "templates/**"
 
   retry:                       # M4：失败重试（缺省 = 不重试，行为与基线一致）
     max_attempts: 1            # 1 = 关闭重试；>1 时仅可重试错误走退避
@@ -275,7 +377,8 @@ ingestion:
     on_embedding_mismatch: stale   # stale = 告警并跳过该文件 | rebuild = 提示需全量重建（不自动执行）
 ```
 
-- 两个子节整体缺失、单字段缺失均走默认值（对齐 `AgenticSearchConfig` 的可选节纪律）；**非法值 fail-fast**（`max_attempts < 1`、`backoff_multiplier <= 1`、未知 `on_embedding_mismatch` 枚举值）。
+- 三个子节整体缺失、单字段缺失均走默认值（对齐 `AgenticSearchConfig` 的可选节纪律）；**非法值 fail-fast**（`max_attempts < 1`、`backoff_multiplier <= 1`、未知 `on_embedding_mismatch` 枚举值；`include_patterns` / `exclude_patterns` 非 `list[str]`、元素非非空字符串、空 glob 串均拒绝）。
+- v1.1 起新增 `source_filters` 子节；缺省 `exclude_patterns` 与 OBSIDIAN 场景对齐（`.obsidian/**`、`.trash/**`、`templates/**`），不使用 Obsidian 的项目可整节删除恢复「全受理」基线。
 - 不新增数据库路径、不新增存储后端；历史表 v2 沿用 `data/db/ingestion_history.db` 单文件。
 
 ---
@@ -284,7 +387,7 @@ ingestion:
 
 > **排期原则**（延续 DEV_SPEC 第 6 章）：1 小时一个可验收增量；每步在文件系统产生可见变化；TDD 优先；外部依赖可 Mock。
 >
-> **任务前缀 IR（Ingestion Robustness）**，避免与既有 A–I / V / S 编号冲突。**IR0–IR6 全部为承诺任务**（无门控依赖，按序执行）。
+> **任务前缀 IR（Ingestion Robustness）**，避免与既有 A–I / V / S 编号冲突。**IR0–IR6 已收口**；v1.1 重开后新增 **阶段 IR7**（Markdown 摄取，承接 OBSIDIAN V 系列 V1–V4），按 IR7.1 → IR7.5 顺序执行。
 
 ### 阶段总览
 
@@ -346,6 +449,18 @@ ingestion:
 |---------|---------|------|---------|---------|
 | IR6.1 | 全量回归 + 文档收口 | [x] | 2026-10-07 | **完成**：1484 passed / 3 skipped（基线 1273 → +211 新增用例，零回归）；子进程 E2E `tests/e2e/test_ingest_cli_subprocess.py` 发现并修复 `--dry-run` 首次运行会建库落盘的问题（改走只读资源装配）。原验收：`pytest tests -q` 离线全绿（零回归 + 新增用例统计回填本表）；README「开发文档」表与 USAGE_GUIDE 增补同步格式/同步模式用法；FUTURE_OPTIMIZATION_ROADMAP 6.2 标记落地状态；本文档进度表勾完 |
 
+#### 阶段 IR7：Markdown 摄取（M6，v1.1 承接 OBSIDIAN_RAG_SPEC M1/M2）
+
+> 原 OBSIDIAN V 系列 V1–V4 对应本阶段 IR7.1–IR7.4；V5（sentence-transformers）与 V6（Semantic Walk）仍留在 OBSIDIAN_RAG_SPEC，与本阶段互不依赖。
+
+| 任务编号 | 任务名称 | 状态 | 完成日期 | 验收标准 |
+|---------|---------|------|---------|---------|
+| IR7.1 | MarkdownLoader 基础（读取/frontmatter/title/outline，原 V1） | [x] | 2026-10-07 | `markdown_loader.py` 落地：frontmatter 行级解析优先、PyYAML 兜底（坏 YAML 降级 + `frontmatter_parse_error`）、title 三级兜底、heading_outline、doc_type=markdown、Document.id=内容 SHA256；29 个单测（`test_markdown_loader.py`）含 fixtures/vault 全笔记冒烟 |
+| IR7.2 | MarkdownLoader 进阶（tags/wikilinks/embeds/图片，原 V2） | [x] | 2026-10-07 | tags 合并去重（排除标题行/代码块，中英文）；wikilink 替换 + 出链去 `.md` 扩展名入 metadata；`![[img]]`/`![](rel)` 存在两路（`make_image_id` + 占位符 + ImageRef 落盘）/缺失（missing_image_refs）；`![[note.md]]` 不展开仅记 embeds；确定性单测通过。偏差：URL 图片不解析、空 Markdown 返回空 Document 不报错 |
+| IR7.3 | Pipeline 路由注册 `.md`（双登记，原 V3） | [x] | 2026-10-07 | `_SUPPORTED_EXTENSIONS` 含 `.md`/`.markdown`，`_resolve_loader` 路由 MarkdownLoader（vault_root=源文件目录，不进 per-suffix 缓存——vault_root 随源变化）；drift guard 三处断言翻转（test_ingest_entry / test_ingestion_loader_routing / 基线守卫）且两处清单相等；单文件 `--path x.md` 可摄取 |
+| IR7.4 | 目录扫描 include/exclude 规则（原 V4） | [x] | 2026-10-07 | `IngestionSourceFiltersConfig`（非法 fail-fast，31 用例）；`collect_files_detailed` + `_is_filtered`（fnmatch 目录段参与、exclude 优先、过滤先于扩展名筛选）；显式单文件不过滤；CLI 汇总 `filtered: N (excluded by source_filters)`；`--sync`/`--dry-run` 同语义；集成断言 fixtures/vault filtered==2 |
+| IR7.5 | Markdown 摄取收口 | [x] | 2026-10-07 | **完成**：幂等集成 4 例（`test_markdown_ingest_idempotency.py`：重跑全 skipped / `--force` 幂等替换无残留 / 修改单文件仅该文件重摄取 / `--sync` 变体）；E2E 2 例（`test_markdown_vault_query.py`：CLI 摄取 → `query.py` 命中笔记路径；子进程 MCP `tools/call` citations source 为 `.md` 笔记路径）；`config/settings.yaml` 补 source_filters 注释样例；README/USAGE_GUIDE 支持格式更新。全量：1564 passed / 3 skipped（基线 1484 → +80 新增，零回归；e2e 既有失败 `test_cli_broken_pdf_maps_to_failed_file_not_crash` 为 pypdf 版本容错所致，与本阶段无关）。原验收中「全套件离线全绿」：除上述既有失败外全绿 |
+
 ### 7.1 实现偏差 / 收口记录
 
 > IR0–IR5 已于 2026-10-07 在 `feat/ingestion-robustness` 分支交付：d2de90e（IR0 / IR1 / IR5.1）、3cee333（IR2 / IR5.2）、cb059f1（IR3 / IR4）。以下为与第 3–6 章设计不一致之处，以代码为准。
@@ -382,7 +497,7 @@ ingestion:
 | 版本替换清理误删其他文档 | 数据丢失 | 清理键全部含 doc_hash / `(source_path, collection)` 双重限定（与 `delete_document` 同键）；IR2.2 幂等单测 + 集成断言无越界删除 |
 | `--sync` 对大目录扫描慢 | CLI 阻塞 | 对比逻辑 O(n) 内存索引（历史表一次性载入，对齐 `_history_index` 先例）；不做文件监听常驻进程 |
 | 重试放大故障（对不可重试错误反复打） | 延迟与外部配额浪费 | 错误分类表参数化锁死；默认 `max_attempts=1` 关闭；退避带上限（`initial × multiplier^attempt` 封顶 30s） |
-| markitdown 上游解析质量参差 | 抽取文本乱/空 | metadata 记 `doc_type` 便于分格式排查；空文本按 load 失败落 `failed_stage` 可诊断；富抽取归 V 系列不做承诺 |
+| markitdown 上游解析质量参差 | 抽取文本乱/空 | metadata 记 `doc_type` 便于分格式排查；空文本按 load 失败落 `failed_stage` 可诊断；富抽取不做承诺（Markdown 结构化解析见 M6/IR7） |
 | 四存储状态漂移（历史与实际不符） | sync 误判 | 历史表为权威 + 存储反查软校验告警（4.2）；`--sync` 即修复工具 |
 | 双登记遗漏新扩展名 | CLI 与管线行为分叉 | drift guard 单测零放松；帮助文本从常量推导 |
 
@@ -395,5 +510,5 @@ ingestion:
 - 删除协调：[src/ingestion/document_manager.py](../../src/ingestion/document_manager.py)（`delete_document :251`、`_doc_hash_of :336`）
 - chunk_id 生成：[src/ingestion/chunking/document_chunker.py](../../src/ingestion/chunking/document_chunker.py)（`_generate_chunk_id :67`）
 - CLI 入口与双登记：[scripts/ingest.py](../../scripts/ingest.py)（`SUPPORTED_EXTENSIONS`、drift guard `tests/unit/test_ingest_entry.py`）
-- 关联规格：[DEV_SPEC.md](DEV_SPEC.md)（C2 历史表 / C4 chunk_id / C11–C12 存储契约）、[SIRCHMUNK_INTEGRATION_SPEC.md](SIRCHMUNK_INTEGRATION_SPEC.md)（格式先例；agentic 路与本规格无耦合）、[OBSIDIAN_RAG_SPEC.md](../backlog/OBSIDIAN_RAG_SPEC.md)（Markdown 归其 V 系列 M1/M2）
+- 关联规格：[DEV_SPEC_frozen.md](../frozen/DEV_SPEC_frozen.md)（C2 历史表 / C4 chunk_id / C11–C12 存储契约）、[SIRCHMUNK_INTEGRATION_SPEC_frozen.md](../frozen/SIRCHMUNK_INTEGRATION_SPEC_frozen.md)（格式先例；agentic 路与本规格无耦合）、[OBSIDIAN_RAG_SPEC.md](../backlog/OBSIDIAN_RAG_SPEC.md)（v1.1 起其 M1/M2 Markdown 摄取由本规格 IR7 承接；该规格保留 M3/M4）
 - 立项来源：[FUTURE_OPTIMIZATION_ROADMAP.md](../reference/FUTURE_OPTIMIZATION_ROADMAP.md) 6.2「数据摄取」

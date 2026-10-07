@@ -2,15 +2,14 @@
 
 ## 开发文档参考（开始编码任务前必读）
 
-**编写代码之前，先阅读 [docs/frozen/](docs/frozen/) 下的已冻结规格**：DEV_SPEC.md 是主规格（架构设计、模块契约、测试方案的权威来源）；SIRCHMUNK_INTEGRATION_SPEC.md 是 sidecar 整合的完整设计与收口记录。改动某模块前先查对应 spec 中该模块的契约、验收标准与既有测试语义。规格中标注的链接路径均相对仓库根。
+**编写代码之前，先阅读 [docs/frozen/](docs/frozen/) 下的已冻结规格**：DEV_SPEC_frozen.md 是主规格（架构设计、模块契约、测试方案的权威来源）；SIRCHMUNK_INTEGRATION_SPEC_frozen.md 是 sidecar 整合的完整设计与收口记录。改动某模块前先查对应 spec 中该模块的契约、验收标准与既有测试语义。规格中标注的链接路径均相对仓库根。
 
 其余文档**按需选读**，不必预先通读：
 
-- `docs/specs/` — 立项后新规格的落点（当前为空；既有规格均已收口入 frozen/）。
-- `docs/frozen/INGESTION_ROBUSTNESS_SPEC.md` — IR 系列摄取健壮性（已收口；改动摄取链路前先读其 7.1 实现偏差）。
+- `docs/specs/` — 规格落点：[INGESTION_ROBUSTNESS_SPEC.md](docs/specs/INGESTION_ROBUSTNESS_SPEC.md)（IR 系列摄取健壮性：IR0–IR7 已全部收口，IR7 为 Markdown 摄取；改动摄取链路前先读其 7.1 实现偏差）。
 - `docs/analysis/` — 架构分析与演进方向（微服务分析、优化路线图）。
 - `docs/reference/USAGE_GUIDE.md` — 使用速查（启动、配置、sidecar 用法）。
-- `docs/backlog/` — 候选功能与待开发规格（OBSIDIAN V 系列在此待排期；新提案约定见其 README）。
+- `docs/backlog/` — 候选功能与待开发规格（OBSIDIAN V 系列的 M3/M4 可选增强在此待排期，其 M1/M2 已移交 IR7；新提案约定见其 README）。
 
 **[docs/MOC.md](docs/MOC.md) 是 docs/ 目录的索引文档（MOC, Map of Content）**：在 docs/ 下增删文档后，必须同步更新 MOC.md 的对应条目；根目录 README 的「开发文档」导航表同步维护。
 
@@ -59,4 +58,4 @@ PYTHONPATH=src python -m mcp_server.server
 - **Sirchmunk sidecar 进程隔离红线**：主 venv 永不 `import sirchmunk`，只经 `src/libs/agentic_search/http_backend.py` HTTP 调用独立进程（默认 `enabled: false`）。设计原因与源码实证见 SIRCHMUNK_INTEGRATION_SPEC 第 4 章。
 - **双登记约束**：pipeline 支持的扩展名在 `src/ingestion/pipeline.py` 与 `scripts/ingest.py` 两处登记，由 drift guard 单测锁死，新增格式必须同步。
 - **stdout 纪律**：MCP server 的 stdout 只输出合法 JSON-RPC，日志一律走 stderr；e2e 有逐行断言。
-- **规格与排期**：既有规格（DEV_SPEC 的 A–I、SIRCHMUNK 的 S 系列）任务表已收口，不在其中新增任务；新功能走 `docs/backlog/` 提案 → 立项后在 `docs/specs/` 建独立规格（格式对齐 SIRCHMUNK/OBSIDIAN 先例，任务编号用新前缀避免冲突）。
+- **规格与排期**：已收口规格（DEV_SPEC 的 A–I、SIRCHMUNK 的 S 系列、IR 的 IR0–IR7）任务表不在其中新增任务；全新功能走 `docs/backlog/` 提案 → 立项后在 `docs/specs/` 建独立规格或重开既有规格（格式对齐 SIRCHMUNK/OBSIDIAN 先例，任务编号避免冲突）。

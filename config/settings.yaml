@@ -42,7 +42,13 @@ ingestion:
     enabled: false           # true 时经 Vision LLM 生成图片 caption（失败保留 image_refs 不阻塞）
     prompt_path: config/prompts/image_captioning.txt
   batch_size: 32             # 编码批大小（C10 BatchProcessor：每批一次底层调用）
-  # 以下两个子节可选，整体或单字段缺失均走默认值（见 docs/specs/INGESTION_ROBUSTNESS_SPEC.md 第 6 章）。
+  # 以下三个子节可选，整体或单字段缺失均走默认值（见 docs/specs/INGESTION_ROBUSTNESS_SPEC.md 第 6 章）。
+  # source_filters:            # 目录扫描 include/exclude（IR7，设计见该规格 3.8；缺省即下方默认值）
+  #   include_patterns: []     # glob 列表；空 = 全部受理
+  #   exclude_patterns:        # glob 列表；优先于 include（对扫描根目录的 POSIX 相对路径匹配）
+  #     - ".obsidian/**"
+  #     - ".trash/**"
+  #     - "templates/**"
   # retry:                     # 失败重试（缺省 = 不重试，行为与基线一致）
   #   max_attempts: 1          # 1 = 关闭重试；>1 时仅可重试错误走退避
   #   initial_backoff_s: 2.0   # 首次退避间隔（秒）
@@ -64,7 +70,7 @@ retrieval:
   rrf_k: 60                  # RRF 平滑常数（D4：k 参数，越大越平滑）
 
 # Agentic 检索（Sirchmunk HTTP sidecar，可选；enabled=false 时零加载、
-# tools/list 不出现 agentic_search 工具）。详见 docs/frozen/SIRCHMUNK_INTEGRATION_SPEC.md。
+# tools/list 不出现 agentic_search 工具）。详见 docs/frozen/SIRCHMUNK_INTEGRATION_SPEC_frozen.md。
 agentic_search:
   enabled: true                  # true 需先启动 sidecar（scripts/sirchmunk/）
   backend: sirchmunk_http        # 唯一生产后端（fake 仅供测试注入）

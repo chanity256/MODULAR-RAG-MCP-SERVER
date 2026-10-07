@@ -16,4 +16,4 @@
 
 | 文档 | 一句话说明 |
 |------|-----------|
-| [OBSIDIAN_RAG_SPEC.md](OBSIDIAN_RAG_SPEC.md) | Obsidian Vault RAG 扩展规格（V 系列，V1–V7 待排期） |
+| [OBSIDIAN_RAG_SPEC.md](OBSIDIAN_RAG_SPEC.md) | Obsidian Vault RAG 扩展规格（V 系列；M1/M2 Markdown 摄取已移交 INGESTION_ROBUSTNESS_SPEC 阶段 IR7，剩余 M3/M4 待排期） |
