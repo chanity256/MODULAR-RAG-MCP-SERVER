@@ -4,7 +4,7 @@
 
 > **📌 状态：IR0–IR7 全部交付收口**（2026-10-07）
 >
-> - 2026-10-07：v1.1 IR7（M6 Markdown 摄取）交付完毕——MarkdownLoader、`.md` 双登记转正、source_filters 目录过滤、幂等集成与 vault E2E（1564 passed / 3 skipped，唯一 failed 为 pypdf 既有问题）；实现观察见 IR7.5 行注。
+> - 2026-10-07：v1.1 IR7（M6 Markdown 摄取）交付完毕——MarkdownLoader、`.md` 双登记转正、source_filters 目录过滤、幂等集成与 vault E2E（1564 passed / 3 skipped）；IR7 收口时的唯一 e2e 失败（markitdown 0.1.8 对畸形 PDF 字节透传）已随后由 7df2893 修复，修复后全量离线 0 failed。实现观察见 IR7.5 行注。
 > - 2026-10-07：v1.1 重新打开——承接 [OBSIDIAN_RAG_SPEC](../backlog/OBSIDIAN_RAG_SPEC.md) M1/M2（Markdown 摄取）为本规格 M6 / 阶段 IR7，文档移入 docs/specs/ 恢复执行状态。
 > - 2026-10-07：v1.0 曾冻结收口（IR0–IR6 交付完毕）——摄取历史表 v2（版本三列 + `failed_stage`）、SHA256 增量判定与版本替换、`--sync` / `--prune` / `--dry-run` CLI、可重试错误退避 + `--retry-failed`、store 回滚、DOCX/PPTX/XLSX/HTML 多格式 Loader；实现偏差见 7.1。
 
@@ -459,7 +459,7 @@ ingestion:
 | IR7.2 | MarkdownLoader 进阶（tags/wikilinks/embeds/图片，原 V2） | [x] | 2026-10-07 | tags 合并去重（排除标题行/代码块，中英文）；wikilink 替换 + 出链去 `.md` 扩展名入 metadata；`![[img]]`/`![](rel)` 存在两路（`make_image_id` + 占位符 + ImageRef 落盘）/缺失（missing_image_refs）；`![[note.md]]` 不展开仅记 embeds；确定性单测通过。偏差：URL 图片不解析、空 Markdown 返回空 Document 不报错 |
 | IR7.3 | Pipeline 路由注册 `.md`（双登记，原 V3） | [x] | 2026-10-07 | `_SUPPORTED_EXTENSIONS` 含 `.md`/`.markdown`，`_resolve_loader` 路由 MarkdownLoader（vault_root=源文件目录，不进 per-suffix 缓存——vault_root 随源变化）；drift guard 三处断言翻转（test_ingest_entry / test_ingestion_loader_routing / 基线守卫）且两处清单相等；单文件 `--path x.md` 可摄取 |
 | IR7.4 | 目录扫描 include/exclude 规则（原 V4） | [x] | 2026-10-07 | `IngestionSourceFiltersConfig`（非法 fail-fast，31 用例）；`collect_files_detailed` + `_is_filtered`（fnmatch 目录段参与、exclude 优先、过滤先于扩展名筛选）；显式单文件不过滤；CLI 汇总 `filtered: N (excluded by source_filters)`；`--sync`/`--dry-run` 同语义；集成断言 fixtures/vault filtered==2 |
-| IR7.5 | Markdown 摄取收口 | [x] | 2026-10-07 | **完成**：幂等集成 4 例（`test_markdown_ingest_idempotency.py`：重跑全 skipped / `--force` 幂等替换无残留 / 修改单文件仅该文件重摄取 / `--sync` 变体）；E2E 2 例（`test_markdown_vault_query.py`：CLI 摄取 → `query.py` 命中笔记路径；子进程 MCP `tools/call` citations source 为 `.md` 笔记路径）；`config/settings.yaml` 补 source_filters 注释样例；README/USAGE_GUIDE 支持格式更新。全量：1564 passed / 3 skipped（基线 1484 → +80 新增，零回归；e2e 既有失败 `test_cli_broken_pdf_maps_to_failed_file_not_crash` 为 pypdf 版本容错所致，与本阶段无关）。原验收中「全套件离线全绿」：除上述既有失败外全绿 |
+| IR7.5 | Markdown 摄取收口 | [x] | 2026-10-07 | **完成**：幂等集成 4 例（`test_markdown_ingest_idempotency.py`：重跑全 skipped / `--force` 幂等替换无残留 / 修改单文件仅该文件重摄取 / `--sync` 变体）；E2E 2 例（`test_markdown_vault_query.py`：CLI 摄取 → `query.py` 命中笔记路径；子进程 MCP `tools/call` citations source 为 `.md` 笔记路径）；`config/settings.yaml` 补 source_filters 注释样例；README/USAGE_GUIDE 支持格式更新。全量：1564 passed / 3 skipped（基线 1484 → +80 新增，零回归；e2e 既有失败 `test_cli_broken_pdf_maps_to_failed_file_not_crash` 系 markitdown 0.1.8 对畸形 PDF 的原始字节透传，**已随后由 7df2893 修复**，修复后全量 0 failed）。原验收中「全套件离线全绿」：达成 |
 
 ### 7.1 实现偏差 / 收口记录
 
