@@ -109,7 +109,8 @@ def _make_docs(tmp_path: Path) -> Path:
     (docs / "sub").mkdir(parents=True)
     (docs / "alpha.pdf").write_bytes(b"%PDF-1.4 alpha offline fixture")
     (docs / "sub" / "beta.docx").write_bytes(b"beta offline fixture")
-    (docs / "notes.md").write_text("not a supported extension", encoding="utf-8")
+    # IR7.3 起 .md 已登记，不受支持扩展名的哨兵改用 .txt
+    (docs / "notes.txt").write_text("not a supported extension", encoding="utf-8")
     return docs
 
 
@@ -247,7 +248,7 @@ def test_sync_dry_run_fresh_install_prints_plan_and_writes_nothing(tmp_path):
     assert "prune   (deleted)  : 0" in out
     assert str(docs / "alpha.pdf") in out
     assert str(docs / "sub" / "beta.docx") in out
-    assert "notes.md" not in out
+    assert "notes.txt" not in out
     after = sorted(str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*"))
     assert after == before
     assert not (tmp_path / "data").exists()

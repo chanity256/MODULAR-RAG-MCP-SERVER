@@ -1,4 +1,6 @@
-"""IR1.4: ingestion.retry / ingestion.version_policy 配置解析与版本推导（离线）。"""
+"""IR1.4: ingestion.retry / ingestion.version_policy 配置解析与版本推导（离线）。
+IR7.4: ingestion.source_filters 配置解析与校验（离线）。
+"""
 
 from __future__ import annotations
 
@@ -9,6 +11,7 @@ import pytest
 from core.settings import (
     ConfigError,
     IngestionRetryConfig,
+    IngestionSourceFiltersConfig,
     IngestionVersionPolicyConfig,
     load_settings,
     resolve_ingestion_versions,
@@ -140,3 +143,71 @@ def test_repo_settings_yaml_still_loads_with_defaults():
     ingestion = load_settings(repo_root / "config" / "settings.yaml").ingestion
     assert ingestion.retry.max_attempts == 1
     assert ingestion.version_policy.on_embedding_mismatch == "stale"
+
+
+_DEFAULT_EXCLUDE = [".obsidian/**", ".trash/**", "templates/**"]
+
+
+def test_source_filters_section_missing_uses_defaults(tmp_path: Path):
+    ingestion = load_settings(_write(tmp_path, "")).ingestion
+    assert ingestion.source_filters == IngestionSourceFiltersConfig()
+    assert ingestion.source_filters.include_patterns == []
+    assert ingestion.source_filters.exclude_patterns == _DEFAULT_EXCLUDE
+
+
+def test_source_filters_partial_section_fills_defaults(tmp_path: Path):
+    yaml_text = (
+        "ingestion:\n"
+        "  source_filters:\n    include_patterns: ['notes/**']\n"
+    )
+    source_filters = load_settings(_write(tmp_path, yaml_text)).ingestion.source_filters
+    assert source_filters.include_patterns == ["notes/**"]
+    assert source_filters.exclude_patterns == _DEFAULT_EXCLUDE
+
+    yaml_text = (
+        "ingestion:\n"
+        "  source_filters:\n    exclude_patterns: ['.git/**']\n"
+    )
+    source_filters = load_settings(_write(tmp_path, yaml_text)).ingestion.source_filters
+    assert source_filters.include_patterns == []
+    assert source_filters.exclude_patterns == [".git/**"]
+    assert source_filters.extra == {}
+
+
+def test_source_filters_custom_values(tmp_path: Path):
+    yaml_text = (
+        "ingestion:\n"
+        "  source_filters:\n"
+        "    include_patterns: ['vault/**', 'notes/**/*.md']\n"
+        "    exclude_patterns: ['.git/**', 'archive/**']\n"
+    )
+    source_filters = load_settings(_write(tmp_path, yaml_text)).ingestion.source_filters
+    assert source_filters.include_patterns == ["vault/**", "notes/**/*.md"]
+    assert source_filters.exclude_patterns == [".git/**", "archive/**"]
+
+
+def test_source_filters_unknown_keys_go_to_extra(tmp_path: Path):
+    yaml_text = "ingestion:\n  source_filters:\n    foo: 1\n"
+    source_filters = load_settings(_write(tmp_path, yaml_text)).ingestion.source_filters
+    assert source_filters.extra == {"foo": 1}
+
+
+@pytest.mark.parametrize(
+    "section,fragment",
+    [
+        ("ingestion:\n  source_filters: 3\n", "ingestion.source_filters"),
+        ("ingestion:\n  source_filters:\n    include_patterns: 'a/**'\n", "include_patterns"),
+        ("ingestion:\n  source_filters:\n    exclude_patterns: 'b/**'\n", "exclude_patterns"),
+        ("ingestion:\n  source_filters:\n    include_patterns: [1]\n", "include_patterns"),
+        ("ingestion:\n  source_filters:\n    exclude_patterns: [true]\n", "exclude_patterns"),
+        ("ingestion:\n  source_filters:\n    include_patterns: ['']\n", "include_patterns"),
+        ("ingestion:\n  source_filters:\n    exclude_patterns: ['']\n", "exclude_patterns"),
+    ],
+)
+def test_source_filters_invalid_values_fail_fast(tmp_path: Path, section: str, fragment: str):
+    with pytest.raises(ConfigError, match=fragment):
+        load_settings(_write(tmp_path, section))
+
+
+def test_source_filters_default_exclude_semantics_locked():
+    assert IngestionSourceFiltersConfig().exclude_patterns == _DEFAULT_EXCLUDE

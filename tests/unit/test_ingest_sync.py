@@ -322,7 +322,7 @@ def test_plan_dir_prefix_does_not_match_sibling_with_same_prefix(tmp_path):
 def test_plan_existing_but_unscanned_file_is_left_untouched(tmp_path):
     docs = tmp_path / "docs"
     docs.mkdir()
-    note = docs / "note.md"  # 不受支持扩展名：不被扫描，但仍在磁盘上
+    note = docs / "note.txt"  # 不受支持扩展名：不被扫描，但仍在磁盘上
     note.write_text("x")
     plan = cli.collect_and_diff(docs, "default", integrity=FakeIntegrity([_rec(note)]))
     assert plan.entries == []

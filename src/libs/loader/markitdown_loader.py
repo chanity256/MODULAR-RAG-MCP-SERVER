@@ -4,8 +4,8 @@
 ``Document``：``id`` 为文件内容 SHA256，metadata 含 ``source_path`` / ``doc_type`` /
 ``sha256``。不抽取图片（``image_refs`` 恒空，``images`` 字段省略）。
 
-``.md`` 刻意不在支持清单内：Markdown 结构化摄取归 OBSIDIAN V 系列的
-MarkdownLoader，避免双登记冲突。
+``.md`` 暂不在支持清单内：Markdown 结构化摄取归 MarkdownLoader（已排期
+INGESTION_ROBUSTNESS_SPEC M6 / IR7，落地前避免双登记冲突）。
 
 ``markitdown`` 是可选依赖（``pip install 'modular-rag-mcp-server[ingest-formats]'``），
 只在 ``load`` 时惰性导入，模块 import 期不触发，未安装时其余功能零影响。

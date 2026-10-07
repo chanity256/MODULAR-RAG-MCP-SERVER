@@ -135,13 +135,14 @@ def test_snapshot_failed_run_is_not_skipped_next_time(tmp_path):
     assert result.status == "success"
 
 
-def test_snapshot_pdf_registered_and_markdown_excluded():
+def test_snapshot_pdf_and_markdown_registered():
+    """IR7.3 翻转：``.md``/``.markdown`` 转为登记，两处清单保持一致。"""
     cli = _load_cli()
     assert ".pdf" in _SUPPORTED_EXTENSIONS
     assert ".pdf" in cli.SUPPORTED_EXTENSIONS
     for ext in (".md", ".markdown"):
-        assert ext not in _SUPPORTED_EXTENSIONS
-        assert ext not in cli.SUPPORTED_EXTENSIONS
+        assert ext in _SUPPORTED_EXTENSIONS
+        assert ext in cli.SUPPORTED_EXTENSIONS
     assert set(cli.SUPPORTED_EXTENSIONS) == set(_SUPPORTED_EXTENSIONS)
 
 

@@ -6,7 +6,8 @@ transform→encode→store），对失败步骤抛出带阶段上下文的清晰
 1. **integrity**：``compute_sha256`` + ``should_skip``（C2）——未变更且非
    ``force`` 时零成本跳过（直接返回 ``status="skipped"``）。
 2. **load**：按文件扩展名路由 Loader（``.pdf`` → ``PdfLoader``，C3；
-   DOCX/PPTX/XLSX/HTML → ``MarkitdownLoader``，IR5）；
+   DOCX/PPTX/XLSX/HTML → ``MarkitdownLoader``，IR5；
+   ``.md``/``.markdown`` → ``MarkdownLoader``，IR7）；
    可注入 ``BaseLoader`` 供测试/新格式复用。
 3. **split**：``DocumentChunker``（C4）产出确定性 chunk id，并把本次
    ``collection`` 写入每个 chunk 的 ``metadata["collection"]``（供 D 阶段
@@ -65,6 +66,7 @@ from libs.loader.base_loader import BaseLoader
 from libs.loader.file_integrity import FileIntegrityChecker
 from libs.loader.markitdown_loader import SUPPORTED_EXTENSIONS as MARKITDOWN_EXTENSIONS
 from libs.loader.markitdown_loader import MarkitdownLoader
+from libs.loader.markdown_loader import MarkdownLoader
 from libs.loader.pdf_loader import PdfLoader
 from observability.logger import get_logger
 
@@ -99,9 +101,14 @@ STAGE_UPSERT = "upsert"
 #: 进度回调签名：``on_progress(stage_name, current, total)``。
 ProgressCallback = Callable[[str, int, int], None]
 
+#: Markdown 扩展名（IR7.3 登记路由，与 ``scripts/ingest.py`` 双登记对齐）。
+# Note: MarkdownLoader 不进 per-suffix 缓存（vault_root 随源变化）— 见
+# .agents/notes/implemented/feature/2026-10-07-markdown-loader-vault-root-no-cache.md
+_MARKDOWN_EXTENSIONS = frozenset({".md", ".markdown"})
+
 #: 扩展名 -> Loader 构造规则（新格式在此登记或注入 ``BaseLoader``）。
-#: ``.md`` 刻意不登记（Markdown 结构化摄取归 OBSIDIAN V 系列）。
-_SUPPORTED_EXTENSIONS = {".pdf"} | set(MARKITDOWN_EXTENSIONS)
+#: 双登记约束：必须与 ``scripts/ingest.py`` 的 ``SUPPORTED_EXTENSIONS`` 同步。
+_SUPPORTED_EXTENSIONS = {".pdf"} | set(MARKITDOWN_EXTENSIONS) | set(_MARKDOWN_EXTENSIONS)
 
 
 class IngestionPipelineError(RuntimeError):
@@ -236,7 +243,7 @@ class IngestionPipeline:
         """摄取单个文件到指定集合。
 
         Args:
-            source_path: 源文件路径（当前支持 ``.pdf``，或注入 loader）。
+            source_path: 源文件路径（按扩展名路由 loader，或注入 loader）。
             collection: 目标集合名（写入 chunk metadata，供检索过滤）。
             on_progress: 可选进度回调 ``on_progress(stage, current, total)``。
             force: True 时跳过完整性检查强制重摄取（幂等替换）。
@@ -672,11 +679,15 @@ class IngestionPipeline:
 
     def _resolve_loader(self, source: str) -> BaseLoader:
         """返回注入的 loader，或按扩展名路由（``.pdf`` → ``PdfLoader``，
-        DOCX/PPTX/XLSX/HTML → ``MarkitdownLoader``）。
+        DOCX/PPTX/XLSX/HTML → ``MarkitdownLoader``，
+        ``.md``/``.markdown`` → ``MarkdownLoader``，IR7.3）。
 
         路由结果按扩展名缓存；``self._loader`` 同步指向本次使用的 loader，
         ``_version_tags`` 据此推导 parser 版本，因此判断是否注入必须看
         ``self._injected`` 而不是 ``self._loader``。
+        ``MarkdownLoader`` 例外：其 ``vault_root``（相对图片引用的解析根
+        目录）随源文件所在目录变化，不按后缀缓存（``run`` 的源是单文件，
+        取文件所在目录；目录扫描在 CLI 层已拆成逐文件）。
         """
         injected = self._injected["loader"]
         if injected is not None:
@@ -689,7 +700,16 @@ class IngestionPipeline:
                 loader = PdfLoader(images_root=str(self._image_storage.images_root))
             elif suffix in MARKITDOWN_EXTENSIONS:
                 loader = MarkitdownLoader()
+            elif suffix in _MARKDOWN_EXTENSIONS:
+                loader = MarkdownLoader(
+                    vault_root=str(Path(source).parent),
+                    images_root=str(self._image_storage.images_root),
+                )
         if loader is not None:
+            if suffix in _MARKDOWN_EXTENSIONS:
+                # vault_root 随源文件目录变化，不能复用上次按后缀缓存的实例。
+                self._loader = loader
+                return loader
             routed[suffix] = loader
             self._loader = loader
             return loader

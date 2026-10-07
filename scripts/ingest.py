@@ -5,10 +5,16 @@
     python scripts/ingest.py --path tests/fixtures/sample_documents/ --collection test
     python scripts/ingest.py --path data/documents/manual.pdf --force
 
-行为契约（C15 验收标准）：
+行为契约（C15 验收标准 + IR7.3/IR7.4 扩展）：
 - ``--path``：目标文件或目录；目录时递归扫描受支持的扩展名（与
-  ``ingestion.pipeline`` 的扩展名路由保持一致，当前 ``.pdf``），文件按
-  路径排序保证确定性；大小写不敏感（``.PDF`` 同样受理）。
+  ``ingestion.pipeline`` 的扩展名路由保持一致，含 ``.pdf``/``.md`` 等），
+  文件按路径排序保证确定性；大小写不敏感（``.PDF`` 同样受理）。
+- 目录扫描遵守 ``ingestion.source_filters``（IR7.4）：对扫描根目录的
+  POSIX 相对路径做 fnmatch 匹配（目录段参与匹配），include 空 = 全部
+  受理，exclude 优先；被过滤文件计入 ``filtered`` 且不摄取；
+  ``--path`` 显式指向单文件时不过滤（用户明确意图）。
+- ``--sync``/``--prune`` 的目录对比遵守同一套过滤（被过滤路径视为
+  不存在；已入库的此类路径按既有 prune/deleted 语义清理）。
 - ``--collection``：目标集合名（透传 ``IngestionPipeline.run``，写入每个
   chunk 的 ``metadata["collection"]``；默认 ``default``）。
 - ``--force``：跳过完整性检查强制重摄取（幂等替换，不产生重复记录）。
@@ -45,6 +51,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import os
 import sys
 from dataclasses import dataclass, field
@@ -74,9 +81,11 @@ __all__ = [
     "FileOutcome",
     "IngestSummary",
     "IngestPathError",
+    "FileScan",
     "build_parser",
     "parse_args",
     "collect_files",
+    "collect_files_detailed",
     "build_pipeline",
     "run_ingest",
     "aggregate",
@@ -96,8 +105,8 @@ __all__ = [
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "settings.yaml"
 
 #: 受支持的源文件扩展名（小写；与 ``ingestion.pipeline`` 的 Loader 路由一致；
-#: 单测中有 drift guard 保证两处不脱钩；``.md`` 刻意不登记）。
-SUPPORTED_EXTENSIONS = frozenset({".pdf", ".docx", ".pptx", ".xlsx", ".html"})
+#: 单测中有 drift guard 保证两处不脱钩；``.md``/``.markdown`` 为 IR7.3 登记）。
+SUPPORTED_EXTENSIONS = frozenset({".pdf", ".docx", ".pptx", ".xlsx", ".html", ".md", ".markdown"})
 
 # 退出码语义。
 EXIT_OK = 0
@@ -171,6 +180,8 @@ class IngestSummary:
     chunks: int = 0
     images: int = 0
     written: int = 0
+    #: 被目录扫描 source_filters 过滤掉的文件数（IR7.4；不出现在逐文件行中）。
+    filtered: int = 0
 
     @property
     def total(self) -> int:
@@ -186,12 +197,19 @@ class IngestSummary:
             "chunks": self.chunks,
             "images": self.images,
             "written": self.written,
+            "filtered": self.filtered,
             "outcomes": [o.to_dict() for o in self.outcomes],
         }
 
 
-def aggregate(collection: str, outcomes: Sequence[FileOutcome]) -> IngestSummary:
-    """把逐文件结果聚合为汇总（chunks/images/written 不计失败文件）。"""
+def aggregate(
+    collection: str, outcomes: Sequence[FileOutcome], *, filtered: int = 0
+) -> IngestSummary:
+    """把逐文件结果聚合为汇总（chunks/images/written 不计失败文件）。
+
+    ``filtered`` 是目录扫描阶段被 ``source_filters`` 排除的文件数
+    （IR7.4），不计入 ``total``/``outcomes``。
+    """
     outcome_list = list(outcomes)
     ok = [o for o in outcome_list if o.status == "success"]
     return IngestSummary(
@@ -203,6 +221,7 @@ def aggregate(collection: str, outcomes: Sequence[FileOutcome]) -> IngestSummary
         chunks=sum(o.chunks for o in ok),
         images=sum(o.images for o in ok),
         written=sum(o.written for o in ok),
+        filtered=filtered,
     )
 
 
@@ -285,12 +304,61 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return args
 
 
-def collect_files(path: str | Path) -> list[Path]:
-    """把 ``--path`` 解析为待摄取文件列表。
+@dataclass
+class FileScan:
+    """目录/单文件扫描结果（IR7.4）。
 
-    - 单文件：扩展名必须受支持（否则单文件场景无从跳过，直接报错）。
-    - 目录：递归收集受支持扩展名的文件，按路径排序保证确定性；
-      非支持扩展名（如 ``.md``/``.txt``）静默忽略。
+    ``files`` 是过滤后待摄取的文件清单；``filtered`` 是被
+    ``source_filters`` 排除的文件数（不管扩展名是否受支持——被过滤路径
+    视为不存在，先过滤后选扩展名）。
+    """
+
+    files: list[Path] = field(default_factory=list)
+    filtered: int = 0
+
+
+def _rel_posix(path: Path, root: Path) -> str:
+    return path.relative_to(root).as_posix()
+
+
+def _hit_any(rel: str, patterns: Sequence[str]) -> bool:
+    return any(fnmatch.fnmatch(rel, pattern) for pattern in patterns)
+
+
+# Note: 过滤先于扩展名筛选 / sync 同语义 / filtered 计数口径 — 见
+# .agents/notes/implemented/feature/2026-10-07-source-filters-before-extension.md
+def _is_filtered(rel: str, include: Sequence[str], exclude: Sequence[str]) -> bool:
+    """source_filters 匹配语义（IR7.4，对扫描根目录的 POSIX 相对路径）。
+
+    - include 空 = 全部受理；非空时至少命中一个 include 才受理。
+    - exclude 命中即排除（与 include 同时命中时 exclude 优先）。
+    - 目录段参与匹配：``fnmatch`` 的 ``*`` 可跨 ``/``，因此
+      ``.obsidian/attachments/x.png`` 命中 ``.obsidian/**``。
+    """
+    if include and not _hit_any(rel, include):
+        return True
+    return bool(exclude) and _hit_any(rel, exclude)
+
+
+def collect_files_detailed(
+    path: str | Path,
+    *,
+    include_patterns: Sequence[str] | None = None,
+    exclude_patterns: Sequence[str] | None = None,
+) -> FileScan:
+    """把 ``--path`` 解析为待摄取文件列表 + 被过滤计数（IR7.4）。
+
+    - 单文件：扩展名必须受支持（否则单文件场景无从跳过，直接报错）；
+      **不做 source_filters 过滤**（用户显式指定的路径视为明确意图）。
+    - 目录：先按 ``source_filters`` 过滤（include/exclude 对扫描根目录的
+      POSIX 相对路径做 fnmatch），再按扩展名收集；被过滤文件计入
+      ``filtered``（无论扩展名是否受支持），其余非支持扩展名静默忽略；
+      按路径排序保证确定性。
+
+    Args:
+        path: 目标文件或目录。
+        include_patterns: 受理 glob（None/空 = 全部受理）。
+        exclude_patterns: 排除 glob（None/空 = 不排除）。
 
     Raises:
         IngestPathError: 路径不存在、既非文件也非目录、或单文件扩展名
@@ -305,14 +373,60 @@ def collect_files(path: str | Path) -> list[Path]:
                 f"unsupported file extension {target.suffix!r} for {target} "
                 f"(supported: {sorted(SUPPORTED_EXTENSIONS)})"
             )
-        return [target]
+        return FileScan(files=[target])
     if target.is_dir():
-        return sorted(
-            p
-            for p in target.rglob("*")
-            if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS
-        )
+        include = list(include_patterns or ())
+        exclude = list(exclude_patterns or ())
+        files: list[Path] = []
+        filtered = 0
+        for candidate in target.rglob("*"):
+            if not candidate.is_file():
+                continue
+            if _is_filtered(_rel_posix(candidate, target), include, exclude):
+                filtered += 1
+                continue
+            if candidate.suffix.lower() in SUPPORTED_EXTENSIONS:
+                files.append(candidate)
+        return FileScan(files=sorted(files), filtered=filtered)
     raise IngestPathError(f"path is neither a file nor a directory: {target}")
+
+
+def collect_files(
+    path: str | Path,
+    *,
+    include_patterns: Sequence[str] | None = None,
+    exclude_patterns: Sequence[str] | None = None,
+) -> list[Path]:
+    """:func:`collect_files_detailed` 的薄封装（只要文件清单）。
+
+    - 单文件：扩展名必须受支持（否则单文件场景无从跳过，直接报错）。
+    - 目录：递归收集受支持扩展名的文件，按路径排序保证确定性；
+      非 ``source_filters`` 过滤、非支持扩展名（如 ``.txt``）静默忽略。
+
+    Raises:
+        IngestPathError: 路径不存在、既非文件也非目录、或单文件扩展名
+            不受支持。
+    """
+    return collect_files_detailed(
+        path,
+        include_patterns=include_patterns,
+        exclude_patterns=exclude_patterns,
+    ).files
+
+
+def _source_filter_args(settings: Settings | None) -> dict[str, list[str] | None]:
+    """从配置提取 ``ingestion.source_filters`` 的 collect 关键字参数。
+
+    ``settings`` 为 None（未加载配置，如注入 fake pipeline 的单测）时返回
+    None 表示不过滤（对齐 IR7.4 前「全受理」基线）。
+    """
+    if settings is None:
+        return {"include_patterns": None, "exclude_patterns": None}
+    filters = settings.ingestion.source_filters
+    return {
+        "include_patterns": list(filters.include_patterns),
+        "exclude_patterns": list(filters.exclude_patterns),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -370,6 +484,7 @@ def run_ingest(
     force: bool = False,
     forced: Collection[str] = (),
     verbose: bool = False,
+    filtered: int = 0,
     out: Emit | None = None,
 ) -> IngestSummary:
     """逐文件调用 ``pipeline.run`` 并聚合结果（单文件失败不中断批次）。
@@ -377,11 +492,13 @@ def run_ingest(
     Args:
         pipeline: 任何具备 ``run(source_path, collection=..., on_progress=...,
             force=...)`` 签法的对象（真 ``IngestionPipeline`` 或测试 fake）。
-        files: 待摄取文件（已排序）。
+        files: 待摄取文件（已排序、已按 ``source_filters`` 过滤）。
         collection: 目标集合名（透传 pipeline）。
         force: 强制重摄取（透传 pipeline）。
         forced: 额外按文件强制重摄取的路径集合（``str(path)`` 命中即 force）。
         verbose: True 时把 ``on_progress`` 回调内容打印为缩进行。
+        filtered: 目录扫描被 ``source_filters`` 排除的文件数（IR7.4，
+            仅计入汇总，不产生逐文件行）。
         out: 输出函数（缺省 ``print``）。
 
     Returns:
@@ -423,7 +540,7 @@ def run_ingest(
                 )
         outcomes.append(outcome)
 
-    return aggregate(collection, outcomes)
+    return aggregate(collection, outcomes, filtered=filtered)
 
 
 def render_summary(summary: IngestSummary) -> str:
@@ -434,6 +551,7 @@ def render_summary(summary: IngestSummary) -> str:
         f"ingest summary: collection={summary.collection!r}",
         f"  files  : {summary.total} total | {summary.ingested} ingested | "
         f"{summary.skipped} skipped | {summary.failed} failed",
+        f"  filtered: {summary.filtered} (excluded by source_filters)",
         f"  chunks : {summary.chunks} | images: {summary.images} | "
         f"vectors written: {summary.written}",
     ]
@@ -541,6 +659,31 @@ def _history_in_scope(
     return grouped
 
 
+def _filtered_source(
+    raw: str,
+    scope: str,
+    scope_is_dir: bool | None,
+    include: Sequence[str],
+    exclude: Sequence[str],
+) -> bool:
+    """判断历史/存储里的 ``source_path`` 是否命中 source_filters（IR7.4）。
+
+    被过滤路径视为不存在：``--sync``/``--prune`` 的对比把它按既有
+    deleted 语义清理。仅当扫描范围是目录时参与（单文件范围是用户显式
+    指定，不过滤）；范围已从磁盘消失时无法判定原布局，不过滤（保持
+    「prune 一切」语义）。
+    """
+    if scope_is_dir is not True or not (include or exclude):
+        return False
+    try:
+        rel = Path(os.path.relpath(raw, scope)).as_posix()
+    except ValueError:  # Windows 跨盘符等不可比较场景：按不过滤处理
+        return False
+    if rel == "." or rel.startswith("../"):
+        return False
+    return _is_filtered(rel, include, exclude)
+
+
 def collect_and_diff(
     path: str | Path,
     collection: str,
@@ -551,6 +694,8 @@ def collect_and_diff(
     current_embedding_version: str | None = None,
     on_embedding_mismatch: str = "stale",
     include_ingest: bool = True,
+    include_patterns: Sequence[str] | None = None,
+    exclude_patterns: Sequence[str] | None = None,
 ) -> SyncPlan:
     """对比 ``--path`` 下的文件与该集合的存储态，产出只读计划（不写任何存储）。
 
@@ -566,6 +711,9 @@ def collect_and_diff(
         on_embedding_mismatch: ``stale`` / ``rebuild``（只影响提示文案，
             两者都不自动摄取）。
         include_ingest: False 时只判定 ``deleted``（``--prune`` 不需要哈希）。
+        include_patterns / exclude_patterns: ``source_filters`` glob（IR7.4，
+            与 ``collect_files`` 同语义）；已入库但被过滤的路径按 deleted
+            清理。
 
     Raises:
         IngestPathError: ``path`` 无效（同 :func:`collect_files`）。
@@ -575,8 +723,14 @@ def collect_and_diff(
     elif not include_ingest and not Path(path).expanduser().exists():
         scanned_files = []
     else:
-        scanned_files = collect_files(path)
+        scanned_files = collect_files(
+            path,
+            include_patterns=include_patterns,
+            exclude_patterns=exclude_patterns,
+        )
     scope, scope_is_dir = _scope_of(path)
+    include = list(include_patterns or ())
+    exclude = list(exclude_patterns or ())
     plan = SyncPlan(
         collection=collection, path=str(path), on_embedding_mismatch=on_embedding_mismatch
     )
@@ -647,11 +801,14 @@ def collect_and_diff(
         raws |= (stored or {}).get(key, set())
         for raw in sorted(raws):
             if os.path.exists(raw):
-                plan.warnings.append(
-                    f"{raw}: exists on disk but was not scanned "
-                    "(unsupported extension?); left untouched"
-                )
-                continue
+                if _filtered_source(raw, scope, scope_is_dir, include, exclude):
+                    pass  # 被过滤路径视为不存在 → 走既有 deleted 清理（IR7.4）
+                else:
+                    plan.warnings.append(
+                        f"{raw}: exists on disk but was not scanned "
+                        "(unsupported extension?); left untouched"
+                    )
+                    continue
             in_history = key in history
             in_store = stored is not None and key in stored
             where = "+".join(n for n, hit in (("history", in_history), ("store", in_store)) if hit)
@@ -937,17 +1094,31 @@ def _reload_bm25(bm25: Any | None) -> None:
         pass
 
 
+# Note: 注入 pipeline 未注入 settings 时过滤配置的回退缺口 — 见
+# .agents/notes/proposed/process/2026-10-07-sync-filter-fallback-injected-pipeline.md
 def _main_sync(
     args: argparse.Namespace, emit: Emit, **injected: Any
 ) -> int:
     mode = "sync" if args.sync else "prune"
+    # 目录扫描过滤（IR7.4）需要配置；未注入 pipeline 时在此统一加载一次，
+    # 并回填 injected 供资源装配复用（避免二次读取配置）。
+    settings = injected.get("settings")
+    if settings is None and injected.get("pipeline") is None:
+        try:
+            settings = load_settings(args.config)
+        except (ConfigError, FileNotFoundError) as exc:
+            emit(f"[usage] 配置加载失败: {exc}")
+            return EXIT_USAGE
+        injected = {**injected, "settings": settings}
+
     if args.prune and not Path(args.path).expanduser().exists():
         # 整个文件/目录已被删除时 --prune 仍需能清理它留下的记录。
         emit(f"[info] {args.path} no longer exists on disk; pruning everything recorded under it")
         files: list[Path] = []
     else:
         try:
-            files = collect_files(args.path)
+            scan = collect_files_detailed(args.path, **_source_filter_args(settings))
+            files = scan.files
         except IngestPathError as exc:
             emit(f"[usage] {exc}")
             return EXIT_USAGE
@@ -988,6 +1159,7 @@ def _main_sync(
             current_embedding_version=current_embedding,
             on_embedding_mismatch=policy,
             include_ingest=args.sync,
+            **_source_filter_args(settings),
         )
     except NotImplementedError:
         emit("[usage] integrity checker does not support history listing (list_processed)")
@@ -1112,18 +1284,26 @@ def main(
     if args.retry_failed:
         return _main_retry(args, emit, **injected)
 
-    try:
-        files = collect_files(args.path)
-    except IngestPathError as exc:
-        emit(f"[usage] {exc}")
-        return EXIT_USAGE
-
-    if pipeline is None:
+    # 目录扫描过滤（IR7.4）需要配置：注入 pipeline 时优先复用其 Settings，
+    # 否则在此加载（供 source_filters 与默认 pipeline 构建共用）。
+    if settings is None and pipeline is not None:
+        candidate = getattr(pipeline, "_settings", None)
+        settings = candidate if isinstance(candidate, Settings) else None
+    if settings is None and pipeline is None:
         try:
             settings = load_settings(args.config)
         except (ConfigError, FileNotFoundError) as exc:
             emit(f"[usage] 配置加载失败: {exc}")
             return EXIT_USAGE
+
+    try:
+        scan = collect_files_detailed(args.path, **_source_filter_args(settings))
+        files = scan.files
+    except IngestPathError as exc:
+        emit(f"[usage] {exc}")
+        return EXIT_USAGE
+
+    if pipeline is None:
         pipeline = build_pipeline(settings)
 
     if not files:
@@ -1131,6 +1311,8 @@ def main(
             f"[info] no supported files found under {args.path} "
             f"(supported: {sorted(SUPPORTED_EXTENSIONS)})"
         )
+        if scan.filtered:
+            emit(f"[info] filtered: {scan.filtered} (excluded by source_filters)")
         return EXIT_OK
 
     summary = run_ingest(
@@ -1139,6 +1321,7 @@ def main(
         args.collection,
         force=args.force,
         verbose=args.verbose,
+        filtered=scan.filtered,
         out=emit,
     )
     emit(render_summary(summary))

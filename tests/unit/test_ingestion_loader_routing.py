@@ -22,6 +22,7 @@ from libs.loader.markitdown_loader import (
     SUPPORTED_EXTENSIONS as MARKITDOWN_EXTENSIONS,
     MarkitdownLoader,
 )
+from libs.loader.markdown_loader import MarkdownLoader
 from libs.loader.pdf_loader import PdfLoader
 from tests.unit.test_ingestion_pipeline import (
     _PARAGRAPHS,
@@ -83,15 +84,13 @@ def _history_rows(integrity) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def test_dual_registration_includes_markitdown_extensions_and_excludes_markdown():
+def test_dual_registration_includes_markitdown_and_markdown_extensions():
+    """drift guard（IR7.3 翻转）：两处清单同步含 ``.md``/``.markdown``。"""
     cli = _load_cli()
-    expected = {".pdf", *_NEW_EXTENSIONS}
+    expected = {".pdf", *_NEW_EXTENSIONS, ".md", ".markdown"}
     assert set(_SUPPORTED_EXTENSIONS) == expected
     assert set(cli.SUPPORTED_EXTENSIONS) == expected
     assert set(MARKITDOWN_EXTENSIONS) <= set(_SUPPORTED_EXTENSIONS)
-    for ext in (".md", ".markdown"):
-        assert ext not in _SUPPORTED_EXTENSIONS
-        assert ext not in cli.SUPPORTED_EXTENSIONS
 
 
 # ---------------------------------------------------------------------------
@@ -234,8 +233,10 @@ def test_cli_collect_files_picks_new_extensions(tmp_path):
         tmp_path / "a.pdf",
         tmp_path / "b.docx",
         tmp_path / "c.PPTX",
+        tmp_path / "notes.md",
         sub / "d.xlsx",
         sub / "e.html",
+        sub / "f.markdown",
     ]
 
 
@@ -248,10 +249,89 @@ def test_cli_accepts_single_new_extension_file(tmp_path, ext):
     assert cli.collect_files(target) == [target]
 
 
-def test_cli_rejects_single_markdown_file(tmp_path):
+def test_cli_accepts_single_markdown_file(tmp_path):
+    """IR7.3 翻转：单文件 ``--path x.md`` 受理（不再报 unsupported）。"""
     cli = _load_cli()
-    target = tmp_path / "note.md"
-    target.write_text("# hi", encoding="utf-8")
+    for ext in (".md", ".markdown"):
+        target = tmp_path / f"note{ext}"
+        target.write_text("# hi", encoding="utf-8")
+        assert cli.collect_files(target) == [target]
 
-    with pytest.raises(cli.IngestPathError):
-        cli.collect_files(target)
+
+# ---------------------------------------------------------------------------
+# IR7.3：Markdown 路由
+# ---------------------------------------------------------------------------
+
+_MARKDOWN_NOTE = "# 标题\n\n这是足够长的一个段落，供切分器产出至少一个 chunk。\n"
+
+
+@pytest.mark.parametrize("ext", (".md", ".markdown"))
+def test_markdown_extension_routes_to_markdown_loader(tmp_path, ext):
+    store = FakeVectorStore()
+    pipeline, _ = _build_routing_pipeline(tmp_path, store)
+    source = tmp_path / f"note{ext}"
+    source.write_text(_MARKDOWN_NOTE, encoding="utf-8")
+
+    result = pipeline.run(str(source), collection="docs")
+
+    assert result.status == "success"
+    assert result.chunks > 0
+    assert isinstance(pipeline._resolve_loader(str(source)), MarkdownLoader)
+    records = list(store.records.values())
+    assert records
+    for rec in records:
+        assert rec.metadata["source_path"] == str(source)
+        assert rec.metadata["collection"] == "docs"
+        assert rec.metadata["doc_type"] == "markdown"
+
+
+def test_markdown_vault_root_follows_source_directory(tmp_path):
+    """vault_root = 源文件所在目录：不同目录的同扩展名文件各自解析相对
+    图片引用（MarkdownLoader 不按后缀缓存复用）。"""
+    store = FakeVectorStore()
+    pipeline, _ = _build_routing_pipeline(tmp_path, store)
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00pic\x00"
+    for dirname, note in (("first", "a.md"), ("second", "b.md")):
+        d = tmp_path / dirname
+        d.mkdir()
+        (d / "pic.png").write_bytes(png)
+        (d / note).write_text(f"![x](pic.png)\n\n段落正文，目录 {dirname}。\n", encoding="utf-8")
+
+    first = pipeline.run(str(tmp_path / "first" / "a.md"), collection="docs")
+    second = pipeline.run(str(tmp_path / "second" / "b.md"), collection="docs")
+
+    assert first.status == "success" and second.status == "success"
+    assert first.images == 1 and second.images == 1
+
+
+def test_unknown_extension_error_lists_markdown(tmp_path):
+    pipeline, _ = _build_routing_pipeline(tmp_path, FakeVectorStore())
+    source = tmp_path / "x.txt"
+    source.write_text("nope")
+
+    with pytest.raises(IngestionPipelineError, match=r"extension '\.txt'") as exc_info:
+        pipeline.run(str(source))
+
+    message = str(exc_info.value)
+    assert "'.md'" in message and "'.markdown'" in message
+
+
+def test_cli_ingests_single_markdown_file(tmp_path):
+    """单文件 ``--path x.md`` 经 CLI 可摄取（fake embedding，存储落 tmp_path）。"""
+    cli = _load_cli()
+    store = FakeVectorStore()
+    pipeline, _ = _build_routing_pipeline(tmp_path, store)
+    source = tmp_path / "note.md"
+    source.write_text(_MARKDOWN_NOTE, encoding="utf-8")
+    lines: list[str] = []
+
+    code = cli.main(
+        ["--path", str(source), "--collection", "docs"], pipeline=pipeline, out=lines.append
+    )
+
+    assert code == cli.EXIT_OK == 0
+    joined = "\n".join(lines)
+    assert "1 total | 1 ingested | 0 skipped | 0 failed" in joined
+    records = list(store.records.values())
+    assert records
+    assert all(rec.metadata["doc_type"] == "markdown" for rec in records)

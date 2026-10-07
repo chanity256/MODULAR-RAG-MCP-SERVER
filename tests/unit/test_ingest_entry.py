@@ -138,17 +138,27 @@ def test_collect_files_missing_path_raises():
 
 
 def test_collect_files_unsupported_single_file_raises(tmp_path):
+    txt = tmp_path / "note.txt"
+    txt.write_text("# hi")
+    with pytest.raises(cli.IngestPathError, match="unsupported file extension"):
+        cli.collect_files(txt)
+
+
+def test_collect_files_single_markdown_file_accepted(tmp_path):
+    """IR7.3：单文件 ``--path x.md`` 受理（此前 .md 未登记）。"""
     md = tmp_path / "note.md"
     md.write_text("# hi")
-    with pytest.raises(cli.IngestPathError, match="unsupported file extension"):
-        cli.collect_files(md)
+    assert cli.collect_files(md) == [md]
+    markdown = tmp_path / "note.markdown"
+    markdown.write_text("# hi")
+    assert cli.collect_files(markdown) == [markdown]
 
 
 def test_collect_files_directory_walk_sorted_and_filtered(tmp_path):
     (tmp_path / "b.pdf").write_bytes(b"b")
     (tmp_path / "a.PDF").write_bytes(b"a")  # 大小写不敏感
     (tmp_path / "notes.txt").write_text("ignore")
-    (tmp_path / "readme.md").write_text("ignore")
+    (tmp_path / "readme.md").write_text("collect (IR7.3 登记)")
     sub = tmp_path / "sub"
     sub.mkdir()
     (sub / "c.pdf").write_bytes(b"c")
@@ -160,6 +170,7 @@ def test_collect_files_directory_walk_sorted_and_filtered(tmp_path):
     assert files == [
         tmp_path / "a.PDF",
         tmp_path / "b.pdf",
+        tmp_path / "readme.md",
         sub / "c.pdf",
         sub / "deep" / "d.pdf",
     ]
@@ -169,9 +180,15 @@ def test_collect_files_empty_directory(tmp_path):
     assert cli.collect_files(tmp_path) == []
 
 
+# Note: 断言翻转史与哨兵迁移（.md 转正）— 见
+# .agents/notes/implemented/testing/2026-10-07-drift-guard-markdown-flip.md
 def test_supported_extensions_matches_pipeline_routing():
-    """drift guard：入口过滤集合必须与 pipeline Loader 路由一致。"""
+    """drift guard：入口过滤集合必须与 pipeline Loader 路由一致（IR7.3 起
+    含 Markdown 扩展名）。"""
+    assert ".md" in _SUPPORTED_EXTENSIONS
+    assert ".markdown" in _SUPPORTED_EXTENSIONS
     assert set(cli.SUPPORTED_EXTENSIONS) == set(_SUPPORTED_EXTENSIONS)
+    assert set(cli.SUPPORTED_EXTENSIONS) >= {".md", ".markdown"}
 
 
 # ---------------------------------------------------------------------------
@@ -365,10 +382,10 @@ def test_main_exit_two_missing_path(tmp_path):
 
 
 def test_main_exit_two_unsupported_single_file(tmp_path):
-    md = tmp_path / "note.md"
-    md.write_text("x")
+    txt = tmp_path / "note.txt"
+    txt.write_text("x")
     lines, emit = _capture()
-    code = cli.main(["--path", str(md)], pipeline=FakePipeline(), out=emit)
+    code = cli.main(["--path", str(txt)], pipeline=FakePipeline(), out=emit)
     assert code == 2
     assert "unsupported file extension" in "\n".join(lines)
 

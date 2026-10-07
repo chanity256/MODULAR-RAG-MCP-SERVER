@@ -240,7 +240,8 @@ def _docs_dir(tmp_path: Path) -> Path:
     docs.mkdir()
     _write_simple_pdf(docs / "simple.pdf")
     _write_pdf_with_images(docs / "with_images.pdf")
-    (docs / "notes.md").write_text("# 忽略的非支持扩展名文件")
+    # IR7.3 起 .md 已登记，不受支持扩展名的哨兵改用 .txt
+    (docs / "notes.txt").write_text("忽略的非支持扩展名文件")
     return docs
 
 

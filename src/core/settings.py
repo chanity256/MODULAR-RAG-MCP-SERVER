@@ -39,6 +39,7 @@ __all__ = [
     "IngestionConfig",
     "IngestionRetryConfig",
     "IngestionVersionPolicyConfig",
+    "IngestionSourceFiltersConfig",
     "resolve_ingestion_versions",
     "Settings",
     "load_settings",
@@ -245,6 +246,23 @@ class IngestionVersionPolicyConfig:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
+# Note: 过滤先于扩展名筛选等取舍 — 见
+# .agents/notes/implemented/feature/2026-10-07-source-filters-before-extension.md
+@dataclass
+class IngestionSourceFiltersConfig:
+    """目录扫描 include/exclude 过滤配置（INGESTION_ROBUSTNESS_SPEC 3.8.2，可选节）。
+
+    glob 列表语义：``include_patterns`` 空 = 全部受理；``exclude_patterns``
+    优先于 include。缺省 exclude 与 Obsidian 场景对齐，排除噪音目录。
+    """
+
+    include_patterns: list[str] = field(default_factory=list)
+    exclude_patterns: list[str] = field(
+        default_factory=lambda: [".obsidian/**", ".trash/**", "templates/**"]
+    )
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
 @dataclass
 class IngestionConfig:
     """Ingestion Pipeline 配置（可选节，缺失时走默认值）。"""
@@ -257,6 +275,9 @@ class IngestionConfig:
     retry: IngestionRetryConfig = field(default_factory=IngestionRetryConfig)
     version_policy: IngestionVersionPolicyConfig = field(
         default_factory=IngestionVersionPolicyConfig
+    )
+    source_filters: IngestionSourceFiltersConfig = field(
+        default_factory=IngestionSourceFiltersConfig
     )
     extra: dict[str, Any] = field(default_factory=dict)
 
@@ -546,11 +567,12 @@ def _build_ingestion(sec: dict[str, Any]) -> IngestionConfig:
         batch_size=raw_batch_size,
         retry=_build_ingestion_retry(sec.get("retry")),
         version_policy=_build_ingestion_version_policy(sec.get("version_policy")),
+        source_filters=_build_ingestion_source_filters(sec.get("source_filters")),
         extra=_extra(
             sec,
             {
                 "chunk_refiner", "metadata_enricher", "image_captioner", "batch_size",
-                "retry", "version_policy",
+                "retry", "version_policy", "source_filters",
             },
         ),
     )
@@ -616,6 +638,36 @@ def _build_ingestion_version_policy(raw: Any) -> IngestionVersionPolicyConfig:
     return IngestionVersionPolicyConfig(
         **versions,
         on_embedding_mismatch=on_mismatch,
+        extra=_extra(sec, known),
+    )
+
+
+def _build_ingestion_source_filters(raw: Any) -> IngestionSourceFiltersConfig:
+    """ingestion.source_filters 为可选节；整体或单字段缺失均走默认值。"""
+    sec = raw or {}
+    if not isinstance(sec, dict):
+        raise ConfigError("config section 'ingestion.source_filters' must be a mapping")
+    known = {"include_patterns", "exclude_patterns"}
+    fields: dict[str, list[str]] = {}
+    for key, default in (
+        ("include_patterns", []),
+        ("exclude_patterns", [".obsidian/**", ".trash/**", "templates/**"]),
+    ):
+        value = _opt(sec, key, default)
+        if not isinstance(value, list):
+            raise ConfigError(
+                f"config field 'ingestion.source_filters.{key}' must be a list of strings"
+            )
+        for item in value:
+            if not isinstance(item, str) or not item.strip():
+                raise ConfigError(
+                    f"config field 'ingestion.source_filters.{key}' "
+                    f"must contain non-empty strings, got {item!r}"
+                )
+        fields[key] = list(value)
+    return IngestionSourceFiltersConfig(
+        include_patterns=fields["include_patterns"],
+        exclude_patterns=fields["exclude_patterns"],
         extra=_extra(sec, known),
     )
 
