@@ -27,7 +27,8 @@ import sys
 import time
 from pathlib import Path
 
-DEFAULT_FIXTURE = Path(__file__).resolve().parents[2] / "tests/fixtures/agentic/golden_questions.json"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_FIXTURE = REPO_ROOT / "tests/fixtures/agentic/golden_questions.json"
 # Golden 问题的期望来源覆盖 src/ 与根目录文档（仓库自身代码语料，spec S0.2 三类问题），
 # 故旁路对比以仓库根为检索根；rg/rga 遵循 .gitignore，自动排除 .venv*/data/db 等非语料目录。
 DEFAULT_ROOTS = ["."]
@@ -48,7 +49,41 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--repo-root", default=".", help="Resolve relative expected_sources against this root")
     parser.add_argument("--mode", default="FAST", choices=["FAST", "DEEP"])
     parser.add_argument("--out", default=None, help="Write Markdown report to this file")
+    parser.add_argument("--json-out", default=None, help="Write per-question rows (incl. telemetry) as JSON")
     return parser
+
+
+def _parse_telemetry(data: dict, mode: str) -> dict | None:
+    """复用主项目 converter 的白名单解析（SX1），与 MCP 工具口径一致。"""
+    src = str(REPO_ROOT / "src")
+    if src not in sys.path:
+        sys.path.insert(0, src)
+    from libs.agentic_search.converter import parse_search_context
+
+    try:
+        return parse_search_context(data, mode=mode).telemetry
+    except Exception:  # 旁路对比：解析失败只丢 telemetry，不丢该行
+        return None
+
+
+def extract_metrics(data: dict, mode: str) -> dict:
+    """从 sidecar ``data`` 抽取对比所需字段；``llm_call_count`` 优先取 telemetry。"""
+    cluster = data.get("cluster") or {}
+    evidence_files = [
+        e.get("file_or_url") for e in (cluster.get("evidences") or []) if isinstance(e, dict)
+    ]
+    telemetry = _parse_telemetry(data, mode)
+    llm_calls = telemetry.get("llm_call_count") if telemetry else None
+    if llm_calls is None:
+        usages = data.get("llm_usages")
+        llm_calls = len(usages) if isinstance(usages, list) else None
+    return {
+        "answer": str(data.get("answer") or ""),
+        "evidence_files": [str(e) for e in evidence_files if e],
+        "llm_call_count": llm_calls,
+        "total_llm_tokens": data.get("total_llm_tokens"),
+        "telemetry": telemetry,
+    }
 
 
 def source_hit(expected: list[str], evidence_files: list[str], repo_root: str) -> bool:
@@ -82,9 +117,10 @@ def run(base_url: str, token: str | None, fixture_path: str, repo_root: str, mod
             started = time.perf_counter()
             wall_started = time.time()
             error = None
-            answer = ""
-            evidence_files: list[str] = []
-            llm_calls = tokens = None
+            metrics = {
+                "answer": "", "evidence_files": [], "llm_call_count": None,
+                "total_llm_tokens": None, "telemetry": None,
+            }
             try:
                 resp = client.post(
                     f"{base_url.rstrip('/')}/api/v1/search",
@@ -94,19 +130,14 @@ def run(base_url: str, token: str | None, fixture_path: str, repo_root: str, mod
                         "response_format": "context",
                         "paths": [str((Path(repo_root) / r).resolve()) for r in DEFAULT_ROOTS],
                         "exclude_patterns": EXCLUDE_PATTERNS,
+                        # 与 http_backend._build_payload 口径一致（SX2）
+                        "enable_dir_scan": True,
+                        "llm_fallback": False,
                     },
                     headers=headers,
                 )
                 resp.raise_for_status()
-                data = resp.json().get("data") or {}
-                answer = str(data.get("answer") or "")
-                cluster = data.get("cluster") or {}
-                evidence_files = [
-                    e.get("file_or_url") for e in (cluster.get("evidences") or []) if isinstance(e, dict)
-                ]
-                usages = data.get("llm_usages")
-                llm_calls = len(usages) if isinstance(usages, list) else None
-                tokens = data.get("total_llm_tokens")
+                metrics = extract_metrics(resp.json().get("data") or {}, mode)
             except Exception as exc:  # 旁路对比逐条隔离
                 error = f"{type(exc).__name__}: {exc}"
             elapsed = round((time.perf_counter() - started) * 1000, 1)
@@ -116,14 +147,17 @@ def run(base_url: str, token: str | None, fixture_path: str, repo_root: str, mod
                     "id": question["id"],
                     "category": question["category"],
                     "query": question["query"],
-                    "hit": source_hit(question.get("expected_sources", []), evidence_files, repo_root),
-                    "evidence_files": [str(e) for e in evidence_files],
-                    "llm_call_count": llm_calls,
-                    "total_llm_tokens": tokens,
+                    "mode": mode,
+                    "hit": source_hit(question.get("expected_sources", []), metrics["evidence_files"], repo_root),
+                    "evidence_files": metrics["evidence_files"],
+                    "llm_call_count": metrics["llm_call_count"],
+                    "total_llm_tokens": metrics["total_llm_tokens"],
+                    "telemetry": metrics["telemetry"],
                     "elapsed_ms": elapsed,
                     "wall_elapsed_ms": wall_elapsed,
                     "sleep_suspected": sleep_suspected(elapsed, wall_elapsed),
-                    "answer_preview": answer[:160],
+                    "answer_preview": metrics["answer"][:160],
+                    "answer": metrics["answer"],
                     "error": error,
                 }
             )
@@ -169,6 +203,8 @@ def main(argv: list[str] | None = None) -> int:
     print(report)
     if args.out:
         Path(args.out).write_text(report + "\n", encoding="utf-8")
+    if args.json_out:
+        Path(args.json_out).write_text(json.dumps(rows, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return 1 if any(r["error"] for r in rows) else 0
 
 
