@@ -35,6 +35,7 @@
 | 文档 | 说明 |
 |------|------|
 | [OBSIDIAN_RAG_SPEC.md](backlog/OBSIDIAN_RAG_SPEC.md) | Obsidian Vault RAG 扩展规格（V 系列；v0.2 起 M1/M2 Markdown 摄取已移交 IR 规格 IR7，本规格保留 M3 sentence-transformers / M4 Semantic Walk 待排期） |
+| [dashboard-api-migration.md](backlog/dashboard-api-migration.md) | Dashboard 前后端分离迁移提案（Vue 3 + Vite + FastAPI；自 FUTURE_OPTIMIZATION_ROADMAP 原第 1–5 章拆分，含决策三问、目标架构与 P1–P6 实施包） |
 
 ## reference/ — 使用参考
 
@@ -43,4 +44,4 @@
 | 文档 | 说明 |
 |------|------|
 | [USAGE_GUIDE.md](reference/USAGE_GUIDE.md) | 项目使用指南：主项目用法、Sirchmunk sidecar 搭建与日常启动、常见问题排查、安全边界 |
-| [FUTURE_OPTIMIZATION_ROADMAP.md](reference/FUTURE_OPTIMIZATION_ROADMAP.md) | 后续优化路线图：Dashboard 前后端分离迁移及其他候选方向（含第 10 章决策原则） |
+| [FUTURE_OPTIMIZATION_ROADMAP.md](reference/FUTURE_OPTIMIZATION_ROADMAP.md) | 后续优化路线图：候选优化方向与决策纪律（Dashboard 前后端分离迁移已拆分至 [backlog/dashboard-api-migration.md](backlog/dashboard-api-migration.md)，见其 6.10；含第 10 章决策原则） |
