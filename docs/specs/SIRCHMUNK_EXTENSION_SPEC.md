@@ -257,7 +257,7 @@ SX1 是 SX3/SX4 的前置，因为两者的成本与复用判定都依赖 teleme
 |------|------|------|----------|------|
 | SX0.1 | gap analysis 升 v0.2（telemetry/复用成本/演化不可达三处修正；补树门槛与编译覆盖面修正） | [x] | 2026-10-13 | |
 | SX0.2 | 冻结规格 3.2/4.1 勘误注记 | [x] | 2026-10-13 | |
-| SX0.3 | 新建 `golden_questions_docs.json`（3–4 道文档类题，答案只在 `README.md`/`docs/**/*.md`），与 Q3/Q4 合成编译可覆盖子集；原 `golden_questions.json` 不动 | [ ] | | |
+| SX0.3 | 新建 `golden_questions_docs.json`（3–4 道文档类题，答案只在 `README.md`/`docs/**/*.md`），与 Q3/Q4 合成编译可覆盖子集；原 `golden_questions.json` 不动 | [x] | 2026-10-13 | D1–D4（来源：MICROSERVICES_ANALYSIS、INGESTION_ROBUSTNESS×2、README，均 >3,000 字符，答案唯一性经 rg 核实）。裸 rg 词法下限 4/4，但每题 rg 命中 184–229/243 个文件，无区分度：编译在本子集只能比成本/精度，不能比命中率。结果存 `scripts/sirchmunk/rg_baseline_docs_results.json`（已在泄题排除 glob 内） |
 | SX0.4 | 基线固化：复用关闭、知识簇存储为空，两个 fixture 各跑 FAST/DEEP，每题 ×3，逐题命中/耗时/token 入档 | [ ] | | 门控 `RAG_AGENTIC_INTEGRATION=1`；泄题排除口径已变更，见下方备注 |
 | SX1.1 | `AgenticSearchResponse.telemetry` 契约 + converter 白名单解析 + retrieval_logs 降维 | [ ] | | |
 | SX1.2 | tool trace `record_stage` metadata + Dashboard `_render_agentic_meta` 增块 | [ ] | | |
