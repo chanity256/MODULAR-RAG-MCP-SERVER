@@ -34,6 +34,10 @@ DEFAULT_ROOTS = ["."]
 # macOS 上 perf_counter（mach_absolute_time）在系统睡眠期间不走，time.time() 照走；
 # 两者差值超过阈值说明调用期间发生过睡眠/挂起，该条耗时不可信（S0 Q6 473s 即此情况）。
 SLEEP_SUSPECT_THRESHOLD_S = 5.0
+# 泄题排除：问题集 fixtures 本身，以及入库的历史结果文件（含题面与 expected_sources）。
+# 字段名必须是 exclude_patterns（上游 SearchRequest），FastAPI 会静默丢弃未知字段。
+# 与 rg_baseline.py 的 EXCLUDE_GLOBS 保持同一口径。
+EXCLUDE_PATTERNS = ["tests/fixtures/**", "scripts/sirchmunk/*results*"]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -89,9 +93,7 @@ def run(base_url: str, token: str | None, fixture_path: str, repo_root: str, mod
                         "mode": mode,
                         "response_format": "context",
                         "paths": [str((Path(repo_root) / r).resolve()) for r in DEFAULT_ROOTS],
-                        # 排除 golden 问题集自身等 fixtures：问题/期望来源在语料中会污染召回（泄题）。
-                        # 字段名必须是 exclude_patterns（上游 SearchRequest），FastAPI 会静默丢弃未知字段。
-                        "exclude_patterns": ["tests/fixtures/**"],
+                        "exclude_patterns": EXCLUDE_PATTERNS,
                     },
                     headers=headers,
                 )

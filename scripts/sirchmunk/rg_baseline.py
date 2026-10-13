@@ -8,7 +8,8 @@
 若 rg 基线命中明显高于 sidecar（复测 2/6），则 sidecar 增益论证不成立。
 
 口径与 compare.py 对齐：
-- 检索根 = 仓库根，``-g '!tests/fixtures/**'`` 排除问题集自身（防泄题）；
+- 检索根 = 仓库根，``-g '!tests/fixtures/**'`` 排除问题集自身、``-g '!scripts/sirchmunk/*results*'``
+  排除含题面的历史结果文件（防泄题）；
 - rg 默认遵循 .gitignore（data/、cache/、logs/ 等自动排除）；
 - 命中判定（source 级）：该题全部 ``expected_sources`` 中出现在 rg 文件列表
   的比例 ≥ 50% 记命中，同时输出逐文件明细。
@@ -30,8 +31,8 @@ from pathlib import Path
 DEFAULT_FIXTURE = Path(__file__).resolve().parents[2] / "tests/fixtures/agentic/golden_questions.json"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# 与 compare.py 相同的泄题排除口径
-EXCLUDE_GLOBS = ["tests/fixtures/**"]
+# 与 compare.py 的 EXCLUDE_PATTERNS 相同的泄题排除口径（问题集 + 入库的历史结果文件）
+EXCLUDE_GLOBS = ["tests/fixtures/**", "scripts/sirchmunk/*results*"]
 
 # 确定性停用词（疑问词/功能词）。刻意保持极小：基线越朴素越有说服力。
 STOPWORDS = {
