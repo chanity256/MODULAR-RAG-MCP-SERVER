@@ -246,6 +246,7 @@ class AgenticSearchTool:
             llm_call_count=response.llm_call_count,
             total_llm_tokens=response.total_llm_tokens,
             elapsed_ms=response.elapsed_ms,
+            telemetry=response.telemetry,
         )
         results = evidence_to_retrieval_results(filtered, top_k=top_k)
         tool_result = self._response_builder.build(results, query)
@@ -258,6 +259,7 @@ class AgenticSearchTool:
             "confidence": response.confidence,
             "elapsed_ms": response.elapsed_ms,
             "evidence_files": filtered.source_files,
+            "telemetry": response.telemetry,
         }
         structured = tool_result.setdefault("structuredContent", {})
         structured["agentic"] = agentic_meta
@@ -285,6 +287,7 @@ class AgenticSearchTool:
                 "llm_call_count": response.llm_call_count,
                 "total_llm_tokens": response.total_llm_tokens,
                 "elapsed_ms": response.elapsed_ms,
+                "agentic_telemetry": response.telemetry,
             },
         )
         trace.finish()

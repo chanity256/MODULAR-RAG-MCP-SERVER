@@ -259,9 +259,9 @@ SX1 是 SX3/SX4 的前置，因为两者的成本与复用判定都依赖 teleme
 | SX0.2 | 冻结规格 3.2/4.1 勘误注记 | [x] | 2026-10-13 | |
 | SX0.3 | 新建 `golden_questions_docs.json`（3–4 道文档类题，答案只在 `README.md`/`docs/**/*.md`），与 Q3/Q4 合成编译可覆盖子集；原 `golden_questions.json` 不动 | [x] | 2026-10-13 | D1–D4（来源：MICROSERVICES_ANALYSIS、INGESTION_ROBUSTNESS×2、README，均 >3,000 字符，答案唯一性经 rg 核实）。裸 rg 词法下限 4/4，但每题 rg 命中 184–229/243 个文件，无区分度：编译在本子集只能比成本/精度，不能比命中率。结果存 `scripts/sirchmunk/rg_baseline_docs_results.json`（已在泄题排除 glob 内） |
 | SX0.4 | 基线固化：复用关闭、知识簇存储为空，两个 fixture 各跑 FAST/DEEP，每题 ×3，逐题命中/耗时/token 入档 | [ ] | | 门控 `RAG_AGENTIC_INTEGRATION=1`；泄题排除口径已变更，见下方备注 |
-| SX1.1 | `AgenticSearchResponse.telemetry` 契约 + converter 白名单解析 + retrieval_logs 降维 | [ ] | | |
-| SX1.2 | tool trace `record_stage` metadata + Dashboard `_render_agentic_meta` 增块 | [ ] | | |
-| SX1.3 | 新契约 fixture + 离线单测（键缺失容忍） | [ ] | | |
+| SX1.1 | `AgenticSearchResponse.telemetry` 契约 + converter 白名单解析 + retrieval_logs 降维 | [x] | 2026-10-13 | 上游复核仍为 `b314e11`。`converter._parse_telemetry`：固定键之外只收布尔机制标记（上游 ad-hoc 字段含答案片段等字符串，不进 trace）；`llm_call_count` 改为优先读顶层同名固定键，缺失才回退 `len(llm_usages)`；无任何 telemetry 信号键时为 `None`（只有 `llm_usages` 不算） |
+| SX1.2 | tool trace `record_stage` metadata + Dashboard `_render_agentic_meta` 增块 | [x] | 2026-10-13 | `record_stage` 的 `details.agentic_telemetry`；`structuredContent.agentic.telemetry` 同步透出（Dashboard 经此读取）；在线检索页新增「Sidecar telemetry」折叠键值表，附「零 LLM 路径≠复用命中」说明 |
+| SX1.3 | 新契约 fixture + 离线单测（键缺失容忍） | [x] | 2026-10-13 | `tests/fixtures/agentic/contract_response_telemetry.json`（按 `to_dict()` 字面量构造，含一个字符串 ad-hoc 键验证排除）；converter/backend/tool/Dashboard 冒烟共 +23 用例，全量离线 1593 通过 / 3 跳过。真实 sidecar 非空校验归 5.2 门控，随 SX0.4 一并执行 |
 | SX2.1 | `AgenticSearchConfig` 新键 + settings 解析 + `_build_payload` 透传 + `llm_fallback=false` | [ ] | | |
 | SX2.2 | 配置校验与 payload 单测 | [ ] | | |
 | SX3.1 | `scripts/sirchmunk/compile.sh`（停机护栏 + 路径护栏 + status/lint/shallow/full 模式） | [ ] | | |

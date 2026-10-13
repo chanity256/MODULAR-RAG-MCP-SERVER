@@ -133,3 +133,16 @@ class TestContractFixture:
         ]
         assert response.evidences[0].char_start == 120 and response.evidences[0].char_end == 180
         assert response.evidences[1].snippet == "plain-string snippet from FAST path"
+
+
+class TestTelemetryContractFixture:
+    def test_http_backend_surfaces_telemetry(self):
+        """SX1：telemetry 契约 fixture 经 HTTP 后端端到端解析（MockTransport，离线）。"""
+        fixture_path = Path(__file__).resolve().parents[1] / "fixtures/agentic/contract_response_telemetry.json"
+        body = json.loads(fixture_path.read_text(encoding="utf-8"))
+        response = _backend(lambda request: httpx.Response(200, json=body)).search(_request())
+        assert response.telemetry is not None
+        assert response.telemetry["loop_count"] == 2
+        assert response.telemetry["retrieval_tool_counts"] == {"deep_file_extract": 1, "keyword_search": 2}
+        assert response.telemetry["self_correct_entered"] is True
+        assert response.elapsed_ms is not None

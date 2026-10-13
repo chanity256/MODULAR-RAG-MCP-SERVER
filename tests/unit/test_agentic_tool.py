@@ -236,3 +236,40 @@ class TestRegistration:
             {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": TOOL_NAME, "arguments": {"query": "q"}}}
         )
         assert response["result"]["structuredContent"]["agentic"]["mode"] == "FAST"
+
+
+_TELEMETRY = {
+    "loop_count": 2,
+    "llm_call_count": 3,
+    "retrieval_tool_counts": {"keyword_search": 2},
+    "zero_llm_path": False,
+    "self_correct_entered": True,
+}
+
+
+def _telemetry_tool(env, telemetry) -> AgenticSearchTool:
+    fake = FakeAgenticSearch(
+        evidences=[AgenticEvidence(source_path=str(env["docs"] / "a.md"), snippet="s", score=0.9)],
+        source_files=[str(env["docs"] / "a.md")],
+        telemetry=telemetry,
+    )
+    return AgenticSearchTool(search=fake, settings=env["settings"])
+
+
+class TestTelemetryTrace:
+    def test_trace_details_carry_agentic_telemetry(self, env):
+        _telemetry_tool(env, _TELEMETRY)({"query": "telemetry?"})
+        trace = json.loads(Path(env["log_file"]).read_text(encoding="utf-8").strip().splitlines()[-1])
+        stage = next(s for s in trace["stages"] if s["stage"] == "agentic_search")
+        assert stage["details"]["agentic_telemetry"] == _TELEMETRY
+
+    def test_trace_telemetry_none_when_absent(self, env):
+        _telemetry_tool(env, None)({"query": "no telemetry"})
+        trace = json.loads(Path(env["log_file"]).read_text(encoding="utf-8").strip().splitlines()[-1])
+        stage = next(s for s in trace["stages"] if s["stage"] == "agentic_search")
+        assert stage["details"]["agentic_telemetry"] is None
+
+    def test_structured_agentic_block_has_telemetry(self, env):
+        result = _telemetry_tool(env, _TELEMETRY)({"query": "q"})
+        assert result["structuredContent"]["agentic"]["telemetry"] == _TELEMETRY
+        json.dumps(result)  # structuredContent 必须 JSON 可序列化

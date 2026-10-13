@@ -37,6 +37,7 @@ class FakeAgenticSearch(BaseAgenticSearch):
         source_files: Sequence[str] | None = None,
         llm_call_count: int | None = 2,
         total_llm_tokens: int | None = 1024,
+        telemetry: dict[str, Any] | None = None,
         error: Exception | None = None,
     ) -> None:
         """Args:
@@ -62,6 +63,7 @@ class FakeAgenticSearch(BaseAgenticSearch):
         self._source_files = list(source_files) if source_files is not None else ["fake/doc.md"]
         self._llm_call_count = llm_call_count
         self._total_llm_tokens = total_llm_tokens
+        self._telemetry = dict(telemetry) if telemetry is not None else None
         self._error = error
         self.last_request: AgenticSearchRequest | None = None
 
@@ -81,4 +83,5 @@ class FakeAgenticSearch(BaseAgenticSearch):
             confidence=0.85,
             llm_call_count=self._llm_call_count,
             total_llm_tokens=self._total_llm_tokens,
+            telemetry=dict(self._telemetry) if self._telemetry is not None else None,
         )

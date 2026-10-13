@@ -535,6 +535,42 @@ def test_query_playground_deep_outcome_meta(tmp_path):
     assert "/tmp/docs/a.md" in all_text
 
 
+def test_query_playground_telemetry_block(tmp_path):
+    """SX1.2：agentic_meta.telemetry 渲染为键值表；降维计数展平显示。"""
+    outcome = (
+        "SearchOutcome(mode='deep', markdown='agentic md', citations=[], elapsed_ms=10.0, "
+        "agentic_meta={'mode': 'DEEP', 'telemetry': {'loop_count': 2, 'budget_remaining': None, "
+        "'retrieval_tool_counts': {'keyword_search': 2}, 'zero_llm_path': False, "
+        "'self_correct_entered': True}})"
+    )
+    driver = _playground_driver(tmp_path, "playground_telemetry", f"FakeSearchService(outcome={outcome})")
+    at = _run(driver)
+    at.button(key="qp_btn_deep").click().run()
+    at.text_input(key="qp_query").set_value("telemetry").run()
+    at.button(key="qp_run").click().run()
+    assert not at.exception
+    tables = "\n".join(t.value.to_string() for t in at.table)
+    assert "loop_count" in tables
+    assert "keyword_search: 2" in tables
+    assert "self_correct_entered" in tables
+    assert "—" in tables  # None 值显示占位
+
+
+def test_query_playground_no_telemetry_block(tmp_path):
+    """无 telemetry（旧 sidecar / 裁剪响应）：不渲染 telemetry 表，页面正常。"""
+    outcome = (
+        "SearchOutcome(mode='fast', markdown='agentic md', citations=[], elapsed_ms=10.0, "
+        "agentic_meta={'mode': 'FAST', 'telemetry': None})"
+    )
+    driver = _playground_driver(tmp_path, "playground_no_telemetry", f"FakeSearchService(outcome={outcome})")
+    at = _run(driver)
+    at.button(key="qp_btn_fast").click().run()
+    at.text_input(key="qp_query").set_value("q").run()
+    at.button(key="qp_run").click().run()
+    assert not at.exception
+    assert not any("loop_count" in t.value.to_string() for t in at.table)
+
+
 def test_query_playground_error_display(tmp_path):
     """isError 结果：st.error 友好提示，页面不崩溃。"""
     outcome = (

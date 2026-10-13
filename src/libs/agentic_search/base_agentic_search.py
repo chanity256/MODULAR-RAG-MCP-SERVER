@@ -140,10 +140,15 @@ class AgenticSearchResponse:
     llm_call_count: int | None = None
     total_llm_tokens: int | None = None
     elapsed_ms: float | None = None
+    # sidecar 顶层 telemetry 的白名单投影（SX1，见 converter._parse_telemetry）；
+    # 上游未回传任何 telemetry 键时为 None。
+    telemetry: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.answer, str):
             raise ValueError("answer must be a string")
+        if self.telemetry is not None and not isinstance(self.telemetry, dict):
+            raise ValueError("telemetry must be a dict or None")
         for e in self.evidences:
             if not isinstance(e, AgenticEvidence):
                 raise ValueError("evidences must contain AgenticEvidence instances")
@@ -158,6 +163,7 @@ class AgenticSearchResponse:
             "llm_call_count": self.llm_call_count,
             "total_llm_tokens": self.total_llm_tokens,
             "elapsed_ms": self.elapsed_ms,
+            "telemetry": dict(self.telemetry) if self.telemetry is not None else None,
         }
 
 

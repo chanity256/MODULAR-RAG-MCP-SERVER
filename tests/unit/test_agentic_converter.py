@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from libs.agentic_search.base_agentic_search import (
@@ -156,3 +159,128 @@ class TestEvidenceToRetrievalResults:
         response = parse_search_context(_context_data())
         results = evidence_to_retrieval_results(response)
         assert results[0].text == "k1=1.5, b=0.75"
+
+
+# --------------------------------------------------------------------- #
+# SX1：顶层 telemetry 白名单解析
+# --------------------------------------------------------------------- #
+
+_TELEMETRY_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures/agentic/contract_response_telemetry.json"
+
+
+def _telemetry_data() -> dict:
+    return json.loads(_TELEMETRY_FIXTURE.read_text(encoding="utf-8"))["data"]
+
+
+class TestTelemetry:
+    def test_fixture_shape_locked(self):
+        """契约 fixture 锁 telemetry shape（上游 b314e11 to_dict() 顶层合并）。"""
+        response = parse_search_context(_telemetry_data(), mode="DEEP")
+        assert response.telemetry == {
+            "loop_count": 2,
+            "max_loops": 6,
+            "budget_remaining": 26880,
+            "llm_call_count": 3,
+            "read_file_count": 2,
+            "search_history_len": 2,
+            "retrieval_tool_counts": {"deep_file_extract": 1, "keyword_search": 2},
+            "zero_llm_path": False,
+            "loop_hygiene_rescue_used": True,
+            "self_correct_entered": True,
+        }
+        assert response.total_llm_tokens == 5120
+        assert response.llm_call_count == 3
+        assert response.to_dict()["telemetry"] == response.telemetry
+
+    def test_total_llm_tokens_not_duplicated(self):
+        telemetry = parse_search_context(_telemetry_data()).telemetry
+        assert "total_llm_tokens" not in telemetry
+
+    def test_raw_logs_and_ad_hoc_strings_not_exported(self):
+        telemetry = parse_search_context(_telemetry_data()).telemetry
+        for key in ("retrieval_logs", "read_file_ids", "search_history", "llm_usages",
+                    "computation_answer_before", "start_time", "answer", "cluster"):
+            assert key not in telemetry
+
+    def test_absent_when_no_telemetry_keys(self):
+        """裁剪 fixture（只有 llm_usages）不伪造 telemetry。"""
+        assert parse_search_context(_context_data()).telemetry is None
+        assert parse_search_context({"answer": "a"}).telemetry is None
+
+    def test_flag_alone_enables_telemetry(self):
+        telemetry = parse_search_context({"answer": "a", "fallback_best_candidate": True}).telemetry
+        assert telemetry is not None
+        assert telemetry["fallback_best_candidate"] is True
+        assert telemetry["loop_count"] is None
+        assert telemetry["zero_llm_path"] is None
+
+    def test_llm_call_count_key_preferred_over_usages(self):
+        data = {"answer": "a", "llm_call_count": 5, "llm_usages": [{}], "loop_count": 1}
+        response = parse_search_context(data)
+        assert response.llm_call_count == 5
+        assert response.telemetry["llm_call_count"] == 5
+
+    def test_llm_call_count_falls_back_to_usages(self):
+        response = parse_search_context({"answer": "a", "llm_usages": [{}, {}], "loop_count": 1})
+        assert response.telemetry["llm_call_count"] == 2
+
+    @pytest.mark.parametrize(
+        ("llm_calls", "loops", "expected"),
+        [
+            pytest.param(0, 0, True, id="zero-zero"),
+            pytest.param(0, 1, False, id="loop-without-llm"),
+            pytest.param(2, 0, False, id="llm-without-loop"),
+        ],
+    )
+    def test_zero_llm_path(self, llm_calls, loops, expected):
+        data = {"answer": "a", "llm_call_count": llm_calls, "loop_count": loops}
+        assert parse_search_context(data).telemetry["zero_llm_path"] is expected
+
+    @pytest.mark.parametrize(
+        "data",
+        [
+            pytest.param({"answer": "a", "loop_count": 0}, id="llm-count-missing"),
+            pytest.param({"answer": "a", "llm_call_count": 0}, id="loop-count-missing"),
+            pytest.param({"answer": "a", "llm_call_count": 0, "loop_count": "0"}, id="loop-count-malformed"),
+        ],
+    )
+    def test_zero_llm_path_unknown_when_key_missing(self, data):
+        assert parse_search_context(data).telemetry["zero_llm_path"] is None
+
+    def test_malformed_values_tolerated(self):
+        data = {
+            "answer": "a",
+            "loop_count": True,  # bool 不当作 int
+            "max_loops": "6",
+            "budget_remaining": None,
+            "read_file_ids": "not-a-list",
+            "search_history": {"q": 1},
+            "retrieval_logs": [
+                {"tool_name": "keyword_search"},
+                {"tool_name": ""},
+                {"tool_name": 3},
+                "garbage",
+                {"no_tool": True},
+            ],
+        }
+        telemetry = parse_search_context(data).telemetry  # 恒不抛
+        assert telemetry["loop_count"] is None
+        assert telemetry["max_loops"] is None
+        assert telemetry["budget_remaining"] is None
+        assert telemetry["read_file_count"] is None
+        assert telemetry["search_history_len"] is None
+        assert telemetry["retrieval_tool_counts"] == {"keyword_search": 1}
+
+    def test_retrieval_logs_not_list(self):
+        telemetry = parse_search_context({"answer": "a", "retrieval_logs": "x"}).telemetry
+        assert telemetry["retrieval_tool_counts"] is None
+
+    def test_non_bool_ad_hoc_keys_ignored(self):
+        data = {"answer": "a", "loop_count": 1, "bridge_query": "text", "early_exit_round": 2}
+        telemetry = parse_search_context(data).telemetry
+        assert "bridge_query" not in telemetry
+        assert "early_exit_round" not in telemetry
+
+    def test_response_rejects_non_dict_telemetry(self):
+        with pytest.raises(ValueError, match="telemetry"):
+            AgenticSearchResponse(answer="a", telemetry=["bad"])  # type: ignore[arg-type]

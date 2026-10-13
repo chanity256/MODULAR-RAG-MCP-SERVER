@@ -1,0 +1,45 @@
+{
+  "_comment": "SX1.3 契约 fixture（SIRCHMUNK_EXTENSION_SPEC 3.2 / 4.1）：按上游 b314e11 SearchContext.to_dict() 构造的 /api/v1/search (response_format=context) 响应投影。固定键 = to_dict() payload 字面量；其后为 context.telemetry 经 setdefault 合并进顶层的机制标记（布尔）与 ad-hoc 字段（computation_answer_before 是字符串，解析器不得收录）。上游升级时若断言失败 = telemetry 契约漂移，需复核 schema/search_context.py。",
+  "success": true,
+  "data": {
+    "answer": "Chunk ids flow from DocumentChunker into both stores.",
+    "cluster": {
+      "confidence": 0.72,
+      "search_results": ["src/ingestion/chunking/document_chunker.py"],
+      "evidences": [
+        {
+          "file_or_url": "src/ingestion/chunking/document_chunker.py",
+          "summary": "chunk id generation",
+          "snippets": [
+            {"snippet": "chunk_id = f\"{doc_id}_{index}_{digest}\"", "start": 40, "end": 82, "score": 0.77, "reasoning": "id format"}
+          ]
+        }
+      ]
+    },
+    "max_token_budget": 32000,
+    "max_loops": 6,
+    "total_llm_tokens": 5120,
+    "budget_remaining": 26880,
+    "llm_call_count": 3,
+    "llm_usages": [
+      {"total_tokens": 2048},
+      {"total_tokens": 2048},
+      {"total_tokens": 1024}
+    ],
+    "read_file_ids": [
+      "src/ingestion/chunking/document_chunker.py",
+      "src/ingestion/storage/bm25_indexer.py"
+    ],
+    "retrieval_logs": [
+      {"tool_name": "keyword_search", "tokens": 0, "timestamp": "2026-10-13T10:00:00", "metadata": {"keywords": ["chunk_id"]}},
+      {"tool_name": "keyword_search", "tokens": 0, "timestamp": "2026-10-13T10:00:01", "metadata": {"keywords": ["upsert"]}},
+      {"tool_name": "deep_file_extract", "tokens": 1024, "timestamp": "2026-10-13T10:00:03", "metadata": {"file": "src/ingestion/chunking/document_chunker.py"}}
+    ],
+    "search_history": ["chunk_id DocumentChunker", "vector upsert chunk id"],
+    "loop_count": 2,
+    "start_time": "2026-10-13T10:00:00",
+    "self_correct_entered": true,
+    "loop_hygiene_rescue_used": true,
+    "computation_answer_before": "previous answer excerpt"
+  }
+}

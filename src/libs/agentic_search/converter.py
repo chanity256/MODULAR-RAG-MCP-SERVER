@@ -64,13 +64,88 @@ def _parse_snippet(raw: Any) -> tuple[str, int | None, int | None, float | None]
     raise AgenticSearchResponseError(f"snippet must be str or dict, got {type(raw).__name__}")
 
 
+#: ``SearchContext.to_dict()`` 的固定键（上游 ``schema/search_context.py``）。
+#: 其余顶层键来自 ``context.telemetry`` 的 ``setdefault`` 合并（SX 4.1）。
+_CONTEXT_FIXED_KEYS = frozenset(
+    {
+        "answer", "cluster", "max_token_budget", "max_loops", "total_llm_tokens",
+        "budget_remaining", "llm_call_count", "llm_usages", "read_file_ids",
+        "retrieval_logs", "search_history", "loop_count", "start_time",
+    }
+)
+
+#: 任一出现即视为上游回传了 telemetry（``llm_usages`` 不算：裁剪 fixture 也带它）。
+_TELEMETRY_SIGNAL_KEYS = (
+    "loop_count", "max_loops", "budget_remaining", "llm_call_count",
+    "read_file_ids", "search_history", "retrieval_logs",
+)
+
+
+def _resolve_llm_call_count(data: dict[str, Any]) -> int | None:
+    count = _as_int(data.get("llm_call_count"))
+    if count is not None:
+        return count
+    usages = data.get("llm_usages")
+    return len(usages) if isinstance(usages, list) else None
+
+
+def _retrieval_tool_counts(raw: Any) -> dict[str, int] | None:
+    """``retrieval_logs`` 降维为 ``{tool_name: n}``，原文不进 trace。"""
+    if not isinstance(raw, list):
+        return None
+    counts: dict[str, int] = {}
+    for log in raw:
+        if isinstance(log, dict) and isinstance(log.get("tool_name"), str) and log["tool_name"]:
+            counts[log["tool_name"]] = counts.get(log["tool_name"], 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _parse_telemetry(data: dict[str, Any]) -> dict[str, Any] | None:
+    """白名单收集顶层 telemetry（SX1，spec 3.2）；恒不抛。
+
+    ``total_llm_tokens`` 已在响应主字段解析，不重复收录。非固定键只收
+    布尔值的机制标记：上游 ad-hoc 字段里还有答案片段等字符串，不进 trace。
+    """
+    flags = {
+        key: value
+        for key, value in data.items()
+        if key not in _CONTEXT_FIXED_KEYS and isinstance(key, str) and isinstance(value, bool)
+    }
+    if not flags and not any(key in data for key in _TELEMETRY_SIGNAL_KEYS):
+        return None
+
+    loop_count = _as_int(data.get("loop_count"))
+    llm_call_count = _resolve_llm_call_count(data)
+    read_file_ids = data.get("read_file_ids")
+    search_history = data.get("search_history")
+    telemetry: dict[str, Any] = {
+        "loop_count": loop_count,
+        "max_loops": _as_int(data.get("max_loops")),
+        "budget_remaining": _as_int(data.get("budget_remaining")),
+        "llm_call_count": llm_call_count,
+        "read_file_count": len(read_file_ids) if isinstance(read_file_ids, list) else None,
+        "search_history_len": len(search_history) if isinstance(search_history, list) else None,
+        "retrieval_tool_counts": _retrieval_tool_counts(data.get("retrieval_logs")),
+        # 只陈述「零 LLM 调用且零循环」这一事实：复用命中、DocQA 直析、闲聊短路
+        # 都会产生该组合，不能据此判定复用（spec 3.2 / 3.5）。
+        "zero_llm_path": (
+            None
+            if llm_call_count is None or loop_count is None
+            else llm_call_count == 0 and loop_count == 0
+        ),
+    }
+    telemetry.update(sorted(flags.items()))
+    return telemetry
+
+
 def parse_search_context(data: dict[str, Any], *, mode: str = "FAST") -> AgenticSearchResponse:
     """把 sidecar ``data``（``context.to_dict()`` 投影）解析为响应契约。
 
     Args:
         data: HTTP 响应中的 ``data`` 字段（期望含 ``answer`` 与可选
             ``cluster.evidences`` / ``cluster.search_results`` /
-            ``total_llm_tokens`` / ``llm_usages`` / ``telemetry``）。
+            ``total_llm_tokens`` / ``llm_usages``，以及合并在顶层的
+            telemetry 键——上游没有嵌套的 ``data.telemetry``）。
         mode: 本次请求模式（回填契约字段；sidecar 不回显 mode）。
 
     Raises:
@@ -136,7 +211,7 @@ def parse_search_context(data: dict[str, Any], *, mode: str = "FAST") -> Agentic
                     )
                 )
 
-    llm_call_count = len(data["llm_usages"]) if isinstance(data.get("llm_usages"), list) else None
+    llm_call_count = _resolve_llm_call_count(data)
     total_llm_tokens = _as_int(data.get("total_llm_tokens"))
 
     return AgenticSearchResponse(
@@ -147,6 +222,7 @@ def parse_search_context(data: dict[str, Any], *, mode: str = "FAST") -> Agentic
         confidence=confidence,
         llm_call_count=llm_call_count,
         total_llm_tokens=total_llm_tokens,
+        telemetry=_parse_telemetry(data),
     )
 
 

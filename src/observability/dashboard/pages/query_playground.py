@@ -199,3 +199,25 @@ def _render_agentic_meta(meta: dict[str, Any]) -> None:
     if evidence_files:
         with st.expander(f"证据文件（{len(evidence_files)}）", expanded=False):
             st.write("\n".join(f"- `{path}`" for path in evidence_files))
+
+    rows = _telemetry_rows(meta.get("telemetry"))
+    if rows:
+        with st.expander("Sidecar telemetry", expanded=False):
+            st.table(pd.DataFrame(rows))
+            st.caption("零 LLM 路径只表示本次未调用 LLM 且未进入循环，不代表命中知识簇复用。")
+
+
+def _telemetry_rows(telemetry: Any) -> list[dict[str, str]]:
+    """把 telemetry dict 展平为键值表行；非 dict 返回空列表。"""
+    if not isinstance(telemetry, dict):
+        return []
+    rows: list[dict[str, str]] = []
+    for key, value in telemetry.items():
+        if value is None:
+            shown = "—"
+        elif isinstance(value, dict):
+            shown = ", ".join(f"{k}: {v}" for k, v in value.items()) or "（无）"
+        else:
+            shown = str(value)
+        rows.append({"键": str(key), "值": shown})
+    return rows
