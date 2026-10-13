@@ -4,9 +4,13 @@
 
 ## specs/ — 开发规格（落点）
 
-**立项后新规格的存放处**（从 [backlog/](backlog/) 晋升）。当前为空——既有规格均已收口，见 [frozen/](frozen/)。
+**立项后新规格的存放处**（从 [backlog/](backlog/) 晋升）。
 
-新规格格式对齐 frozen/ 中 SIRCHMUNK / OBSIDIAN 先例：含模块设计、测试方案、任务排期与进度跟踪表，任务编号用新前缀避免冲突。
+| 文档 | 说明 |
+|------|------|
+| [SIRCHMUNK_EXTENSION_SPEC.md](specs/SIRCHMUNK_EXTENSION_SPEC.md) | Sirchmunk 能力补齐规格（SX 系列）：telemetry 消费、请求参数透传、compile 工具与编译收益实验（文档类题子集）、知识簇复用评估、SSE 流式（可选期）；决策依据见 [backlog/sirchmunk-capability-completion.md](backlog/sirchmunk-capability-completion.md) |
+
+新规格格式对齐 frozen/ 中 SIRCHMUNK / OBSIDIAN 先例：含模块设计、测试方案、任务排期与进度跟踪表，任务编号用新前缀避免冲突。已收口规格见 [frozen/](frozen/)。
 
 ## frozen/ — 已冻结文档
 
@@ -26,7 +30,7 @@
 | 文档 | 说明 |
 |------|------|
 | [MICROSERVICES_ANALYSIS.md](analysis/MICROSERVICES_ANALYSIS.md) | 微服务架构分析：当前模块化单体判断与演进方向 |
-| [SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md](analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md) | Sirchmunk 能力覆盖差距分析：已接入与未接入能力对照、对 G0 结论的影响（非排期） |
+| [SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md](analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md) | Sirchmunk 能力覆盖差距分析：已接入与未接入能力对照、对 G0 结论的影响（v0.2：修正复用成本/演化不可达/telemetry 顶层合并三处判断，候选方向已立项 SX 系列） |
 
 ## backlog/ — 候选功能与待开发规格
 
@@ -36,6 +40,7 @@
 |------|------|
 | [OBSIDIAN_RAG_SPEC.md](backlog/OBSIDIAN_RAG_SPEC.md) | Obsidian Vault RAG 扩展规格（V 系列；v0.2 起 M1/M2 Markdown 摄取已移交 IR 规格 IR7，本规格保留 M3 sentence-transformers / M4 Semantic Walk 待排期） |
 | [dashboard-api-migration.md](backlog/dashboard-api-migration.md) | Dashboard 前后端分离迁移提案（Vue 3 + Vite + FastAPI；自 FUTURE_OPTIMIZATION_ROADMAP 原第 1–5 章拆分，含决策三问、目标架构与 P1–P6 实施包） |
+| [sirchmunk-capability-completion.md](backlog/sirchmunk-capability-completion.md) | Sirchmunk 剩余能力补齐提案（已立项为 specs/ 的 SX 系列，保留作决策依据：telemetry/compile/复用/SSE/参数透传，源码复核证据） |
 
 ## reference/ — 使用参考
 

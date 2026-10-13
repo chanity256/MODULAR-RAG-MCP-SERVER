@@ -20,9 +20,9 @@
 | 目录 | 内容 |
 |------|------|
 | [docs/frozen/](docs/frozen/) | 已冻结文档：[DEV_SPEC_frozen.md](docs/frozen/DEV_SPEC_frozen.md)（主规格，架构参考）、[SIRCHMUNK_INTEGRATION_SPEC_frozen.md](docs/frozen/SIRCHMUNK_INTEGRATION_SPEC_frozen.md)、[INGESTION_ROBUSTNESS_SPEC_frozen.md](docs/frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md)（IR 系列，IR0–IR7 已交付收口：摄取健壮性 + Markdown 摄取）、[ACCEPTANCE_GAPS_frozen.md](docs/frozen/ACCEPTANCE_GAPS_frozen.md) |
-| [docs/specs/](docs/specs/) | 开发规格落点（立项后的新规格存放处，当前为空） |
+| [docs/specs/](docs/specs/) | 开发规格落点（立项后的新规格存放处）：[SIRCHMUNK_EXTENSION_SPEC.md](docs/specs/SIRCHMUNK_EXTENSION_SPEC.md)（SX 系列，Sirchmunk 能力补齐） |
 | [docs/analysis/](docs/analysis/) | 分析与规划：[MICROSERVICES_ANALYSIS.md](docs/analysis/MICROSERVICES_ANALYSIS.md)、[SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md](docs/analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md) |
-| [docs/backlog/](docs/backlog/) | 候选功能与待开发规格：[OBSIDIAN_RAG_SPEC.md](docs/backlog/OBSIDIAN_RAG_SPEC.md)、[dashboard-api-migration.md](docs/backlog/dashboard-api-migration.md)（Dashboard 前后端分离迁移提案）等 |
+| [docs/backlog/](docs/backlog/) | 候选功能与待开发规格：[OBSIDIAN_RAG_SPEC.md](docs/backlog/OBSIDIAN_RAG_SPEC.md)、[dashboard-api-migration.md](docs/backlog/dashboard-api-migration.md)（Dashboard 前后端分离迁移提案）、[sirchmunk-capability-completion.md](docs/backlog/sirchmunk-capability-completion.md)（已立项 SX 系列的决策依据）等 |
 | [docs/reference/](docs/reference/) | 使用参考：[USAGE_GUIDE.md](docs/reference/USAGE_GUIDE.md)（速查手册）、[FUTURE_OPTIMIZATION_ROADMAP.md](docs/reference/FUTURE_OPTIMIZATION_ROADMAP.md)（优化路线图） |
 
 ---

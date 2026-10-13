@@ -135,6 +135,8 @@
 - 失败：HTTP 500（`Search failed`）或连接失败 → 映射为 `AgenticSearchBackendError`，由 tool 层转为友好 `isError` 响应。
 - 鉴权：`SIRCHMUNK_API_TOKEN` 设置后上游对 `/api/` 路由强制 Bearer；本项目恒带 `Authorization: Bearer ${SIRCHMUNK_API_TOKEN}`。
 
+> **2026-10-13 勘误**：上文「`data.telemetry` 为本项目消费的字段」表述有误——上游 `SearchContext.to_dict()`（`schema/search_context.py:163-189`）把动态 `context.telemetry` 逐键 `setdefault` 合并进 `to_dict()` **顶层**，不存在 `data.telemetry` 嵌套键；实际未消费的是这些顶层键（`loop_count`/`budget_remaining`/`retrieval_logs`/机制标记等）。converter 补齐与规格修正见 [SIRCHMUNK_EXTENSION_SPEC（SX 系列）](../specs/SIRCHMUNK_EXTENSION_SPEC.md) SX1。
+
 ### 3.3 模块改动清单（P1 落地形态）
 
 | 模块 | 文件 | 改动 |
@@ -144,7 +146,7 @@
 | 适配层（新增） | `src/libs/agentic_search/`：`base_agentic_search.py` / `http_backend.py` / `path_guard.py` / `agentic_search_factory.py` | 沿用 `libs/*` 的 Base + Factory 模式；`AgenticSearchResponse` 契约类型；PathGuard 白名单；HTTP 后端同步 httpx + 错误映射 + 防御式解析 |
 | MCP Tool（新增） | `src/mcp_server/tools/agentic_search.py` | 参照 `query_knowledge_hub.py`：懒初始化、可注入、参数校验（`query` 必填、`mode∈{FAST,DEEP}`、`paths` 必须在白名单内、`top_k` 正整数）、`persist_trace` |
 | Tool 注册 | [src/mcp_server/server.py](../../src/mcp_server/server.py) `build_default_protocol_handler()` | 仅当 `agentic_search.enabled` 时 `register_tool(create_agentic_search_definition())` |
-| 依赖 | [pyproject.toml](pyproject.toml) | optional dev 组登记 `httpx`（MockTransport 测试用）；**不新增**主依赖、不引入 sirchmunk |
+| 依赖 | [pyproject.toml](../../pyproject.toml) | optional dev 组登记 `httpx`（MockTransport 测试用）；**不新增**主依赖、不引入 sirchmunk |
 | 测试 | `tests/unit/test_agentic_*.py`、`tests/integration/test_agentic_http.py`、`tests/e2e/test_agentic_mcp.py` | 见第 5 章 |
 
 P2 追加（门控后）：`src/core/query_engine/fusion.py`（`fuse_routes` N 路）、`src/core/query_engine/hybrid_search.py`（可选第三路 + 触发策略）、`src/core/query_engine/agentic_trigger.py`（新增）、`scripts/query.py`（`--agentic`）。
@@ -180,6 +182,8 @@ S4 追加（Dashboard 在线检索，P4）：
 - **环境变量在 import 期读取**（`utils/constants.py:5-73`：`GREP_*`/`LLM_*`/`SIRCHMUNK_WORK_PATH`；`search.py:163-245`：约 15 个 `SIRCHMUNK_*`/`LENS_*` 开关）——必须先设 env 再 import。
 
 **应对**：sidecar 独立 venv + 手动预装 `rg`/`rga`（`brew install ripgrep-all`）+ 启动前 preflight（`rg --version`、`rga --version`、`/api/v1/search/status` 健康检查）；`SIRCHMUNK_ENABLE_CLUSTER_REUSE=false` 关闭 embedding 下载；`.env` 模板集中管理环境变量。
+
+> **2026-10-13 勘误**：「关闭复用为避免安装 torch + embedding 模型」的代价估计偏高——上游 `requirements/core.txt` 本就依赖 sentence-transformers/modelscope/sentencepiece，sidecar venv 实测已装 torch 2.14.1 / sentence-transformers 6.1.0；开启复用的增量只有 MiniLM 模型下载（约 470 MB）+ 常驻内存。复用的受控开启与评估见 [SIRCHMUNK_EXTENSION_SPEC（SX 系列）](../specs/SIRCHMUNK_EXTENSION_SPEC.md) SX4；另经复核，知识演化（evolver）经 `sirchmunk serve` 不可达（API/CLI 均不传 `enable_knowledge_evolution=True`）。
 
 ### 4.2 stdout 污染：stdio 集成的硬伤
 
@@ -490,6 +494,8 @@ DEEP 补充发现：Q6 为**「答对引错」**——答案内容完整梳理�
 | 裸 rg 基线（无 LLM） | **6/6** | 零 | 8–20 ms |
 | FAST（deepseek-v4-flash） | 2/6 | 16–38k token | 4.6–13.6 s |
 | DEEP（Q5/Q6 单跑） | multihop 1/2 | 66k token（Q5） | 12.8 s |
+
+> **2026-10-13 勘误（泄题排除不完整）**：上述各轮 `compare.py` 只排除了 `tests/fixtures/**`，但入库的 `scripts/sirchmunk/rg_baseline_results.json`（`b151801`，含 6 道题原文与 `expected_sources`）仍在检索范围内（`rg -l "IDF formula implemented" -g '!tests/fixtures/**'` 可命中）。该文件提交于 ③ DEEP 单跑（`828df67`）之前 3 分钟，DEEP 那一轮可能检索到它；更早的 FAST 各轮不受此文件影响。泄题只会**抬高** sidecar 命中，因此 ④「rg 严格优于 sidecar、G0 不通过」的结论不受削弱。排除口径已在 `compare.py`/`rg_baseline.py` 补上 `scripts/sirchmunk/*results*`（裸 rg 复跑仍 6/6），后续对比见 [SIRCHMUNK_EXTENSION_SPEC](../specs/SIRCHMUNK_EXTENSION_SPEC.md) 第 7 节备注。
 
 ④ **最终裁决：G0 关闭（不通过，不再重测）。**依据：免费、确定性、毫秒级的裸 rg 在同一问题集上 6/6，严格优于两条 LLM 路径——sidecar 的增益论证在本语料上不成立。处置：
 
