@@ -236,7 +236,7 @@ cp scripts/sirchmunk/env.example .env-sirchmunk
 | `LLM_BASE_URL` / `LLM_MODEL_NAME` | 模板默认 DeepSeek `https://api.deepseek.com` + `deepseek-v4-flash`（上游自动关闭思考）。**不要用 `glm-5.3-flash`**：它强制思考且 sidecar 无法关闭，单次 LLM 调用可达数十到上百秒 |
 | `SIRCHMUNK_API_TOKEN` | 生成一个随机 token，**必须与主项目 `agentic_search.api_token` 一致** |
 | `SIRCHMUNK_WORK_PATH` | 默认 `./data/db/sirchmunk`，每进程独占，勿与其他进程共享 |
-| `SIRCHMUNK_ENABLE_CLUSTER_REUSE` | 保持 `false`，可跳过 torch + embedding 模型下载 |
+| `SIRCHMUNK_ENABLE_CLUSTER_REUSE` | 保持 `false`，可跳过 embedding 模型下载与常驻内存（torch 已随 sidecar venv 安装）。**不要删掉这一行**：上游对未设置按开启处理。需要开启时改为 `true`，再跑 `preflight.sh` 预下载模型 |
 | `LENS_HARD_TOKEN_BUDGET` | 保持 `true`，客户端断连后防止成本泄漏 |
 
 ### 4.4 主项目配置

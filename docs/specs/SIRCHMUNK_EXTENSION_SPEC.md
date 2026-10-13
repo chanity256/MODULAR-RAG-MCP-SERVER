@@ -268,7 +268,7 @@ SX1 是 SX3/SX4 的前置，因为两者的成本与复用判定都依赖 teleme
 | SX3.2 | 编译实验：`--full -- README.md docs` → 重启 sidecar → 按 SX0.4 协议重跑 → 编译成本/逐题结果入档 | [ ] | | 门控 `RAG_AGENTIC_INTEGRATION=1` |
 | SX3.3 | `--shallow` 对照（仅当 SX3.2 有正收益）：量化树索引贡献与成本差 | [ ] | | 门控，可选 |
 | SX3.4 | 门控 GX 裁决：USAGE_GUIDE 编译推荐 or 负结果记录（含 `.py` 题回归结论） | [ ] | | |
-| SX4.1 | env.example 复用段 + preflight 预下载步骤 | [ ] | | |
+| SX4.1 | env.example 复用段 + preflight 预下载步骤 | [x] | 2026-10-13 | 源码复核（`b314e11`）：`api/search.py:155/198` 对未设置的 `SIRCHMUNK_ENABLE_CLUSTER_REUSE` 按 `"true"` 处理，所以模板保留生效的 `=false` 行，复用旋钮以注释形式补在其后（与 6.2 示意的「整段注释」不同：注释掉 `=false` 等于开启）。preflight 新增第 4 步：按 `start_sidecar.sh` 同口径 source env 文件，复用开启（含未设置）时经 sidecar venv 调上游 `EmbeddingUtil.preload_model`，缓存目录与 `AgenticSearch` 解析一致（`EMBEDDING_CACHE_DIR` 优先，否则 `work_path/.cache/models`）；`SIRCHMUNK_SKIP_MODEL_PRELOAD=1` 可跳过。顺带修复 preflight 既有缺陷：未配置 token 时 bash 3.2 下 `set -u` 展开空数组直接报错退出。USAGE_GUIDE 4.3 同步改正「跳过 torch 下载」旧表述。离线单测 16 个，全量 1670 通过 / 3 跳过 |
 | SX4.2 | 复用评估：清空知识簇存储后，重复/改写查询延迟与命中、误复用与陈旧结果检查、复用开/关非命中回归 | [ ] | | 门控 |
 | SX5.1 | `search_stream` 基类可选方法 + HTTP 后端 SSE 解析 | [ ] | | 可选期，门控见 3.6 |
 | SX5.2 | Dashboard DEEP 进度（`st.status`）+ 罐头 SSE 离线测试 | [ ] | | |
