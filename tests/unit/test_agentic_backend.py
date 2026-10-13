@@ -146,3 +146,65 @@ class TestTelemetryContractFixture:
         assert response.telemetry["retrieval_tool_counts"] == {"deep_file_extract": 1, "keyword_search": 2}
         assert response.telemetry["self_correct_entered"] is True
         assert response.elapsed_ms is not None
+
+
+class _DepthConfig(_Config):
+    max_depth = 3
+    enable_dir_scan = False
+
+
+def _capture_payload(config=_Config, request=None) -> dict:
+    captured: dict = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(req.content.decode("utf-8")))
+        return _ok_handler(req)
+
+    _backend(handler, config=config).search(request or _request())
+    return captured
+
+
+class TestRequestPassthrough:
+    """SX2：max_depth / enable_dir_scan 透传 + llm_fallback 恒 false。"""
+
+    def test_llm_fallback_always_false(self):
+        assert _capture_payload()["llm_fallback"] is False
+        assert _capture_payload(config=_DepthConfig)["llm_fallback"] is False
+
+    def test_defaults_when_config_lacks_keys(self):
+        payload = _capture_payload()
+        assert payload["enable_dir_scan"] is True
+        assert "max_depth" not in payload  # None 不发送，走上游默认
+
+    def test_config_values_forwarded(self):
+        payload = _capture_payload(config=_DepthConfig)
+        assert payload["max_depth"] == 3
+        assert payload["enable_dir_scan"] is False
+
+    def test_request_overrides_config(self):
+        request = AgenticSearchRequest(
+            query="q", mode="DEEP", paths=["/tmp/x"], max_depth=7, enable_dir_scan=True
+        )
+        payload = _capture_payload(config=_DepthConfig, request=request)
+        assert payload["max_depth"] == 7
+        assert payload["enable_dir_scan"] is True
+
+    def test_upstream_field_names(self):
+        """字段名与上游 SearchRequest 一致（FastAPI 静默丢弃未知字段，spec 4.7）。"""
+        payload = _capture_payload(config=_DepthConfig)
+        assert {"max_depth", "enable_dir_scan", "llm_fallback"} <= set(payload)
+        assert not {"depth", "dir_scan", "fallback"} & set(payload)
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            pytest.param({"max_depth": 0}, id="max-depth-zero"),
+            pytest.param({"max_depth": True}, id="max-depth-bool"),
+            pytest.param({"max_depth": "3"}, id="max-depth-str"),
+            pytest.param({"enable_dir_scan": 1}, id="dir-scan-int"),
+            pytest.param({"enable_dir_scan": "false"}, id="dir-scan-str"),
+        ],
+    )
+    def test_request_validation(self, kwargs):
+        with pytest.raises(ValueError):
+            AgenticSearchRequest(query="q", **kwargs)

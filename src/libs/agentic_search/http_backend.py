@@ -118,7 +118,18 @@ class SirchmunkHttpBackend(BaseAgenticSearch):
                 if request.max_token_budget is not None
                 else cfg.max_token_budget
             ),
+            "enable_dir_scan": (
+                request.enable_dir_scan
+                if request.enable_dir_scan is not None
+                else getattr(cfg, "enable_dir_scan", True)
+            ),
+            # 显式锁定而非依赖上游默认：无证据时让 LLM 凭自身知识作答会破坏
+            # 「引用必须可溯源」（SX 2.2 Out of Scope），上游默认值变化也不受影响。
+            "llm_fallback": False,
         }
+        max_depth = request.max_depth if request.max_depth is not None else getattr(cfg, "max_depth", None)
+        if max_depth is not None:
+            payload["max_depth"] = max_depth
         if request.include is not None:
             payload["include_patterns"] = list(request.include)
         if request.exclude is not None:

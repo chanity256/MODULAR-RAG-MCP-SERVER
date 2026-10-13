@@ -303,6 +303,10 @@ class AgenticSearchConfig:
     top_k_files: int = 5
     max_loops: int = 6
     max_token_budget: int = 32000
+    # 目录扫描深度上限（SX2）；None = 不发送，走上游默认。
+    max_depth: int | None = None
+    # DEEP 目录扫描开关（SX2，上游 SearchRequest 同名字段默认 True）。
+    enable_dir_scan: bool = True
     # ---- 第三路触发策略（S2.2；策略实现见 query_engine/agentic_trigger.py）----
     # tool_only：永不自动触发（默认，安全值）；fallback：主路信号不足时触发；
     # always：每次查询都触发（仅实验/评估）。
@@ -747,6 +751,16 @@ def _build_agentic_search(sec: dict[str, Any]) -> AgenticSearchConfig:
     top_k_files = _positive_int("top_k_files", 5)
     max_loops = _positive_int("max_loops", 6)
     max_token_budget = _positive_int("max_token_budget", 32000)
+    max_depth = _opt(sec, "max_depth", None)
+    if max_depth is not None and (
+        isinstance(max_depth, bool) or not isinstance(max_depth, int) or max_depth < 1
+    ):
+        raise ConfigError(
+            "config field 'agentic_search.max_depth' must be a positive integer or null"
+        )
+    enable_dir_scan = _opt(sec, "enable_dir_scan", True)
+    if not isinstance(enable_dir_scan, bool):
+        raise ConfigError("config field 'agentic_search.enable_dir_scan' must be a boolean")
 
     # 触发策略（S2.2）：策略名非法 fail-fast；阈值/下限字段即使当前
     # 策略用不到也照常校验，保证配置整体一致。
@@ -781,7 +795,7 @@ def _build_agentic_search(sec: dict[str, Any]) -> AgenticSearchConfig:
     known = {
         "enabled", "backend", "base_url", "api_token", "mode", "allow_deep",
         "timeout_s", "top_k_files", "max_loops", "max_token_budget",
-        "trigger", "trigger_score_threshold", "trigger_min_results",
+        "max_depth", "enable_dir_scan", "trigger", "trigger_score_threshold", "trigger_min_results",
         "allowed_roots", "denied_substrings",
     }
     return AgenticSearchConfig(
@@ -795,6 +809,8 @@ def _build_agentic_search(sec: dict[str, Any]) -> AgenticSearchConfig:
         top_k_files=top_k_files,
         max_loops=max_loops,
         max_token_budget=max_token_budget,
+        max_depth=max_depth,
+        enable_dir_scan=enable_dir_scan,
         trigger=trigger,
         trigger_score_threshold=float(trigger_score_threshold),
         trigger_min_results=trigger_min_results,

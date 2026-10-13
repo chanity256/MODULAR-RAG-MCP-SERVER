@@ -69,6 +69,9 @@ class AgenticSearchRequest:
     max_token_budget: int | None = None
     include: list[str] | None = None
     exclude: list[str] | None = None
+    # 请求级覆盖（SX2）；None 表示沿用 AgenticSearchConfig 同名配置。
+    max_depth: int | None = None
+    enable_dir_scan: bool | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.query, str) or not self.query.strip():
@@ -77,6 +80,12 @@ class AgenticSearchRequest:
         if mode not in VALID_MODES:
             raise ValueError(f"mode must be one of {VALID_MODES}, got {self.mode!r}")
         self.mode = mode
+        if self.max_depth is not None and (
+            isinstance(self.max_depth, bool) or not isinstance(self.max_depth, int) or self.max_depth < 1
+        ):
+            raise ValueError(f"max_depth must be a positive integer or None, got {self.max_depth!r}")
+        if self.enable_dir_scan is not None and not isinstance(self.enable_dir_scan, bool):
+            raise ValueError(f"enable_dir_scan must be a bool or None, got {self.enable_dir_scan!r}")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -88,6 +97,8 @@ class AgenticSearchRequest:
             "max_token_budget": self.max_token_budget,
             "include": list(self.include) if self.include is not None else None,
             "exclude": list(self.exclude) if self.exclude is not None else None,
+            "max_depth": self.max_depth,
+            "enable_dir_scan": self.enable_dir_scan,
         }
 
 

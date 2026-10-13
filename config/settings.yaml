@@ -82,6 +82,8 @@ agentic_search:
   top_k_files: 5
   max_loops: 6
   max_token_budget: 32000
+  max_depth: null                # 目录扫描深度上限（正整数；null = 不发送，走上游默认）
+  enable_dir_scan: true          # DEEP 目录扫描开关
   # 第三路触发策略（S2.2，实现见 src/core/query_engine/agentic_trigger.py）：
   #   tool_only：永不自动触发（默认，只由 MCP 工具显式调用）
   #   fallback：主路（dense+sparse 融合）信号不足时触发
