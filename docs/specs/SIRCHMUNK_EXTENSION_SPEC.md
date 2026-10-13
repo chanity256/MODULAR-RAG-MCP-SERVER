@@ -264,7 +264,7 @@ SX1 是 SX3/SX4 的前置，因为两者的成本与复用判定都依赖 teleme
 | SX1.3 | 新契约 fixture + 离线单测（键缺失容忍） | [x] | 2026-10-13 | `tests/fixtures/agentic/contract_response_telemetry.json`（按 `to_dict()` 字面量构造，含一个字符串 ad-hoc 键验证排除）；converter/backend/tool/Dashboard 冒烟共 +23 用例，全量离线 1593 通过 / 3 跳过。真实 sidecar 非空校验归 5.2 门控，随 SX0.4 一并执行 |
 | SX2.1 | `AgenticSearchConfig` 新键 + settings 解析 + `_build_payload` 透传 + `llm_fallback=false` | [x] | 2026-10-13 | 字段名经上游 `api/search.py` `SearchRequest`（`b314e11`）核对。`AgenticSearchRequest` 增同名请求级覆盖（None = 沿用配置）；`enable_dir_scan` 恒发送，`max_depth` 为 None 时不发送；`config/settings.yaml` 补两键 |
 | SX2.2 | 配置校验与 payload 单测 | [x] | 2026-10-13 | 配置非法值 fail-fast（`max_depth` 拒 0/负/字符串/bool/浮点，`enable_dir_scan` 拒非 bool）；显式 `null` 按 `_opt` 既有语义视同缺失走默认；payload 透传/覆盖/字段名/`llm_fallback` 锁定单测 +19，全量离线 1612 通过 / 3 跳过 |
-| SX3.1 | `scripts/sirchmunk/compile.sh`（停机护栏 + 路径护栏 + status/lint/shallow/full 模式） | [ ] | | |
+| SX3.1 | `scripts/sirchmunk/compile.sh`（停机护栏 + 路径护栏 + status/lint/shallow/full 模式） | [x] | 2026-10-13 | 参数对照上游 `cli/cli.py` compile 子命令（`b314e11`）：上游 `--paths` 恒必填，`--status`/`--lint` 也透传路径；`--work-path` 显式传入（相对值按仓库根解析）。实现细化：①探活收到任何 HTTP 响应（含 401）即判存活；缺 `curl` 时写入模式 fail-closed；②`--lint --fix` 会写 work_path，按写入模式走停机护栏，只读例外仅 `--status` 与不带 `--fix` 的 `--lint`；③路径护栏另拒与 work_path 互相包含的路径；④`--full` 与 `--shallow` 可组合（供 SX3.3 全量浅编译）。离线单测 42 个（fake venv + PATH 上的 fake curl，系统 bash 3.2 下运行），全量 1654 通过 / 3 跳过 |
 | SX3.2 | 编译实验：`--full -- README.md docs` → 重启 sidecar → 按 SX0.4 协议重跑 → 编译成本/逐题结果入档 | [ ] | | 门控 `RAG_AGENTIC_INTEGRATION=1` |
 | SX3.3 | `--shallow` 对照（仅当 SX3.2 有正收益）：量化树索引贡献与成本差 | [ ] | | 门控，可选 |
 | SX3.4 | 门控 GX 裁决：USAGE_GUIDE 编译推荐 or 负结果记录（含 `.py` 题回归结论） | [ ] | | |
