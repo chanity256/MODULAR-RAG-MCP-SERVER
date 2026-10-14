@@ -16,60 +16,21 @@ from typing import Any, Callable
 import streamlit as st
 
 from core.settings import Settings
-from libs.evaluator.base_evaluator import BaseEvaluator
-from libs.evaluator.custom_evaluator import CustomEvaluator
-from observability.evaluation.composite_evaluator import CompositeEvaluator
+from observability.dashboard.services.evaluation_service import (
+    EVALUATOR_BACKENDS,
+    EvaluationService,
+)
 from observability.evaluation.eval_runner import EvalReport
 from observability.logger import get_logger
 
-__all__ = ["render", "evaluator_for_backend", "default_test_set_path", "EVALUATOR_BACKENDS"]
+__all__ = ["render"]
 
 logger = get_logger(__name__)
-
-_REPO_ROOT = Path(__file__).resolve().parents[4]
-
-#: 可选评估后端（与 scripts/evaluate.py 对齐）。
-EVALUATOR_BACKENDS = ("composite", "custom", "ragas")
 
 #: 会话内历史记录键。
 _HISTORY_KEY = "evaluation_history"
 
 RunEvalFn = Callable[..., EvalReport]
-
-
-def evaluator_for_backend(backend: str, settings: Settings) -> BaseEvaluator:
-    """按后端名构建评估器（composite 经 settings.evaluation.backends 组合）。"""
-    if backend == "composite":
-        return CompositeEvaluator.from_settings(settings)
-    if backend == "ragas":
-        from libs.evaluator.evaluator_factory import EvaluatorFactory
-
-        return EvaluatorFactory.create("ragas")
-    if backend == "custom":
-        return CustomEvaluator()
-    raise ValueError(f"unknown evaluator backend: {backend!r}")
-
-
-def default_test_set_path(settings: Settings) -> Path:
-    """settings.evaluation.golden_test_set（相对路径按仓库根解析）。"""
-    path = Path(settings.evaluation.golden_test_set)
-    if not path.is_absolute():
-        candidate = _REPO_ROOT / path
-        path = candidate if candidate.exists() else path
-    return path
-
-
-def _default_run_eval(settings: Settings, backend: str) -> RunEvalFn:
-    """默认评估函数：按 Settings 构建 EvalRunner（首次运行时创建）。"""
-
-    def run(test_set_path: Any, *, top_k: int | None, filters: dict[str, Any] | None) -> EvalReport:
-        from core.query_engine.hybrid_search import HybridSearch
-        from observability.evaluation.eval_runner import EvalRunner
-
-        runner = EvalRunner(settings, hybrid_search=HybridSearch(settings), evaluator=evaluator_for_backend(backend, settings))
-        return runner.run(test_set_path, top_k=top_k, filters=filters)
-
-    return run
 
 
 def render(
@@ -85,17 +46,21 @@ def render(
 
         settings = ConfigService().get_settings()
 
+    service = EvaluationService(settings)
     left, right = st.columns([2, 3])
     with left:
         backend = st.selectbox("评估后端", EVALUATOR_BACKENDS, index=0)
         test_set_path = st.text_input(
             "Golden test set 路径",
-            value=str(default_test_set_path(settings)),
+            value=str(service.default_test_set_path()),
         )
         top_k = st.number_input("Top-K（0 = 使用配置默认）", min_value=0, value=0, step=1)
         collection = st.text_input("限定集合（可选）", value="").strip()
 
-    run_fn = run_eval or _default_run_eval(settings, backend)
+    def _service_run(path: Path, *, top_k: int | None, filters: dict[str, Any] | None) -> EvalReport:
+        return service.run(path, backend=backend, top_k=top_k, filters=filters)
+
+    run_fn = run_eval or _service_run
 
     if st.button("运行评估", type="primary"):
         path = Path(test_set_path)

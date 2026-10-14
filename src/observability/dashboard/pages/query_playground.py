@@ -43,7 +43,7 @@ def render(*, settings: Any | None = None, search_service: SearchService | None 
     """
     service = search_service
     if service is None:
-        # 会话内缓存服务实例 → 工具（HybridSearch 等）只在首次构建。
+        # 会话内缓存服务实例 → 工具（检索栈）只在首次构建。
         if _SERVICE_KEY not in st.session_state:
             st.session_state[_SERVICE_KEY] = SearchService(settings=settings)
         service = st.session_state[_SERVICE_KEY]

@@ -8,10 +8,10 @@ from typing import Any, Callable
 import streamlit as st
 
 from observability.dashboard.services.data_service import DataService
+from observability.dashboard.services.ingestion_service import IngestionService
 
 __all__ = ["render"]
 
-ProgressFn = Callable[[str, int, int], None]
 RunIngestFn = Callable[..., Any]
 
 
@@ -80,13 +80,10 @@ def _run_upload(
     run_ingest: RunIngestFn | None,
     upload_dir: str | Path | None,
 ) -> None:
-    target_dir = Path(upload_dir) if upload_dir is not None else Path("data/uploads")
-    target_dir.mkdir(parents=True, exist_ok=True)
-    saved: list[Path] = []
-    for item in uploaded:
-        dest = target_dir / Path(getattr(item, "name", "upload.bin")).name
-        dest.write_bytes(item.getvalue())
-        saved.append(dest)
+    service = IngestionService(upload_dir=upload_dir, runner=run_ingest)
+    saved = service.save_uploads(
+        (getattr(item, "name", None), item.getvalue()) for item in uploaded
+    )
 
     progress = st.progress(0.0, text="准备摄取…")
     status = st.empty()
@@ -96,38 +93,13 @@ def _run_upload(
         progress.progress(ratio, text=f"{stage} {current}/{total}")
         status.caption(f"当前阶段：{stage} ({current}/{total})")
 
-    runner = run_ingest or _default_run_ingest
     try:
-        summary = runner(saved, collection=collection, force=force, on_progress=on_progress)
+        summary = service.ingest(saved, collection=collection, force=force, on_progress=on_progress)
     except Exception as exc:
         st.error(f"摄取失败：{exc}")
         return
     progress.progress(1.0, text="完成")
     st.success(f"摄取完成：{summary}")
-
-
-def _default_run_ingest(
-    files: list[Path],
-    *,
-    collection: str,
-    force: bool,
-    on_progress: ProgressFn,
-) -> str:
-    from core.settings import load_settings
-    from ingestion.pipeline import IngestionPipeline
-
-    pipeline = IngestionPipeline(load_settings())
-    chunks = 0
-    images = 0
-    failed = 0
-    for path in files:
-        try:
-            result = pipeline.run(str(path), collection=collection, force=force, on_progress=on_progress)
-            chunks += result.chunks
-            images += result.images
-        except Exception:
-            failed += 1
-    return f"{len(files)} files, chunks={chunks}, images={images}, failed={failed}"
 
 
 if __name__ == "__main__":
