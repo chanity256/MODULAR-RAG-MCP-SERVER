@@ -132,3 +132,29 @@ dashboard:
   traces_dir: ./logs
   auto_refresh: true
   refresh_interval: 5
+
+# Chat 配置（可选节，WEBUI_CHAT_SPEC §7.1；缺失走默认，非法值启动即报错）
+chat:
+  enabled: true
+  history_max_turns: 10
+  history_max_tokens: 32000
+  relevance_filter: true    # 话题漂移过滤开关（省一次 LLM 调用的逃生门）
+  query_rewrite: true
+  default_retrieval: hybrid # hybrid | agentic_fast | agentic_deep
+  max_context_chunks: 8     # 送入 AnswerGenerator 的 chunk 上限
+  session_db: ./data/db/chat_sessions.db
+  max_connections: 100
+  pipeline_max_retries: 1
+  fallback_to_chat_only: false   # D6：默认检索失败即 error 帧，不降级纯聊天
+  agentic_progress_stream: false # D4/SX5.3：默认同步 search()，true 走 search_stream
+
+# Web API 配置（可选节，WEBUI_CHAT_SPEC §7.1；缺失走默认，非法值启动即报错）
+api:
+  enabled: false            # 只影响 scripts/start_api.py；Streamlit 不受影响
+  host: 127.0.0.1
+  port: 8600
+  # D9：独立于 sidecar token。未解析（占位符原样保留）视同无 token，host 非 loopback 时启动失败
+  api_token: ${RAG_API_TOKEN}
+  allowed_origins: ["http://localhost:3000"]
+  serve_ui: false           # true 时托管 frontend/out/
+  static_dir: ./frontend/out

@@ -283,6 +283,23 @@ class IngestionConfig:
 
 
 @dataclass
+class ApiSettings:
+    """Web API（FastAPI）配置（可选节，WEBUI_CHAT_SPEC §7.1）。
+
+    ``api_token`` 经 ``${ENV}`` 解析；环境变量缺失时 ``_resolve_env`` 保留占位符
+    原值，是否视为"未配置"由 ``api.security.normalize_token`` 统一判定。
+    """
+
+    enabled: bool = False
+    host: str = "127.0.0.1"
+    port: int = 8600
+    api_token: str | None = None
+    allowed_origins: list[str] = field(default_factory=lambda: ["http://localhost:3000"])
+    serve_ui: bool = False
+    static_dir: str = "./frontend/out"
+
+
+@dataclass
 class AgenticSearchConfig:
     """Agentic 检索（Sirchmunk HTTP sidecar）配置（可选节，S1.1）。
 
@@ -324,6 +341,30 @@ class AgenticSearchConfig:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
+CHAT_RETRIEVAL_MODES = ("hybrid", "agentic_fast", "agentic_deep")
+
+
+@dataclass
+class ChatSettings:
+    """Chat 配置（可选节，WEBUI_CHAT_SPEC §7.1）。缺失走默认，非法值 fail-fast。"""
+
+    enabled: bool = True
+    history_max_turns: int = 10
+    history_max_tokens: int = 32000
+    relevance_filter: bool = True
+    query_rewrite: bool = True
+    default_retrieval: str = "hybrid"  # hybrid | agentic_fast | agentic_deep
+    max_context_chunks: int = 8
+    session_db: str = "./data/db/chat_sessions.db"
+    max_connections: int = 100
+    # 瞬态错误的额外重试次数（0 = 不重试）。
+    pipeline_max_retries: int = 1
+    # D6：默认检索失败即 error 帧；true 才降级纯聊天（grounded=false）。
+    fallback_to_chat_only: bool = False
+    # SX5.3：默认同步 search()；true 才走 search_stream（存在线程泄漏风险）。
+    agentic_progress_stream: bool = False
+
+
 @dataclass
 class Settings:
     """全局配置聚合，供各工厂/模块读取。"""
@@ -340,6 +381,8 @@ class Settings:
     dashboard: DashboardConfig
     ingestion: IngestionConfig = field(default_factory=IngestionConfig)
     agentic_search: AgenticSearchConfig = field(default_factory=AgenticSearchConfig)
+    chat: ChatSettings = field(default_factory=ChatSettings)
+    api: ApiSettings = field(default_factory=ApiSettings)
     # 原始配置（便于后续模块读取未显式建模的字段）
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
@@ -820,6 +863,87 @@ def _build_agentic_search(sec: dict[str, Any]) -> AgenticSearchConfig:
     )
 
 
+def _build_chat(sec: dict[str, Any]) -> ChatSettings:
+    """chat 为可选节，缺失时由调用方传空 dict 走默认值。"""
+    defaults = ChatSettings()
+
+    def _bool(key: str) -> bool:
+        value = _opt(sec, key, getattr(defaults, key))
+        if not isinstance(value, bool):
+            raise ConfigError(f"config field 'chat.{key}' must be a boolean, got {value!r}")
+        return value
+
+    def _int(key: str, *, minimum: int = 1) -> int:
+        value = _opt(sec, key, getattr(defaults, key))
+        if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+            kind = "a positive" if minimum >= 1 else "a non-negative"
+            raise ConfigError(f"config field 'chat.{key}' must be {kind} integer, got {value!r}")
+        return value
+
+    default_retrieval = _opt(sec, "default_retrieval", defaults.default_retrieval)
+    if not isinstance(default_retrieval, str) or default_retrieval not in CHAT_RETRIEVAL_MODES:
+        raise ConfigError(
+            f"config field 'chat.default_retrieval' must be one of "
+            f"{'/'.join(CHAT_RETRIEVAL_MODES)}, got {default_retrieval!r}"
+        )
+    session_db = _opt(sec, "session_db", defaults.session_db)
+    if not isinstance(session_db, str) or not session_db.strip():
+        raise ConfigError("config field 'chat.session_db' must be a non-empty string")
+
+    return ChatSettings(
+        enabled=_bool("enabled"),
+        history_max_turns=_int("history_max_turns"),
+        history_max_tokens=_int("history_max_tokens"),
+        relevance_filter=_bool("relevance_filter"),
+        query_rewrite=_bool("query_rewrite"),
+        default_retrieval=default_retrieval,
+        max_context_chunks=_int("max_context_chunks"),
+        session_db=session_db,
+        max_connections=_int("max_connections"),
+        pipeline_max_retries=_int("pipeline_max_retries", minimum=0),
+        fallback_to_chat_only=_bool("fallback_to_chat_only"),
+        agentic_progress_stream=_bool("agentic_progress_stream"),
+    )
+
+
+def _build_api(sec: dict[str, Any]) -> ApiSettings:
+    """api 为可选节，缺失时由调用方传空 dict 走默认值。"""
+    defaults = ApiSettings()
+
+    def _flag(key: str, default: bool) -> bool:
+        value = _opt(sec, key, default)
+        if not isinstance(value, bool):
+            raise ConfigError(f"config field 'api.{key}' must be a boolean, got {value!r}")
+        return value
+
+    def _text(key: str, default: str) -> str:
+        value = _opt(sec, key, default)
+        if not isinstance(value, str) or not value.strip():
+            raise ConfigError(f"config field 'api.{key}' must be a non-empty string")
+        return value.strip()
+
+    port = _opt(sec, "port", defaults.port)
+    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+        raise ConfigError(f"config field 'api.port' must be an integer in [1, 65535], got {port!r}")
+    api_token = _opt(sec, "api_token")
+    if api_token is not None and not isinstance(api_token, str):
+        raise ConfigError("config field 'api.api_token' must be a string or null")
+    origins = _opt(sec, "allowed_origins", list(defaults.allowed_origins))
+    if not isinstance(origins, list) or any(
+        not isinstance(o, str) or not o.strip() for o in origins
+    ):
+        raise ConfigError("config field 'api.allowed_origins' must be a list of non-empty strings")
+    return ApiSettings(
+        enabled=_flag("enabled", defaults.enabled),
+        host=_text("host", defaults.host),
+        port=port,
+        api_token=api_token,
+        allowed_origins=[o.strip() for o in origins],
+        serve_ui=_flag("serve_ui", defaults.serve_ui),
+        static_dir=_text("static_dir", defaults.static_dir),
+    )
+
+
 def validate_settings(settings: Settings) -> None:
     """集中化的必填字段检查。
 
@@ -895,11 +1019,19 @@ def load_settings(path: str | os.PathLike[str] = "config/settings.yaml") -> Sett
         raise ConfigError("config section 'ingestion' must be a mapping")
     if not isinstance(agentic_sec, dict):
         raise ConfigError("config section 'agentic_search' must be a mapping")
+    chat_sec = data.get("chat") or {}
+    if not isinstance(chat_sec, dict):
+        raise ConfigError("config section 'chat' must be a mapping")
+    api_sec = data.get("api") or {}
+    if not isinstance(api_sec, dict):
+        raise ConfigError("config section 'api' must be a mapping")
     splitter = _build_splitter(splitter_sec)
     observability = _build_observability(obs_sec)
     dashboard = _build_dashboard(dashboard_sec)
     ingestion = _build_ingestion(ingestion_sec)
     agentic_search = _build_agentic_search(agentic_sec)
+    chat = _build_chat(chat_sec)
+    api = _build_api(api_sec)
 
     settings = Settings(
         llm=llm,
@@ -914,6 +1046,8 @@ def load_settings(path: str | os.PathLike[str] = "config/settings.yaml") -> Sett
         dashboard=dashboard,
         ingestion=ingestion,
         agentic_search=agentic_search,
+        chat=chat,
+        api=api,
         raw=data,
     )
     validate_settings(settings)
