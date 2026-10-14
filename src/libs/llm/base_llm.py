@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Sequence
+from typing import Any, Iterator, Sequence
 
 __all__ = ["ChatMessage", "ChatResponse", "BaseLLM"]
 
@@ -54,6 +54,9 @@ class ChatResponse:
 class BaseLLM(ABC):
     """LLM 抽象基类，所有 provider 实现需继承并实现 ``chat``。"""
 
+    #: 最近一次 ``chat_stream`` 完成后的 token 用量（provider 未返回则为 ``None``）。
+    last_usage: dict[str, Any] | None = None
+
     @abstractmethod
     def chat(
         self,
@@ -73,6 +76,28 @@ class BaseLLM(ABC):
             统一的 ``ChatResponse``。
         """
         raise NotImplementedError
+
+    def chat_stream(
+        self,
+        messages: Sequence[ChatMessage],
+        *,
+        trace: Any | None = None,
+        **kwargs: Any,
+    ) -> Iterator[str]:
+        """流式生成回复，逐段 yield 文本增量。
+
+        默认实现回退到同步 ``chat()`` 并整块 yield 一次，因此不支持流式的
+        后端无需改动即可被流式调用方使用；真流式后端覆盖本方法。
+
+        约定：
+        - 中途失败抛 ``LLMRequestError``（调用方据 ``status`` 分类）。
+        - 流结束后 ``last_usage`` 为 provider 返回的用量（无则 ``None``）。
+        """
+        self.last_usage = None
+        response = self.chat(messages, trace=trace, **kwargs)
+        self.last_usage = response.usage
+        if response.content:
+            yield response.content
 
     def chat_text(
         self,

@@ -7,6 +7,8 @@
   生产用 stdlib ``urllib`` 默认传输，测试注入 fake transport。
 - 错误信息包含 provider（``ollama``）与错误类型，**不泄露敏感配置**（如 api_key）。
 - 连接失败 / 超时等场景抛出可读错误，便于上层降级。
+- 流式（``chat_stream``）解析 NDJSON（``"stream": true``，每行一个 JSON，``message.content`` 增量、
+  ``done`` 终止），经可注入的 ``stream_transport`` 发送（与 OpenAI 兼容实现共用 httpx 传输）。
 """
 
 from __future__ import annotations
@@ -14,11 +16,11 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Iterator, Sequence
 
 from core.settings import LLMConfig
 from libs.llm.base_llm import BaseLLM, ChatMessage, ChatResponse
-from libs.llm.openai_llm import LLMRequestError
+from libs.llm.openai_llm import LLMRequestError, StreamTransport, make_httpx_stream_transport
 
 __all__ = ["OllamaLLM", "register_ollama_provider"]
 
@@ -55,9 +57,17 @@ class OllamaLLM(BaseLLM):
 
     provider = "ollama"
 
-    def __init__(self, llm_config: LLMConfig, *, transport: Transport | None = None, **kwargs: Any):
+    def __init__(
+        self,
+        llm_config: LLMConfig,
+        *,
+        transport: Transport | None = None,
+        stream_transport: StreamTransport | None = None,
+        **kwargs: Any,
+    ):
         self.llm_config = llm_config
         self._transport: Transport = transport or _default_transport
+        self._stream_transport: StreamTransport = stream_transport or make_httpx_stream_transport()
         self._timeout: float | None = kwargs.pop("timeout", None)
         self._extra_kwargs = kwargs
 
@@ -73,13 +83,9 @@ class OllamaLLM(BaseLLM):
             headers["Authorization"] = f"Bearer {api_key}"
         return headers
 
-    def chat(
-        self,
-        messages: Sequence[ChatMessage],
-        *,
-        trace: Any | None = None,
-        **kwargs: Any,
-    ) -> ChatResponse:
+    def _build_body(
+        self, messages: Sequence[ChatMessage], kwargs: dict[str, Any], *, stream: bool
+    ) -> dict[str, Any]:
         if not messages:
             raise LLMRequestError(self.provider, "messages must be non-empty")
         for m in messages:
@@ -97,12 +103,22 @@ class OllamaLLM(BaseLLM):
         body: dict[str, Any] = {
             "model": kwargs.pop("model", self.llm_config.model),
             "messages": [m.to_dict() for m in messages],
-            "stream": False,
+            "stream": stream,
         }
         if options:
             body["options"] = options
         # 剩余 kwargs 透传为请求体扩展。
         body.update(kwargs)
+        return body
+
+    def chat(
+        self,
+        messages: Sequence[ChatMessage],
+        *,
+        trace: Any | None = None,
+        **kwargs: Any,
+    ) -> ChatResponse:
+        body = self._build_body(messages, kwargs, stream=False)
 
         url = self._build_url()
         headers = self._build_headers()
@@ -114,6 +130,65 @@ class OllamaLLM(BaseLLM):
             raise LLMRequestError(self.provider, f"{type(exc).__name__}: {exc}") from exc
 
         return self._parse_response(resp)
+
+    def chat_stream(
+        self,
+        messages: Sequence[ChatMessage],
+        *,
+        trace: Any | None = None,
+        **kwargs: Any,
+    ) -> Iterator[str]:
+        """NDJSON 流式生成：逐行 yield ``message.content`` 增量。
+
+        ``done: true`` 终止，并把 ``prompt_eval_count``/``eval_count`` 记入 ``last_usage``。
+        非 200 / 中途断流 / 行内 ``error`` 抛 ``LLMRequestError``。
+        """
+        body = self._build_body(messages, kwargs, stream=True)
+        body["stream"] = True
+        headers = self._build_headers()
+        url = self._build_url()
+
+        self.last_usage = None
+        try:
+            yield from self._parse_ndjson(self._stream_transport(url, headers, body, timeout=self._timeout))
+        except LLMRequestError as exc:
+            if exc.provider == self.provider:
+                raise
+            raise LLMRequestError(self.provider, exc.detail, status=exc.status, body=exc.body) from exc
+
+        if trace is not None and hasattr(trace, "record_stage"):
+            trace.record_stage(
+                "llm_stream", provider=self.provider, model=body["model"], usage=self.last_usage
+            )
+
+    def _parse_ndjson(self, lines: Iterator[str]) -> Iterator[str]:
+        for raw_line in lines:
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                frame = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise LLMRequestError(self.provider, f"invalid NDJSON line: {line[:200]}") from exc
+            if not isinstance(frame, dict):
+                raise LLMRequestError(self.provider, f"invalid NDJSON line: {line[:200]}")
+            if "error" in frame:
+                raise LLMRequestError(self.provider, f"API error: {frame['error']}", body=frame)
+            message = frame.get("message")
+            content = message.get("content") if isinstance(message, dict) else None
+            if isinstance(content, str) and content:
+                yield content
+            if frame.get("done") is True:
+                prompt_tokens = frame.get("prompt_eval_count")
+                completion_tokens = frame.get("eval_count")
+                if isinstance(prompt_tokens, int) and isinstance(completion_tokens, int):
+                    self.last_usage = {
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "total_tokens": prompt_tokens + completion_tokens,
+                    }
+                return
+        raise LLMRequestError(self.provider, "stream ended unexpectedly before done")
 
     def _parse_response(self, resp: dict[str, Any]) -> ChatResponse:
         if not isinstance(resp, dict):

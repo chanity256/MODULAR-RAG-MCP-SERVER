@@ -1,0 +1,17 @@
+You decide which earlier conversation turns are still relevant to the user's new question.
+你需要判断哪些历史对话轮次与用户的新问题仍然相关。
+
+Conversation history (each turn is numbered) / 历史对话（每轮带编号）:
+{history}
+
+New question / 新问题:
+{question}
+
+Task / 任务:
+Return the numbers of the history turns that are needed to understand or answer the new question (follow-ups, pronoun references, continued topics).
+Drop turns about unrelated topics.
+返回理解或回答新问题所需的历史轮次编号（追问、指代、延续的话题）；与新问题无关的话题请剔除。
+
+Output format / 输出格式:
+Reply with ONLY a JSON array of integers, for example [1, 3]. Use [] if no turn is relevant. No explanation.
+只回复一个整数 JSON 数组，例如 [1, 3]；若都不相关则回复 []。不要任何解释。
