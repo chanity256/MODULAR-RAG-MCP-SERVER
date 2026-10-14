@@ -416,6 +416,14 @@ class FakeSearchService(SearchService):
     def run(self, mode, query, top_k=None, collection=None):
         self.calls.append({"mode": mode, "query": query, "top_k": top_k, "collection": collection})
         return self.outcome
+
+    def run_stream(self, mode, query, top_k=None, collection=None, *, on_event):
+        self.calls.append(
+            {"mode": mode, "query": query, "top_k": top_k, "collection": collection, "stream": True}
+        )
+        on_event("info", "fake progress: analyzing query", 1.0)
+        on_event("warning", "fake progress: searching files", 2.0)
+        return self.outcome
 """
 
 _PLAYGROUND_MOUNT = """
@@ -586,3 +594,95 @@ def test_query_playground_error_display(tmp_path):
     at.button(key="qp_run").click().run()
     assert not at.exception
     assert any("sidecar down" in str(e.value) for e in at.error)
+
+
+# --------------------------------------------------------------------- #
+# SX5.2：Deep 流式进度（st.status）+ 不支持流式时回退同步
+# --------------------------------------------------------------------- #
+
+
+def test_query_playground_deep_stream_progress(tmp_path):
+    """Deep 走 run_stream：st.status 内追加进度日志，完成后结果照常渲染；Fast 不走流式。"""
+    outcome = (
+        "SearchOutcome(mode='deep', markdown='streamed md', citations=[], elapsed_ms=10.0, "
+        "agentic_meta={'mode': 'DEEP'})"
+    )
+    driver = _playground_driver(tmp_path, "playground_stream", f"FakeSearchService(outcome={outcome})")
+    at = _run(driver)
+    service = at.session_state["fake_search_service"]
+
+    at.button(key="qp_btn_deep").click().run()
+    at.text_input(key="qp_query").set_value("multi hop").run()
+    at.button(key="qp_run").click().run()
+    assert not at.exception
+    assert service.calls[-1]["stream"] is True and service.calls[-1]["mode"] == "deep"
+
+    assert [s.label for s in at.status] == ["Deep 检索完成（进度日志 2 条）"]
+    logs = "\n".join(str(c.value) for c in at.code)
+    assert "[INFO] fake progress: analyzing query" in logs
+    assert "[WARNING] fake progress: searching files" in logs
+    assert any("streamed md" in str(m.value) for m in at.markdown)
+
+    at.button(key="qp_btn_fast").click().run()
+    at.button(key="qp_run").click().run()
+    assert service.calls[-1]["mode"] == "fast" and "stream" not in service.calls[-1]
+    assert len(at.status) == 0
+
+
+_REAL_STACK_SERVICE = """
+from types import SimpleNamespace
+
+from core.settings import AgenticSearchConfig
+from libs.agentic_search.base_agentic_search import AgenticEvidence
+from libs.agentic_search.fake_backend import FakeAgenticSearch
+from mcp_server.tools.agentic_search import AgenticSearchTool
+
+
+def build_service():
+    settings = SimpleNamespace(
+        agentic_search=AgenticSearchConfig(enabled=True, allow_deep=True, allowed_roots=[{docs!r}]),
+        observability=SimpleNamespace(log_file={log_file!r}),
+    )
+    fake = FakeAgenticSearch(
+        answer="real stack answer",
+        evidences=[AgenticEvidence(source_path={doc!r}, snippet="hit", score=0.9)],
+        source_files=[{doc!r}],
+        supports_stream={supports_stream!r},
+    )
+    tool = AgenticSearchTool(search=fake, settings=settings)
+    return SearchService(settings=settings, agentic_tool=tool)
+"""
+
+
+@pytest.mark.parametrize("supports_stream", [True, False])
+def test_query_playground_deep_real_service_stream_and_fallback(tmp_path, supports_stream):
+    """真 SearchService + 真 AgenticSearchTool + Fake 后端：流式进度 / 不支持时回退同步。"""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    doc = docs / "a.md"
+    doc.write_text("hello", encoding="utf-8")
+    builder = _REAL_STACK_SERVICE.format(
+        docs=str(docs), doc=str(doc), log_file=str(tmp_path / "traces.jsonl"), supports_stream=supports_stream
+    )
+    body = _PLAYGROUND_PRELUDE + builder + _PLAYGROUND_MOUNT.format(service_expr="build_service()")
+    at = _run(_driver(tmp_path, f"playground_real_{supports_stream}", body))
+
+    at.button(key="qp_btn_deep").click().run()
+    at.text_input(key="qp_query").set_value("multi hop").run()
+    at.button(key="qp_run").click().run()
+    assert not at.exception
+    assert not at.error
+
+    logs = "\n".join(str(c.value) for c in at.code)
+    captions = "\n".join(str(c.value) for c in at.caption)
+    if supports_stream:
+        assert [s.label for s in at.status] == ["Deep 检索完成（进度日志 3 条）"]
+        assert "fake: searching files" in logs
+    else:
+        assert [s.label for s in at.status] == ["Deep 检索完成（进度日志 0 条）"]
+        assert "fake:" not in logs
+        assert "未收到进度日志" in captions
+    metrics = {m.label: m.value for m in at.metric}
+    assert str(metrics["模式"]) == "DEEP"
+    all_text = "\n".join(str(e.value) for e in list(at.markdown) + list(at.caption))
+    assert "real stack answer" in all_text

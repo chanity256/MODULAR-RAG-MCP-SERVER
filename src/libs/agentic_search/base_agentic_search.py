@@ -19,7 +19,7 @@ from __future__ import annotations
 import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable, Optional
 
 if __package__ in (None, ""):  # pragma: no cover - 直接运行兜底
     sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[2]))
@@ -33,11 +33,16 @@ __all__ = [
     "AgenticSearchTimeoutError",
     "AgenticSearchBackendError",
     "AgenticSearchResponseError",
+    "AgenticLogCallback",
     "VALID_MODES",
 ]
 
 #: sirchmunk 合法检索模式（FILENAME_ONLY 不对外暴露，见 spec 2.2）。
 VALID_MODES = ("FAST", "DEEP")
+
+#: 流式进度回调签名：``(level, message, timestamp)``（SX5）；timestamp 为
+#: sidecar 侧 epoch 秒，缺失时为 None。
+AgenticLogCallback = Callable[[str, str, Optional[float]], None]
 
 
 class AgenticSearchError(Exception):
@@ -191,3 +196,22 @@ class BaseAgenticSearch(ABC):
             AgenticSearchResponseError: 响应结构畸形。
         """
         raise NotImplementedError
+
+    def search_stream(
+        self,
+        request: AgenticSearchRequest,
+        on_event: AgenticLogCallback,
+    ) -> AgenticSearchResponse:
+        """流式执行一次 Agentic 检索（可选能力，SX5）。
+
+        检索过程中的进度日志经 ``on_event(level, message, timestamp)``
+        逐条回调，结束后返回与 :meth:`search` 同契约的响应。默认实现抛
+        ``NotImplementedError``，即「该后端不支持流式」，调用方据此回退
+        同步 :meth:`search`。
+
+        Raises:
+            NotImplementedError: 后端不支持流式。
+            AgenticSearchTimeoutError / AgenticSearchBackendError /
+            AgenticSearchResponseError: 同 :meth:`search`。
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support search_stream")

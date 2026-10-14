@@ -4,6 +4,9 @@
 settings（Fast 需 ``agentic_search.enabled``；Deep 另需 ``allow_deep``），
 不可用按钮置灰并以 help 悬停提示开启方法。检索写入 trace，可在
 「Query 追踪」页查看各阶段耗时（S3.2 已支持渲染 agentic 阶段）。
+
+Deep 模式经 ``SearchService.run_stream`` 在 ``st.status`` 中实时展示
+sidecar 进度日志（SX5）；Normal/Fast 仍走同步 ``run`` + spinner。
 """
 
 from __future__ import annotations
@@ -27,6 +30,8 @@ _MODE_COLORS: dict[str, str] = {"normal": "#22a559", "fast": "#2f7de8", "deep": 
 _MODE_BTN_KEY = "qp_mode"
 _OUTCOME_KEY = "qp_outcome"
 _SERVICE_KEY = "_search_service"
+_LOG_TAIL = 30
+_LOG_LINE_MAX = 300
 
 
 def render(*, settings: Any | None = None, search_service: SearchService | None = None) -> None:
@@ -134,10 +139,39 @@ def _render_query_form(service: SearchService, mode: str, availability: dict) ->
         st.warning("请先输入查询文本。")
         return
 
-    spinner = "Deep 模式可能需要数十秒，检索中……" if mode == "deep" else "检索中……"
-    with st.spinner(spinner):
-        outcome = service.run(mode, query.strip(), top_k=top_k, collection=collection)
+    if mode == "deep":
+        outcome = _run_deep_with_progress(service, query.strip(), top_k)
+    else:
+        with st.spinner("检索中……"):
+            outcome = service.run(mode, query.strip(), top_k=top_k, collection=collection)
     st.session_state[_OUTCOME_KEY] = outcome
+
+
+def _run_deep_with_progress(service: SearchService, query: str, top_k: int) -> SearchOutcome:
+    """Deep 检索：``st.status`` 内实时追加 sidecar 进度日志（SX5）。
+
+    只渲染最近 ``_LOG_TAIL`` 行、单行截断到 ``_LOG_LINE_MAX`` 字符：DEEP
+    日志含 LLM 完整输出，全量追加会让页面元素无界增长。
+    """
+    lines: list[str] = []
+    with st.status("Deep 模式可能需要数十秒，检索中……", expanded=True) as status:
+        log_box = st.empty()
+
+        def on_event(level: str, message: str, _timestamp: float | None) -> None:
+            text = " ".join(str(message).split())
+            if len(text) > _LOG_LINE_MAX:
+                text = text[: _LOG_LINE_MAX - 1] + "…"
+            lines.append(f"[{str(level).upper()}] {text}")
+            log_box.code("\n".join(lines[-_LOG_TAIL:]), language=None)
+
+        outcome = service.run_stream("deep", query, top_k=top_k, on_event=on_event)
+        if not lines:
+            log_box.caption("未收到进度日志（后端不支持流式时已回退同步检索）。")
+        if outcome.is_error:
+            status.update(label="Deep 检索失败", state="error", expanded=False)
+        else:
+            status.update(label=f"Deep 检索完成（进度日志 {len(lines)} 条）", state="complete", expanded=False)
+    return outcome
 
 
 # --------------------------------------------------------------------- #

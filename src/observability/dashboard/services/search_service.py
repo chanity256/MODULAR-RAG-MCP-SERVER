@@ -15,6 +15,9 @@
 - :class:`SearchService.availability(settings)` —— 各模式可用状态与原因；
 - :meth:`SearchService.run` —— ``run(mode, query, top_k, collection)``。
 
+SX5 追加 :meth:`SearchService.run_stream`：Deep 模式经后端
+``search_stream`` 回调进度日志，后端不支持流式时回退 :meth:`run`。
+
 工具实例懒构建并缓存在实例上（页面把 SearchService 存入
 ``st.session_state``，避免每次点击都重建 HybridSearch）。不改动检索核心，
 不新增依赖；默认配置（``agentic_search.enabled: false``）下仅 Normal 可用。
@@ -24,7 +27,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from mcp_server.protocol_handler import ToolInvalidParams
 
@@ -167,6 +170,55 @@ class SearchService:
 
         return self._parse(mode, result, (time.perf_counter() - started) * 1000.0)
 
+    def run_stream(
+        self,
+        mode: str,
+        query: str,
+        top_k: int | None = None,
+        collection: str | None = None,
+        *,
+        on_event: Callable[[str, str, float | None], None],
+    ) -> SearchOutcome:
+        """带进度回调的检索（SX5）：仅 Deep 走后端 ``search_stream``。
+
+        其余模式、工具/后端不支持流式（``NotImplementedError``）时回退
+        :meth:`run`，结果形态与 :meth:`run` 完全一致。流式请求同样经
+        ``AgenticSearchTool`` 的参数校验、PathGuard 双层防线、trace 与
+        isError 降级——只把后端调用换成 ``search_stream``。
+
+        Args:
+            on_event: ``(level, message, timestamp)`` 进度回调。
+        """
+        normalized = (mode or "").strip().lower()
+        if normalized != "deep":
+            return self.run(mode, query, top_k=top_k, collection=collection)
+
+        config = getattr(self._get_settings(), "agentic_search", None)
+        if config is not None:
+            availability = self.availability()
+            if not availability["deep"].available:
+                return self._error_outcome("deep", availability["deep"].reason or "该模式当前不可用")
+
+        started = time.perf_counter()
+        try:
+            stream_tool = self._build_stream_tool(on_event)
+            if stream_tool is None:
+                return self.run(mode, query, top_k=top_k, collection=collection)
+            arguments: dict[str, Any] = {"query": query, "mode": "DEEP"}
+            if top_k is not None:
+                arguments["top_k"] = top_k
+            result = stream_tool(arguments)
+        except NotImplementedError:
+            return self.run(mode, query, top_k=top_k, collection=collection)
+        except ToolInvalidParams as exc:
+            return self._error_outcome("deep", f"参数非法：{exc}", started)
+        except (TypeError, ValueError) as exc:
+            return self._error_outcome("deep", str(exc), started)
+        except Exception as exc:  # noqa: BLE001 - 页面稳定性优先，友好兜底
+            return self._error_outcome("deep", f"{type(exc).__name__}: {exc}", started)
+
+        return self._parse("deep", result, (time.perf_counter() - started) * 1000.0)
+
     # ------------------------------------------------------------------ #
     # 内部：分发与解析
     # ------------------------------------------------------------------ #
@@ -244,3 +296,40 @@ class SearchService:
         from mcp_server.tools.agentic_search import AgenticSearchTool
 
         return AgenticSearchTool(settings=self._get_settings())
+
+    def _build_stream_tool(self, on_event: Callable[[str, str, float | None], None]) -> Any | None:
+        """构建一次性流式工具：复用会话工具的后端/PathGuard/settings。
+
+        MCP tool 本身保持同步不动：这里另起一个 ``AgenticSearchTool``，把
+        后端包成 ``search = backend.search_stream(request, on_event)`` 的
+        适配器，tool 的校验/防线/trace 逻辑原样复用。注入的非
+        ``AgenticSearchTool`` 工具（测试 fake）无从取后端，返回 None 走同步。
+        """
+        from mcp_server.tools.agentic_search import AgenticSearchTool
+
+        tool = self._get_agentic_tool()
+        if not isinstance(tool, AgenticSearchTool):
+            return None
+        backend = tool._get_search()
+        if not callable(getattr(backend, "search_stream", None)):
+            return None
+        return AgenticSearchTool(
+            search=_StreamingSearchAdapter(backend, on_event),
+            settings=tool._get_settings(),
+            path_guard=tool._get_path_guard(),
+        )
+
+
+class _StreamingSearchAdapter:
+    """把 ``search_stream`` 伪装成 ``search``，供同步 tool 原样调用。"""
+
+    def __init__(self, backend: Any, on_event: Callable[[str, str, float | None], None]) -> None:
+        self._backend = backend
+        self._on_event = on_event
+
+    @property
+    def backend_name(self) -> str:
+        return getattr(self._backend, "backend_name", "unknown")
+
+    def search(self, request: Any) -> Any:
+        return self._backend.search_stream(request, self._on_event)

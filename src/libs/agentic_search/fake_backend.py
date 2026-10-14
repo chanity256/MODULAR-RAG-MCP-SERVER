@@ -16,12 +16,20 @@ if __package__ in (None, ""):  # pragma: no cover - 直接运行兜底
 from libs.agentic_search.agentic_search_factory import AgenticSearchFactory
 from libs.agentic_search.base_agentic_search import (
     AgenticEvidence,
+    AgenticLogCallback,
     AgenticSearchRequest,
     AgenticSearchResponse,
     BaseAgenticSearch,
 )
 
-__all__ = ["FakeAgenticSearch"]
+__all__ = ["FakeAgenticSearch", "DEFAULT_STREAM_EVENTS"]
+
+#: ``search_stream`` 缺省回放的罐头进度日志 ``(level, message, timestamp)``。
+DEFAULT_STREAM_EVENTS: tuple[tuple[str, str, float | None], ...] = (
+    ("info", "fake: analyzing query", 1.0),
+    ("info", "fake: searching files", 2.0),
+    ("info", "fake: synthesizing answer", 3.0),
+)
 
 
 @AgenticSearchFactory.register("fake")
@@ -39,12 +47,19 @@ class FakeAgenticSearch(BaseAgenticSearch):
         total_llm_tokens: int | None = 1024,
         telemetry: dict[str, Any] | None = None,
         error: Exception | None = None,
+        stream_events: Sequence[tuple[str, str, float | None]] | None = None,
+        supports_stream: bool = True,
     ) -> None:
         """Args:
             agentic_config: 工厂统一签名首参（``AgenticSearchFactory.create``
                 以 ``ctor(config)`` 调用）；fake 忽略配置，输出由构造参数
                 完全决定。
-            error: 非 None 时 ``search`` 抛出该异常（测试降级路径）。
+            error: 非 None 时 ``search`` 抛出该异常（测试降级路径）；
+                ``search_stream`` 先回放日志再抛出。
+            stream_events: ``search_stream`` 回放的进度日志（缺省
+                :data:`DEFAULT_STREAM_EVENTS`）。
+            supports_stream: False 时 ``search_stream`` 走基类默认实现
+                （抛 ``NotImplementedError``），测试回退同步路径。
         """
         self._answer = answer
         self._evidences = (
@@ -65,7 +80,10 @@ class FakeAgenticSearch(BaseAgenticSearch):
         self._total_llm_tokens = total_llm_tokens
         self._telemetry = dict(telemetry) if telemetry is not None else None
         self._error = error
+        self._stream_events = list(stream_events) if stream_events is not None else list(DEFAULT_STREAM_EVENTS)
+        self._supports_stream = supports_stream
         self.last_request: AgenticSearchRequest | None = None
+        self.stream_calls = 0
 
     @property
     def backend_name(self) -> str:
@@ -85,3 +103,15 @@ class FakeAgenticSearch(BaseAgenticSearch):
             total_llm_tokens=self._total_llm_tokens,
             telemetry=dict(self._telemetry) if self._telemetry is not None else None,
         )
+
+    def search_stream(
+        self,
+        request: AgenticSearchRequest,
+        on_event: AgenticLogCallback,
+    ) -> AgenticSearchResponse:
+        if not self._supports_stream:
+            return super().search_stream(request, on_event)
+        self.stream_calls += 1
+        for level, message, timestamp in self._stream_events:
+            on_event(level, message, timestamp)
+        return self.search(request)

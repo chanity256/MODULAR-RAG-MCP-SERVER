@@ -269,3 +269,109 @@ def test_tools_built_lazily_and_cached(monkeypatch):
     service.run("fast", "q3")
     service.run("fast", "q4")
     assert built == ["query", "agentic"]  # 各构建一次，后续复用
+
+
+# --------------------------------------------------------------------- #
+# SX5.2：run_stream（Deep 流式进度 + 不支持流式时回退同步）
+# --------------------------------------------------------------------- #
+
+
+def _stream_env(tmp_path: Path, **fake_kwargs):
+    from libs.agentic_search.base_agentic_search import AgenticEvidence
+    from libs.agentic_search.fake_backend import FakeAgenticSearch
+    from mcp_server.tools.agentic_search import AgenticSearchTool
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "a.md").write_text("hello", encoding="utf-8")
+    log_file = tmp_path / "traces.jsonl"
+    settings = SimpleNamespace(
+        agentic_search=AgenticSearchConfig(enabled=True, allow_deep=True, allowed_roots=[str(docs)]),
+        observability=SimpleNamespace(log_file=str(log_file)),
+    )
+    fake_kwargs.setdefault(
+        "evidences",
+        [
+            AgenticEvidence(source_path=str(docs / "a.md"), snippet="in root", score=0.9),
+            AgenticEvidence(source_path="/etc/passwd", snippet="outside root", score=0.8),
+        ],
+    )
+    fake_kwargs.setdefault("source_files", [str(docs / "a.md"), "/etc/passwd"])
+    fake = FakeAgenticSearch(telemetry={"loop_count": 2}, **fake_kwargs)
+    tool = AgenticSearchTool(search=fake, settings=settings)
+    service = SearchService(settings=settings, agentic_tool=tool)
+    return service, fake, docs, log_file
+
+
+def test_run_stream_deep_emits_events_and_matches_sync(tmp_path):
+    service, fake, docs, log_file = _stream_env(tmp_path)
+    events: list[tuple] = []
+    outcome = service.run_stream("deep", "multi hop", top_k=3, on_event=lambda *a: events.append(a))
+
+    assert fake.stream_calls == 1
+    assert [e[1] for e in events] == ["fake: analyzing query", "fake: searching files", "fake: synthesizing answer"]
+    assert not outcome.is_error and outcome.mode == "deep"
+    assert fake.last_request is not None and fake.last_request.mode == "DEEP"
+    # 调用前 PathGuard：缺省路径 = allowed_roots。
+    assert fake.last_request.paths == [str(docs.resolve())]
+    # 调用后 PathGuard：根外证据被剔除；telemetry 透传。
+    assert outcome.agentic_meta["evidence_files"] == [str((docs / "a.md").resolve())]
+    assert all("passwd" not in c.get("source", "") for c in outcome.citations)
+    assert outcome.agentic_meta["telemetry"] == {"loop_count": 2}
+    # trace 同样落盘，method 为真实后端名。
+    trace_text = log_file.read_text(encoding="utf-8")
+    assert '"agentic_search"' in trace_text and '"fake"' in trace_text
+
+    sync = service.run("deep", "multi hop", top_k=3)
+    assert sync.markdown == outcome.markdown
+    assert sync.citations == outcome.citations
+    assert sync.agentic_meta == outcome.agentic_meta
+
+
+def test_run_stream_falls_back_when_unsupported(tmp_path):
+    service, fake, _docs, _log = _stream_env(tmp_path, supports_stream=False)
+    events: list[tuple] = []
+    outcome = service.run_stream("deep", "q", on_event=lambda *a: events.append(a))
+    assert events == []
+    assert fake.stream_calls == 0
+    assert fake.last_request is not None  # 走了同步 search
+    assert not outcome.is_error and outcome.agentic_meta["mode"] == "DEEP"
+
+
+def test_run_stream_backend_error_normalized(tmp_path):
+    from libs.agentic_search.base_agentic_search import AgenticSearchBackendError
+
+    service, _fake, _docs, _log = _stream_env(tmp_path, error=AgenticSearchBackendError("sidecar down"))
+    events: list[tuple] = []
+    outcome = service.run_stream("deep", "q", on_event=lambda *a: events.append(a))
+    assert outcome.is_error
+    assert "sidecar down" in outcome.error
+    assert len(events) == 3  # 失败前的进度日志已回调
+
+
+def test_run_stream_non_deep_delegates_to_run():
+    tool = FakeTool(_ok_result(agentic={"mode": "FAST"}))
+    query_tool = FakeTool()
+    service = _service(query_tool=query_tool, agentic_tool=tool, enabled=True, allow_deep=True)
+    events: list[tuple] = []
+    fast = service.run_stream("fast", "q", on_event=lambda *a: events.append(a))
+    normal = service.run_stream("normal", "q", collection="c1", on_event=lambda *a: events.append(a))
+    assert fast.mode == "fast" and tool.calls[-1]["mode"] == "FAST"
+    assert normal.mode == "normal" and query_tool.calls[-1]["collection"] == "c1"
+    assert events == []
+
+
+def test_run_stream_injected_fake_tool_falls_back():
+    tool = FakeTool(_ok_result(agentic={"mode": "DEEP"}))
+    service = _service(agentic_tool=tool, enabled=True, allow_deep=True)
+    outcome = service.run_stream("deep", "q", on_event=lambda *a: None)
+    assert not outcome.is_error and tool.calls[-1]["mode"] == "DEEP"
+
+
+def test_run_stream_deep_gated():
+    tool = FakeTool()
+    outcome = _service(agentic_tool=tool, enabled=True, allow_deep=False).run_stream(
+        "deep", "q", on_event=lambda *a: None
+    )
+    assert outcome.is_error and "allow_deep" in outcome.error
+    assert tool.call_count == 0
