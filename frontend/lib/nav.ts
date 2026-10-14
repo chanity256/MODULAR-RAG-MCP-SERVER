@@ -15,13 +15,13 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: readonly NavItem[] = [
-  { href: "/", label: "Chat", icon: "chat", comingIn: "WC8" },
+  { href: "/", label: "Chat", icon: "chat" },
   { href: "/overview", label: "Overview", icon: "overview" },
   { href: "/ingestion-traces", label: "Ingestion Traces", icon: "ingestion-traces" },
   { href: "/query-traces", label: "Query Traces", icon: "query-traces" },
-  { href: "/data-browser", label: "Data Browser", icon: "data-browser", comingIn: "WC9" },
-  { href: "/ingestion-manager", label: "Ingestion Manager", icon: "ingestion-manager", comingIn: "WC9" },
-  { href: "/evaluation", label: "Evaluation", icon: "evaluation", comingIn: "WC9" },
+  { href: "/data-browser", label: "Data Browser", icon: "data-browser" },
+  { href: "/ingestion-manager", label: "Ingestion Manager", icon: "ingestion-manager" },
+  { href: "/evaluation", label: "Evaluation", icon: "evaluation" },
   { href: "/query-playground", label: "Query Playground", icon: "playground", comingIn: "WC9" },
 ];
 
