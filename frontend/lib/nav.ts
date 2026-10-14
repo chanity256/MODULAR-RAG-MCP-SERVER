@@ -16,9 +16,9 @@ export interface NavItem {
 
 export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/", label: "Chat", icon: "chat", comingIn: "WC8" },
-  { href: "/overview", label: "Overview", icon: "overview", comingIn: "WC3.3" },
-  { href: "/ingestion-traces", label: "Ingestion Traces", icon: "ingestion-traces", comingIn: "WC3.3" },
-  { href: "/query-traces", label: "Query Traces", icon: "query-traces", comingIn: "WC3.3" },
+  { href: "/overview", label: "Overview", icon: "overview" },
+  { href: "/ingestion-traces", label: "Ingestion Traces", icon: "ingestion-traces" },
+  { href: "/query-traces", label: "Query Traces", icon: "query-traces" },
   { href: "/data-browser", label: "Data Browser", icon: "data-browser", comingIn: "WC9" },
   { href: "/ingestion-manager", label: "Ingestion Manager", icon: "ingestion-manager", comingIn: "WC9" },
   { href: "/evaluation", label: "Evaluation", icon: "evaluation", comingIn: "WC9" },
