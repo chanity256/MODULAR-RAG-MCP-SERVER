@@ -351,13 +351,13 @@ WC5（chat_stream + AnswerGenerator）──► WC6（Chat 核心）──► WC
 | WC0.1 | 本规格落档 + 全库索引同步（MOC/README/AGENTS/backlog/analysis）+ 决策记录 note | [x] | 2026-10-14 | D1 推翻 backlog Vue 选型；§1.2 五处勘误；同日审核修订：增 D8（检索层分工/分层）、D9（独立 token），修正 D7 trace 标识、重试窗口、Query Playground 缺漏与引用行号 |
 | WC0.2 | 依赖锁定：pyproject 增 fastapi/uvicorn（锁版本）；确定 Node/Next/React 目标版本写入本规格 §7.2（`package-lock`/`.nvmrc` 随 WC3.1 脚手架生成） | [x] | 2026-10-14 | fastapi 0.143.0 / uvicorn 0.52.1 / httpx 升主依赖；Next ^16.1.1 / React 19 / Node 22 目标见 §7.2 |
 | WC0.3 | 基线固化：跑通现有全量离线套件并记录通过数；Dashboard 七页冒烟基线（P1.1 前置） | [x] | 2026-10-14 | 基线 **1706 passed / 3 skipped**（43.9s，含 `tests/e2e/test_dashboard_smoke.py` 七页冒烟）；`pytest -q`（addopts 已含 -q，看计数需 `-o addopts=""`） |
-| WC1.1 | P1.1 行为基线锁定（dashboard_services/evaluation_panel/dashboard_smoke 三套回归命令，记录现状） | [ ] | | backlog P1.1 |
-| WC1.2 | P1.2 `IngestionService` 提取 + `test_ingestion_service.py` | [ ] | | backlog P1.2 验收标准 |
-| WC1.3 | P1.3 Ingestion 页面简化（页面只留输入/进度/展示） | [ ] | | 回归 `pytest -q tests/e2e/test_dashboard_smoke.py -k ingestion` |
-| WC1.4 | P1.4 `EvaluationService` 提取 + `test_evaluation_service.py` | [ ] | | backlog P1.4 |
-| WC1.5 | P1.5 Evaluation 页面简化 | [ ] | | 回归 `-k evaluation` |
-| WC1.6 | 新增 `QueryService`（HybridSearch+Reranker 装配，注入 fake 可测，返回 `RetrievalResult`，trace 透传不落盘；不触碰 MCP tool 与 `SearchService`） | [ ] | | D8；Chat 与后续 REST 查询共用 |
-| WC1.7 | P1.6 全量验收（`rg` 双守卫 + 四套回归） | [ ] | | backlog P1.6 命令 |
+| WC1.1 | P1.1 行为基线锁定（dashboard_services/evaluation_panel/dashboard_smoke 三套回归命令，记录现状） | [x] | 2026-10-14 | backlog P1.1；基线 35 passed（dashboard_services/evaluation_panel/smoke） |
+| WC1.2 | P1.2 `IngestionService` 提取 + `test_ingestion_service.py` | [x] | 2026-10-14 | backlog P1.2 验收标准；ingestion_service.py + 24 单测 |
+| WC1.3 | P1.3 Ingestion 页面简化（页面只留输入/进度/展示） | [x] | 2026-10-14 | 回归 `pytest -q tests/e2e/test_dashboard_smoke.py -k ingestion`；页面委托服务，注入点不变 |
+| WC1.4 | P1.4 `EvaluationService` 提取 + `test_evaluation_service.py` | [x] | 2026-10-14 | backlog P1.4；evaluation_service.py + 28 单测（迁入原 evaluation_panel 单测） |
+| WC1.5 | P1.5 Evaluation 页面简化 | [x] | 2026-10-14 | 回归 `-k evaluation`；旧 test_evaluation_panel.py 迁移后删除 |
+| WC1.6 | 新增 `QueryService`（HybridSearch+Reranker 装配，注入 fake 可测，返回 `RetrievalResult`，trace 透传不落盘；不触碰 MCP tool 与 `SearchService`） | [x] | 2026-10-14 | D8；Chat 与后续 REST 查询共用；query_service.py + 24 单测；trace 透传不落盘 |
+| WC1.7 | P1.6 全量验收（`rg` 双守卫 + 四套回归） | [x] | 2026-10-14 | backlog P1.6 命令；rg 双守卫通过；query_playground 一处注释改词以过字面守卫；全量 1835 passed / 3 skipped |
 | WC2.1 | `src/api/` 骨架：app.py + errors.py + 鉴权中间件（loopback 守卫）+ `/health` | [ ] | | |
 | WC2.2 | 只读路由：overview/collections/documents/images/traces + Pydantic schemas | [ ] | | backlog P2 接口清单 |
 | WC2.3 | API 集成测试（TestClient）+ OpenAPI 文档校验；MCP stdio 测试不变性确认 | [ ] | | |
@@ -368,10 +368,10 @@ WC5（chat_stream + AnswerGenerator）──► WC6（Chat 核心）──► WC
 | WC4.1 | 任务模型：SQLite `tasks.db`（pending→running→succeeded/failed 持久化，刷新可恢复） | [ ] | | backlog P4 |
 | WC4.2 | 写接口：上传/删除/摄取提交/评估提交 + `GET /api/v1/tasks/{id}` | [ ] | | |
 | WC4.3 | WS 任务事件通道（复用 §4.7 信封）+ 断线轮询恢复验证 | [ ] | | D2 |
-| WC5.1 | `BaseLLM.chat_stream` 默认实现（整块回放）+ 契约单测 | [ ] | | 可与 WC1–WC3 并行 |
-| WC5.2 | OpenAI 兼容 httpx SSE 流式 + `MockTransport` 离线测试 | [ ] | | §4.4 |
-| WC5.3 | Ollama NDJSON 流式 | [ ] | | |
-| WC5.4 | `AnswerGenerator`（编号上下文与 citation id 同序、空检索短路）+ prompts 三件 | [ ] | | `config/prompts/chat_{relevance,rewrite,answer}.txt` |
+| WC5.1 | `BaseLLM.chat_stream` 默认实现（整块回放）+ 契约单测 | [x] | 2026-10-14 | 可与 WC1–WC3 并行；base_llm.chat_stream 默认整块回放；新增 last_usage |
+| WC5.2 | OpenAI 兼容 httpx SSE 流式 + `MockTransport` 离线测试 | [x] | 2026-10-14 | §4.4；openai_llm 注入式 httpx SSE；stream_options.include_usage |
+| WC5.3 | Ollama NDJSON 流式 | [x] | 2026-10-14 | ollama_llm NDJSON；chat() 仍 stream:False |
+| WC5.4 | `AnswerGenerator`（编号上下文与 citation id 同序、空检索短路）+ prompts 三件 | [x] | 2026-10-14 | `config/prompts/chat_{relevance,rewrite,answer}.txt`；src/core/chat/answer_generator.py + prompts 三件 + 分层守卫单测 |
 | WC6.1 | `history.py` 双预算裁剪纯函数 + 单测 | [ ] | | |
 | WC6.2 | `context.py` 过滤/改写（fail-open）+ prompt 加载 | [ ] | | |
 | WC6.3 | `session_store.py` 两表 SQLite（含取消/中断的部分内容落库）+ 单测 | [ ] | | |
