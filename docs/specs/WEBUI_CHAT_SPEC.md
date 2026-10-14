@@ -380,13 +380,13 @@ WC5（chat_stream + AnswerGenerator）──► WC6（Chat 核心）──► WC
 | WC7.2 | 会话 REST：列表/详情/删除（对齐上游 `/api/v1/chat/sessions` 路由形状） | [x] | 2026-10-14 | 会话 REST 列表/详情/删除 |
 | WC7.3 | 检索模式路由：`chat_retrievers.py` 两适配器；`AgenticSearchTool.run(trace=)` 注入入口（`__call__` 行为不变）；FAST/DEEP + `allow_deep` 门控 + progress_stream 开关；capabilities 接口 | [x] | 2026-10-14 | D4、D7、D8、§4.6；chat_retrievers.py + AgenticSearchTool.run(trace=) + on_log→search_log 帧 + /chat/capabilities |
 | WC7.4 | Chat trace（`metadata.routes="chat"` + 三 stage，每轮一条）+ Query Traces 页按 `metadata.routes` 来源标签/筛选 | [x] | 2026-10-14 | D7、§4.8；每轮一条 chat trace（hybrid/agentic 均已断言）；Streamlit Query Traces 来源筛选；engine 修正 HybridSearch 提前 finish 冻结 total 的问题 |
-| WC8.1 | 移植 Chat UI + GlobalContext chat 段（question/mimic/文件选择器裁剪） | [ ] | | |
-| WC8.2 | citations sources 面板 + 模式选择器 + grounded 提示 | [ ] | | §4.9 |
-| WC8.3 | markdown/KaTeX/Mermaid 渲染 + 流式渲染联调 | [ ] | | |
-| WC9.1 | Data Browser 页迁移 | [ ] | | backlog P5 顺序 |
-| WC9.2 | Ingestion 管理页迁移（上传/删除/任务进度） | [ ] | | |
-| WC9.3 | 评估面板页迁移 | [ ] | | |
-| WC9.4 | Query Playground 页迁移（三模式对比 + telemetry 展示，REST 复用 `SearchService`；决定 normal 模式是否委托 `QueryService`） | [ ] | | D8；backlog 提案早于 S4.1，未列此页 |
+| WC8.1 | 移植 Chat UI + GlobalContext chat 段（question/mimic/文件选择器裁剪） | [x] | 2026-10-14 | app/page.tsx Chat UI；lib/chat/{reducer,client,normalize}；一消息一连接 + cancel；会话列表/恢复；裁剪 GlobalContext（无 question/mimic/文件选择器） |
+| WC8.2 | citations sources 面板 + 模式选择器 + grounded 提示 | [x] | 2026-10-14 | §4.9；citations 面板（[n] 标记联动）+ 检索模式选择器（读 capabilities）+ grounded:false 横幅 + 错误提示 |
+| WC8.3 | markdown/KaTeX/Mermaid 渲染 + 流式渲染联调 | [x] | 2026-10-14 | react-markdown/remark-gfm/remark-math/rehype-katex，Mermaid 懒加载，流式渲染节流，禁用原始 HTML 与 Markdown 图片；前端 224 单测 |
+| WC9.1 | Data Browser 页迁移 | [x] | 2026-10-14 | backlog P5 顺序；Data Browser 页（集合/文档/详情/图片/删除确认） |
+| WC9.2 | Ingestion 管理页迁移（上传/删除/任务进度） | [x] | 2026-10-14 | Ingestion Manager 页（上传/提交/WS 跟随 + 轮询回退/最近任务/删除）；lib/tasks.ts followTask |
+| WC9.3 | 评估面板页迁移 | [x] | 2026-10-14 | Evaluation 页（提交/进度/指标/逐 query 表/历史） |
+| WC9.4 | Query Playground 页迁移（三模式对比 + telemetry 展示，REST 复用 `SearchService`；决定 normal 模式是否委托 `QueryService`） | [ ] | | D8；backlog 提案早于 S4.1，未列此页；后端部分已交付：POST /api/v1/search + GET /api/v1/search/capabilities（封装 SearchService），页面待做 |
 | WC9.5 | Playwright 关键用户流程 | [ ] | | |
 | WC10.1 | P6 双轨功能等价核验（七页面逐项对照） | [ ] | | backlog P6 退役门槛（原文「六页」按七页执行） |
 | WC10.2 | Streamlit 退役：启动脚本/README/部署说明更新，确认 MCP stdio 不受影响 | [ ] | | |
