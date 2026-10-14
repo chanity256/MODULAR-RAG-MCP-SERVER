@@ -4,6 +4,23 @@
 """
 
 from core.chat.answer_generator import AnswerGenerator
+from core.chat.context import ContextProcessor
+from core.chat.engine import ChatEngine, classify_error
+from core.chat.history import build_history
 from core.chat.prompts import load_prompt
+from core.chat.retriever import ChatRetrievalResult, ChatRetriever, DeepDisabledError
+from core.chat.session_store import SessionNotFoundError, SessionStore
 
-__all__ = ["AnswerGenerator", "load_prompt"]
+__all__ = [
+    "AnswerGenerator",
+    "ChatEngine",
+    "ChatRetrievalResult",
+    "ChatRetriever",
+    "ContextProcessor",
+    "DeepDisabledError",
+    "SessionNotFoundError",
+    "SessionStore",
+    "build_history",
+    "classify_error",
+    "load_prompt",
+]
