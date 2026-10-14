@@ -363,11 +363,11 @@ WC5（chat_stream + AnswerGenerator）──► WC6（Chat 核心）──► WC
 | WC2.3 | API 集成测试（TestClient）+ OpenAPI 文档校验；MCP stdio 测试不变性确认 | [x] | 2026-10-14 | integration/test_api.py 85 + security/layering/entry 单测；MCP stdio 不受影响 |
 | WC3.1 | frontend/ 脚手架：Next 静态导出 + TS + Tailwind + ESLint/vitest；生成 `package-lock.json`、`engines`、`.nvmrc` | [x] | 2026-10-14 | 版本按 §7.2 / WC0.2；Next 16.4.0 / React 19.3 / Tailwind 3.4 / vitest 5；trailingSlash:true；lockfile + .nvmrc(22) |
 | WC3.2 | 移植 lib/api.ts + 布局/主题/Sidebar | [x] | 2026-10-14 | 上游 Apache-2.0 保留署名；lib/api.ts（token 键 rag_api_token）+ 主题 + Sidebar + 占位页；19 前端单测 |
-| WC3.3 | 只读三页：Overview / Ingestion Traces / Query Traces | [ ] | | 数据含义与 Streamlit 一致 |
-| WC3.4 | FastAPI 单端口托管 + SPA 路由回退中间件 | [ ] | | §5 第 6 条 |
-| WC4.1 | 任务模型：SQLite `tasks.db`（pending→running→succeeded/failed 持久化，刷新可恢复） | [ ] | | backlog P4 |
-| WC4.2 | 写接口：上传/删除/摄取提交/评估提交 + `GET /api/v1/tasks/{id}` | [ ] | | |
-| WC4.3 | WS 任务事件通道（复用 §4.7 信封）+ 断线轮询恢复验证 | [ ] | | D2 |
+| WC3.3 | 只读三页：Overview / Ingestion Traces / Query Traces | [x] | 2026-10-14 | 数据含义与 Streamlit 一致；Overview/Ingestion Traces/Query Traces 页（含 routes 来源筛选）；58 前端单测 |
+| WC3.4 | FastAPI 单端口托管 + SPA 路由回退中间件 | [x] | 2026-10-14 | §5 第 6 条；src/api/static.py；/x 与 /x/ 均 200，未知客户端路由回退 index.html，/api/** 恒 JSON 404；serve_ui 缺目录 fail-fast；`--serve-ui` 启动开关 |
+| WC4.1 | 任务模型：SQLite `tasks.db`（pending→running→succeeded/failed 持久化，刷新可恢复） | [x] | 2026-10-14 | backlog P4；src/api/tasks.py（TaskStore/TaskManager，tasks.db，重启将遗留 running 标 failed/interrupted）；ApiSettings 增 tasks_db/max_upload_mb |
+| WC4.2 | 写接口：上传/删除/摄取提交/评估提交 + `GET /api/v1/tasks/{id}` | [x] | 2026-10-14 | POST /uploads、/ingestions、/evaluations（202+task_id）、DELETE /documents/{path}?collection=、GET /tasks[/{id}]；摄取只接受已上传文件名；python-multipart 入依赖 |
+| WC4.3 | WS 任务事件通道（复用 §4.7 信封）+ 断线轮询恢复验证 | [x] | 2026-10-14 | D2；WS /api/v1/tasks/{id}/events（先回放当前态再推送，终态后关闭）；断线轮询恢复已测 |
 | WC5.1 | `BaseLLM.chat_stream` 默认实现（整块回放）+ 契约单测 | [x] | 2026-10-14 | 可与 WC1–WC3 并行；base_llm.chat_stream 默认整块回放；新增 last_usage |
 | WC5.2 | OpenAI 兼容 httpx SSE 流式 + `MockTransport` 离线测试 | [x] | 2026-10-14 | §4.4；openai_llm 注入式 httpx SSE；stream_options.include_usage |
 | WC5.3 | Ollama NDJSON 流式 | [x] | 2026-10-14 | ollama_llm NDJSON；chat() 仍 stream:False |
@@ -376,10 +376,10 @@ WC5（chat_stream + AnswerGenerator）──► WC6（Chat 核心）──► WC
 | WC6.2 | `context.py` 过滤/改写（fail-open）+ prompt 加载 | [x] | 2026-10-14 | context.py 21 单测 |
 | WC6.3 | `session_store.py` 两表 SQLite（含取消/中断的部分内容落库）+ 单测 | [x] | 2026-10-14 | session_store.py 15 单测（并发/重启） |
 | WC6.4 | `retriever.py` 协议 + `engine.py` 编排/错误分类/重试（首帧前窗口）/降级矩阵单测（fake retriever） | [x] | 2026-10-14 | D6 两态、D8 分层守卫；hybrid 适配器接 WC1.6；retriever.py 协议 + engine.py 62 单测 + ChatSettings 40 单测；search_log 帧留 WC7.3 |
-| WC7.1 | `WS /api/v1/chat`：帧协议、鉴权、连接上限、cancel | [ ] | | TestClient 帧序断言 |
-| WC7.2 | 会话 REST：列表/详情/删除（对齐上游 `/api/v1/chat/sessions` 路由形状） | [ ] | | |
-| WC7.3 | 检索模式路由：`chat_retrievers.py` 两适配器；`AgenticSearchTool.run(trace=)` 注入入口（`__call__` 行为不变）；FAST/DEEP + `allow_deep` 门控 + progress_stream 开关；capabilities 接口 | [ ] | | D4、D7、D8、§4.6 |
-| WC7.4 | Chat trace（`metadata.routes="chat"` + 三 stage，每轮一条）+ Query Traces 页按 `metadata.routes` 来源标签/筛选 | [ ] | | D7、§4.8 |
+| WC7.1 | `WS /api/v1/chat`：帧协议、鉴权、连接上限、cancel | [x] | 2026-10-14 | TestClient 帧序断言；WS /api/v1/chat；额外错误码 BAD_REQUEST/UNAVAILABLE；增 Origin 校验（规格外加固）；每轮新建 LLM+engine 避免 usage 串扰 |
+| WC7.2 | 会话 REST：列表/详情/删除（对齐上游 `/api/v1/chat/sessions` 路由形状） | [x] | 2026-10-14 | 会话 REST 列表/详情/删除 |
+| WC7.3 | 检索模式路由：`chat_retrievers.py` 两适配器；`AgenticSearchTool.run(trace=)` 注入入口（`__call__` 行为不变）；FAST/DEEP + `allow_deep` 门控 + progress_stream 开关；capabilities 接口 | [x] | 2026-10-14 | D4、D7、D8、§4.6；chat_retrievers.py + AgenticSearchTool.run(trace=) + on_log→search_log 帧 + /chat/capabilities |
+| WC7.4 | Chat trace（`metadata.routes="chat"` + 三 stage，每轮一条）+ Query Traces 页按 `metadata.routes` 来源标签/筛选 | [x] | 2026-10-14 | D7、§4.8；每轮一条 chat trace（hybrid/agentic 均已断言）；Streamlit Query Traces 来源筛选；engine 修正 HybridSearch 提前 finish 冻结 total 的问题 |
 | WC8.1 | 移植 Chat UI + GlobalContext chat 段（question/mimic/文件选择器裁剪） | [ ] | | |
 | WC8.2 | citations sources 面板 + 模式选择器 + grounded 提示 | [ ] | | §4.9 |
 | WC8.3 | markdown/KaTeX/Mermaid 渲染 + 流式渲染联调 | [ ] | | |
