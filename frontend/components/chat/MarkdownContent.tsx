@@ -79,7 +79,7 @@ function MarkdownContentImpl({ content, streaming, citations, onCitationClick }:
                 type="button"
                 onClick={() => onCitationClick?.(n)}
                 title={citation ? citationLabel(citation) : `Source ${n}`}
-                className="mx-0.5 rounded bg-blue-100 px-1 text-[0.7rem] font-medium text-blue-700 no-underline hover:bg-blue-200 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-800/60"
+                className="mx-0.5 rounded bg-blue-100 px-1 text-[0.7rem] font-medium leading-none text-blue-700 no-underline hover:bg-blue-200 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-800/60"
               >
                 {n}
               </button>

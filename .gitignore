@@ -121,6 +121,8 @@ tests/fixtures/sample_documents/*.pdf
 frontend/node_modules/
 frontend/.next/
 frontend/out/
+frontend/test-results/
+frontend/playwright-report/
 frontend/next-env.d.ts
 frontend/*.tsbuildinfo
 !frontend/lib/
