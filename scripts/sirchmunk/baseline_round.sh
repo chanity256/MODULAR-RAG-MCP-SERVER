@@ -3,7 +3,8 @@
 #   清空知识簇与 spec 缓存 → 启动 sidecar → 两个 golden fixture 跑一遍 → 停 sidecar。
 # 每轮冷启动的原因：复用关闭时上游仍会保存知识簇，DEEP Phase 1 的
 # _probe_knowledge_cache 会以 SQL LIKE 读取它们，同题重复跑会被上一轮污染。
-# 编译产物不在清理范围内。
+# 编译产物（work_path/.cache/compile）不在清理范围内；编译写入的知识簇
+# 经 BASELINE_KNOWLEDGE_SNAPSHOT=<编译后 knowledge 目录副本> 每轮恢复。
 #
 # 用法: bash scripts/sirchmunk/baseline_round.sh MODE REP OUTDIR
 #   MODE=FAST|DEEP，REP=轮次编号，OUTDIR 建议放在仓库外（避免被检索到）。
@@ -28,6 +29,12 @@ if curl -s -o /dev/null --max-time 2 "$BASE_URL/"; then
 fi
 
 rm -rf "$WORK/.cache/knowledge" "$WORK/.cache/spec"
+# 编译会把知识簇写进 knowledge 存储（上游 compiler.py 的 _storage.insert），
+# 编译后复跑须从编译完成时的快照恢复，而不是清空。
+if [ -n "${BASELINE_KNOWLEDGE_SNAPSHOT:-}" ]; then
+  [ -d "$BASELINE_KNOWLEDGE_SNAPSHOT" ] || { echo "snapshot $BASELINE_KNOWLEDGE_SNAPSHOT missing" >&2; exit 2; }
+  cp -R "$BASELINE_KNOWLEDGE_SNAPSHOT" "$WORK/.cache/knowledge"
+fi
 
 bash scripts/sirchmunk/start_sidecar.sh > "$OUT/sidecar_${MODE}_r${REP}.log" 2>&1 &
 PID=$!

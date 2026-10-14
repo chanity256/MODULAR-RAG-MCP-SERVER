@@ -173,7 +173,7 @@ Dashboard 导航「检索」分组 → 「在线检索」：三模式在线查�
   - Fast：需 `agentic_search.enabled: true`，否则按钮置灰，悬停提示开启方法并启动 sidecar（`scripts/sirchmunk/`）；
   - Deep：另需 `agentic_search.allow_deep: true`，否则置灰并提示开启 `allow_deep`。
   - 默认配置（`enabled: false`）下仅 Normal 可用。
-- **表单**：查询文本 + Top-K；collection 输入仅在 Normal 模式显示。Deep 模式检索时会提示「可能需要数十秒」。
+- **表单**：查询文本 + Top-K；collection 输入仅在 Normal 模式显示。Deep 模式经 sidecar SSE 流式端点检索，等待期间在状态框内实时滚动显示 sidecar 进度日志（最近 30 行）；后端不支持流式时自动回退同步检索（SX5）。
 - **结果**：Markdown 答案 + 引用表（来源/页码/分数）；Fast/Deep 额外展示 Agentic 答案、模式、Token、LLM 调用次数、耗时与证据文件。
 - **trace 联动**：每次检索自动写入 trace，到「Query 追踪」页可查看各阶段耗时（agentic 阶段由 S3.2 渲染）。
 - **失败友好**：sidecar 不可用或参数非法时以页面错误提示展示，不崩溃。
@@ -325,7 +325,23 @@ python scripts/sirchmunk/compare.py \
   --repo-root .
 ```
 
-用 `tests/fixtures/agentic/golden_questions.json` 逐条直调 sidecar，输出命中文件、耗时与 Token 用量表。
+用 `tests/fixtures/agentic/golden_questions.json` 逐条直调 sidecar，输出命中文件、耗时与 Token 用量表（`--fixture` 换题集，`--json-out` 另存含 telemetry 的逐题 JSON）。
+
+需要可复现的多轮对照（如 SX0.4 基线、SX3.2 编译实验）时，用 `baseline_round.sh` 每轮冷启动：清空知识簇与 spec 缓存 → 启动 sidecar → 两个 golden fixture 各跑一遍 → 停机。sidecar 须先停掉；输出目录放仓库外；整轮期间别让电脑睡眠（`caffeinate -dims`）。
+
+```bash
+caffeinate -dims bash scripts/sirchmunk/baseline_round.sh DEEP 1 /tmp/rounds
+python scripts/sirchmunk/aggregate_rounds.py /tmp/rounds merged.json summary.md
+```
+
+### 7.3 知识编译（compile）：当前不推荐
+
+`scripts/sirchmunk/compile.sh` 可以把 `README.md docs` 预编译成文档树与知识簇（停机护栏、路径护栏见脚本头注释）。SX3.2 实测（2026-10-14，见 `scripts/sirchmunk/sx32_compiled_results.md`）：
+
+- FAST 在文档题上命中略升（11/18 → 13/18）、token 降约 68%，但 `.py` 题从 2/12 降到 0/12；
+- DEEP 在文档题上从 14/18 降到 7/18，`.py` 题从 9/12 降到 7/12。
+
+结论：**默认不编译**。手动编译过的话，想恢复原行为需在停机状态下移走 `SIRCHMUNK_WORK_PATH/.cache/compile` 并清空 `.cache/knowledge`，再重启 sidecar。
 
 ### 7.2 测试套件
 
@@ -346,6 +362,7 @@ RAG_AGENTIC_INTEGRATION=1 pytest tests/e2e/test_agentic_mcp.py -v   # 真实 sid
 | `-32602` 参数错误 | `paths` 越出 `allowed_roots`、命中 `denied_substrings`、`mode: DEEP` 但 `allow_deep: false`、或 `top_k` 非正整数 |
 | preflight 报缺 `rga` | `brew install ripgrep-all`（缺 rg 同理装 `ripgrep`） |
 | setup_venv 依赖解析失败 | kreuzberg 依赖预发布版本，脚本已自动加 `--pre` 重试；仍失败检查 Python 版本为 3.11/3.12 |
+| compile 每个文件都报 `OutputFormat has no attribute 'PLAIN'` | sidecar venv 装到了 kreuzberg 5.x（`--pre` 回退会拉到预发布版），上游仍用 4.x 枚举名。执行 `.venv-sirchmunk/bin/pip install "kreuzberg>=4.0.0,<5"`；新版 `setup_venv.sh` 已自动锁定 |
 | Token 成本异常 | 确认 `LENS_HARD_TOKEN_BUDGET=true`、`max_token_budget` / `max_loops` 未被调大；客户端断连不会取消 sidecar 执行 |
 | 知识簇缓存损坏 | 多进程共享了 `SIRCHMUNK_WORK_PATH`；该目录必须每进程独占 |
 

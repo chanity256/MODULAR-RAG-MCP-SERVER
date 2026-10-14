@@ -29,6 +29,9 @@ echo "== install sirchmunk (pinned) into sidecar venv =="
 "$VENV_DIR/bin/pip" install -e "$SIRCHMUNK_REPO" || "$VENV_DIR/bin/pip" install --pre -e "$SIRCHMUNK_REPO"
 # 上游未声明 python-multipart，但 FastAPI 文件上传路由在 import 期即要求它，缺失时 sirchmunk serve 启动崩溃。
 "$VENV_DIR/bin/pip" install python-multipart
+# 上游只声明 kreuzberg>=4.0.0rc1；5.x 把 OutputFormat 成员改成小写（plain），上游
+# document_extractor 仍用 OutputFormat.PLAIN，compile 会逐文件失败（SX3.2 实测）。
+"$VENV_DIR/bin/pip" install "kreuzberg>=4.0.0,<5"
 
 echo "== verify import =="
 "$VENV_DIR/bin/python" -c "import sirchmunk; print('sirchmunk', sirchmunk.__version__)"
