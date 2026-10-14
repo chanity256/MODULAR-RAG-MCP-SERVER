@@ -358,11 +358,11 @@ WC5（chat_stream + AnswerGenerator）──► WC6（Chat 核心）──► WC
 | WC1.5 | P1.5 Evaluation 页面简化 | [x] | 2026-10-14 | 回归 `-k evaluation`；旧 test_evaluation_panel.py 迁移后删除 |
 | WC1.6 | 新增 `QueryService`（HybridSearch+Reranker 装配，注入 fake 可测，返回 `RetrievalResult`，trace 透传不落盘；不触碰 MCP tool 与 `SearchService`） | [x] | 2026-10-14 | D8；Chat 与后续 REST 查询共用；query_service.py + 24 单测；trace 透传不落盘 |
 | WC1.7 | P1.6 全量验收（`rg` 双守卫 + 四套回归） | [x] | 2026-10-14 | backlog P1.6 命令；rg 双守卫通过；query_playground 一处注释改词以过字面守卫；全量 1835 passed / 3 skipped |
-| WC2.1 | `src/api/` 骨架：app.py + errors.py + 鉴权中间件（loopback 守卫）+ `/health` | [ ] | | |
-| WC2.2 | 只读路由：overview/collections/documents/images/traces + Pydantic schemas | [ ] | | backlog P2 接口清单 |
-| WC2.3 | API 集成测试（TestClient）+ OpenAPI 文档校验；MCP stdio 测试不变性确认 | [ ] | | |
-| WC3.1 | frontend/ 脚手架：Next 静态导出 + TS + Tailwind + ESLint/vitest；生成 `package-lock.json`、`engines`、`.nvmrc` | [ ] | | 版本按 §7.2 / WC0.2 |
-| WC3.2 | 移植 lib/api.ts + 布局/主题/Sidebar | [ ] | | 上游 Apache-2.0 保留署名 |
+| WC2.1 | `src/api/` 骨架：app.py + errors.py + 鉴权中间件（loopback 守卫）+ `/health` | [x] | 2026-10-14 | src/api 骨架/鉴权/errors/health + ApiSettings + scripts/start_api.py（settings.py/yaml 的 api 与 chat 节同提交） |
+| WC2.2 | 只读路由：overview/collections/documents/images/traces + Pydantic schemas | [x] | 2026-10-14 | backlog P2 接口清单；overview/collections/documents/images/traces 只读路由；document_id=source_path |
+| WC2.3 | API 集成测试（TestClient）+ OpenAPI 文档校验；MCP stdio 测试不变性确认 | [x] | 2026-10-14 | integration/test_api.py 85 + security/layering/entry 单测；MCP stdio 不受影响 |
+| WC3.1 | frontend/ 脚手架：Next 静态导出 + TS + Tailwind + ESLint/vitest；生成 `package-lock.json`、`engines`、`.nvmrc` | [x] | 2026-10-14 | 版本按 §7.2 / WC0.2；Next 16.4.0 / React 19.3 / Tailwind 3.4 / vitest 5；trailingSlash:true；lockfile + .nvmrc(22) |
+| WC3.2 | 移植 lib/api.ts + 布局/主题/Sidebar | [x] | 2026-10-14 | 上游 Apache-2.0 保留署名；lib/api.ts（token 键 rag_api_token）+ 主题 + Sidebar + 占位页；19 前端单测 |
 | WC3.3 | 只读三页：Overview / Ingestion Traces / Query Traces | [ ] | | 数据含义与 Streamlit 一致 |
 | WC3.4 | FastAPI 单端口托管 + SPA 路由回退中间件 | [ ] | | §5 第 6 条 |
 | WC4.1 | 任务模型：SQLite `tasks.db`（pending→running→succeeded/failed 持久化，刷新可恢复） | [ ] | | backlog P4 |
@@ -372,10 +372,10 @@ WC5（chat_stream + AnswerGenerator）──► WC6（Chat 核心）──► WC
 | WC5.2 | OpenAI 兼容 httpx SSE 流式 + `MockTransport` 离线测试 | [x] | 2026-10-14 | §4.4；openai_llm 注入式 httpx SSE；stream_options.include_usage |
 | WC5.3 | Ollama NDJSON 流式 | [x] | 2026-10-14 | ollama_llm NDJSON；chat() 仍 stream:False |
 | WC5.4 | `AnswerGenerator`（编号上下文与 citation id 同序、空检索短路）+ prompts 三件 | [x] | 2026-10-14 | `config/prompts/chat_{relevance,rewrite,answer}.txt`；src/core/chat/answer_generator.py + prompts 三件 + 分层守卫单测 |
-| WC6.1 | `history.py` 双预算裁剪纯函数 + 单测 | [ ] | | |
-| WC6.2 | `context.py` 过滤/改写（fail-open）+ prompt 加载 | [ ] | | |
-| WC6.3 | `session_store.py` 两表 SQLite（含取消/中断的部分内容落库）+ 单测 | [ ] | | |
-| WC6.4 | `retriever.py` 协议 + `engine.py` 编排/错误分类/重试（首帧前窗口）/降级矩阵单测（fake retriever） | [ ] | | D6 两态、D8 分层守卫；hybrid 适配器接 WC1.6 |
+| WC6.1 | `history.py` 双预算裁剪纯函数 + 单测 | [x] | 2026-10-14 | history.py 14 单测 |
+| WC6.2 | `context.py` 过滤/改写（fail-open）+ prompt 加载 | [x] | 2026-10-14 | context.py 21 单测 |
+| WC6.3 | `session_store.py` 两表 SQLite（含取消/中断的部分内容落库）+ 单测 | [x] | 2026-10-14 | session_store.py 15 单测（并发/重启） |
+| WC6.4 | `retriever.py` 协议 + `engine.py` 编排/错误分类/重试（首帧前窗口）/降级矩阵单测（fake retriever） | [x] | 2026-10-14 | D6 两态、D8 分层守卫；hybrid 适配器接 WC1.6；retriever.py 协议 + engine.py 62 单测 + ChatSettings 40 单测；search_log 帧留 WC7.3 |
 | WC7.1 | `WS /api/v1/chat`：帧协议、鉴权、连接上限、cancel | [ ] | | TestClient 帧序断言 |
 | WC7.2 | 会话 REST：列表/详情/删除（对齐上游 `/api/v1/chat/sessions` 路由形状） | [ ] | | |
 | WC7.3 | 检索模式路由：`chat_retrievers.py` 两适配器；`AgenticSearchTool.run(trace=)` 注入入口（`__call__` 行为不变）；FAST/DEEP + `allow_deep` 门控 + progress_stream 开关；capabilities 接口 | [ ] | | D4、D7、D8、§4.6 |
