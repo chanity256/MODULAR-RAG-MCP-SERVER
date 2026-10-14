@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 
 from api.deps import require_auth
 from api.routes import collections, documents, images, overview, traces
-from api.routes import chat, evaluations, ingestion, tasks
+from api.routes import chat, evaluations, ingestion, search, tasks
 from api.schemas.common import ErrorResponse
 
 __all__ = ["API_PREFIX", "build_v1_router", "build_v1_ws_router"]
@@ -27,7 +27,7 @@ def build_v1_router() -> APIRouter:
     )
     for module in (overview, collections, documents, images, traces):
         router.include_router(module.router)
-    for module in (ingestion, evaluations, tasks, chat):
+    for module in (ingestion, evaluations, tasks, chat, search):
         router.include_router(module.router)
     router.include_router(ingestion.delete_router)
     return router

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,9 @@ class TraceService:
             self._path = Path(settings.observability.log_file)
         else:
             self._path = _DEFAULT_TRACES
+        self._cache_lock = threading.Lock()
+        self._cache_key: tuple[int, int] | None = None
+        self._cache_records: list[dict[str, Any]] = []
 
     @property
     def path(self) -> Path:
@@ -102,10 +106,33 @@ class TraceService:
         return extras
 
     def _load(self) -> list[dict[str, Any]]:
+        """解析 traces.jsonl；以 (mtime_ns, size) 为键缓存，文件变化即失效。
+
+        返回新列表（调用方可原地排序），其中的 trace dict 与缓存共享，调用方只读。
+        """
+        try:
+            stat = self._path.stat()
+        except OSError:
+            return []
         if not self._path.is_file():
             return []
+        key = (stat.st_mtime_ns, stat.st_size)
+        with self._cache_lock:
+            if self._cache_key == key:
+                return list(self._cache_records)
+        try:
+            records = self._parse(self._path.read_text(encoding="utf-8"))
+        except OSError:
+            return []
+        with self._cache_lock:
+            self._cache_key = key
+            self._cache_records = records
+        return list(records)
+
+    @staticmethod
+    def _parse(text: str) -> list[dict[str, Any]]:
         records: list[dict[str, Any]] = []
-        for line in self._path.read_text(encoding="utf-8").splitlines():
+        for line in text.splitlines():
             line = line.strip()
             if not line:
                 continue

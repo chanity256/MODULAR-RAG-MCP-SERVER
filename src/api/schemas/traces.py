@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from observability.dashboard.services.trace_service import TraceService
+
 __all__ = ["StageRecord", "StageTiming", "TraceDetail", "TraceSummary"]
 
 
@@ -42,6 +44,10 @@ class TraceSummary(BaseModel):
     source_path: str | None = None
     collection: str | None = None
     routes: str | None = None
+    source: str = Field(
+        default="default",
+        description="Source tag used by the `routes` list filter: metadata.routes (chat / agentic / ...), else `default`",
+    )
     skipped: bool | None = Field(default=None, description="Ingestion only: integrity check skipped the file")
     chunks: int | None = Field(default=None, description="Ingestion only: chunks written by the store stage")
     images: int | None = Field(default=None, description="Ingestion only: images written by the store stage")
@@ -72,6 +78,7 @@ class TraceSummary(BaseModel):
             source_path=str(source_path) if source_path else None,
             collection=metadata.get("collection"),
             routes=metadata.get("routes"),
+            source=TraceService.trace_source(record),
             skipped=bool(_details("integrity").get("skipped")) if is_ingestion else None,
             chunks=store.get("chunks"),
             images=store.get("images"),

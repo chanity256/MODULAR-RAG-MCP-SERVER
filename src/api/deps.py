@@ -22,6 +22,7 @@ from core.settings import Settings
 from observability.dashboard.services.config_service import ConfigService
 from observability.dashboard.services.data_service import DataService
 from observability.dashboard.services.ingestion_service import IngestionService
+from observability.dashboard.services.search_service import SearchService
 from observability.dashboard.services.trace_service import TraceService
 
 __all__ = [
@@ -29,6 +30,7 @@ __all__ = [
     "get_config_service",
     "get_container",
     "get_data_service",
+    "get_search_service",
     "get_trace_service",
     "probe_sidecar",
     "require_auth",
@@ -62,6 +64,7 @@ class ServiceContainer:
         evaluation_service: Any | None = None,
         task_manager: Any | None = None,
         chat_services: ChatServices | None = None,
+        search_service: SearchService | None = None,
         sidecar_probe: Callable[[], bool] | None = None,
         storage_probe: Callable[[], dict[str, bool]] | None = None,
     ) -> None:
@@ -73,6 +76,7 @@ class ServiceContainer:
         self._evaluation = evaluation_service
         self.task_manager = task_manager
         self._chat = chat_services
+        self._search = search_service
         self._sidecar_probe = sidecar_probe
         self._storage_probe = storage_probe
         self._lock = threading.Lock()
@@ -108,6 +112,13 @@ class ServiceContainer:
             if self._chat is None:
                 self._chat = ChatServices(self._settings)
             return self._chat
+
+    @property
+    def search(self) -> SearchService:
+        with self._lock:
+            if self._search is None:
+                self._search = SearchService(self._settings)
+            return self._search
 
     @property
     def ingestion(self) -> IngestionService:
@@ -177,6 +188,10 @@ def get_data_service(container: ServiceContainer = Depends(get_container)) -> Da
 
 def get_trace_service(container: ServiceContainer = Depends(get_container)) -> TraceService:
     return container.traces
+
+
+def get_search_service(container: ServiceContainer = Depends(get_container)) -> SearchService:
+    return container.search
 
 
 def get_config_service(container: ServiceContainer = Depends(get_container)) -> ConfigService:
