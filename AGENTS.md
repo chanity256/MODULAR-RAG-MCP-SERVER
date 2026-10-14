@@ -21,7 +21,7 @@
 source .venv/bin/activate            # 主项目 venv
 
 # 测试（全量离线，零网络，默认必须全绿）
-pytest tests -q                      # ~1480 passed / 3 skipped
+pytest tests -q                      # ~1706 passed / 3 skipped
 pytest tests/unit/test_xxx.py -q     # 单文件
 pytest tests/unit/test_xxx.py::test_name   # 单用例
 

@@ -326,8 +326,8 @@ chat:
 
 ### 7.2 依赖
 
-- `pyproject.toml`：`fastapi`、`uvicorn`（WC0.2 锁定版本）。
-- `frontend/package.json`：对齐上游锁 Next/React 具体版本；Node 版本入 `engines` + `.nvmrc`（WC3.1 随脚手架生成 `package-lock.json`）。
+- `pyproject.toml` / `requirements.txt`（WC0.2 已锁定）：`fastapi>=0.115,<1.0`（验证版本 0.143.0）、`uvicorn>=0.30`（0.52.1）、`httpx>=0.27`（0.28.1；原只在 dev extras，Chat 流式与 sidecar 客户端运行时都用，升入主依赖）。WS 依赖 `websockets`（0.52 的 uvicorn 环境已带 16.1.1），无需单列。
+- `frontend/package.json`（WC0.2 确定目标，具体版本随 WC3.1 脚手架写入 `package-lock.json`）：Next `^16.1.1`（对齐上游，2026-10-14 registry 最新 16.4.0）、React 19.x；Node 目标 22 LTS（`engines: >=20.9`，`.nvmrc` 写 `22`；本机 v26.9.0 满足）。
 - 环境变量：新增 `RAG_API_TOKEN`（D9），在 USAGE_GUIDE 说明；不写入 `scripts/sirchmunk/env.example`（那是 sidecar 的环境文件）。
 
 ---
@@ -349,8 +349,8 @@ WC5（chat_stream + AnswerGenerator）──► WC6（Chat 核心）──► WC
 | 任务 | 内容 | 状态 | 完成日期 | 备注 |
 |------|------|------|----------|------|
 | WC0.1 | 本规格落档 + 全库索引同步（MOC/README/AGENTS/backlog/analysis）+ 决策记录 note | [x] | 2026-10-14 | D1 推翻 backlog Vue 选型；§1.2 五处勘误；同日审核修订：增 D8（检索层分工/分层）、D9（独立 token），修正 D7 trace 标识、重试窗口、Query Playground 缺漏与引用行号 |
-| WC0.2 | 依赖锁定：pyproject 增 fastapi/uvicorn（锁版本）；确定 Node/Next/React 目标版本写入本规格 §7.2（`package-lock`/`.nvmrc` 随 WC3.1 脚手架生成） | [ ] | | |
-| WC0.3 | 基线固化：跑通现有全量离线套件并记录通过数；Dashboard 七页冒烟基线（P1.1 前置） | [ ] | | `pytest -q`；全绿后才动服务边界 |
+| WC0.2 | 依赖锁定：pyproject 增 fastapi/uvicorn（锁版本）；确定 Node/Next/React 目标版本写入本规格 §7.2（`package-lock`/`.nvmrc` 随 WC3.1 脚手架生成） | [x] | 2026-10-14 | fastapi 0.143.0 / uvicorn 0.52.1 / httpx 升主依赖；Next ^16.1.1 / React 19 / Node 22 目标见 §7.2 |
+| WC0.3 | 基线固化：跑通现有全量离线套件并记录通过数；Dashboard 七页冒烟基线（P1.1 前置） | [x] | 2026-10-14 | 基线 **1706 passed / 3 skipped**（43.9s，含 `tests/e2e/test_dashboard_smoke.py` 七页冒烟）；`pytest -q`（addopts 已含 -q，看计数需 `-o addopts=""`） |
 | WC1.1 | P1.1 行为基线锁定（dashboard_services/evaluation_panel/dashboard_smoke 三套回归命令，记录现状） | [ ] | | backlog P1.1 |
 | WC1.2 | P1.2 `IngestionService` 提取 + `test_ingestion_service.py` | [ ] | | backlog P1.2 验收标准 |
 | WC1.3 | P1.3 Ingestion 页面简化（页面只留输入/进度/展示） | [ ] | | 回归 `pytest -q tests/e2e/test_dashboard_smoke.py -k ingestion` |
