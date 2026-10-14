@@ -4,9 +4,13 @@
 
 ## specs/ — 开发规格（落点）
 
-**立项后新规格的存放处**（从 [backlog/](backlog/) 晋升）。当前为空——SX 系列已收口冻结入 frozen/，见 [SIRCHMUNK_EXTENSION_SPEC_frozen.md](frozen/SIRCHMUNK_EXTENSION_SPEC_frozen.md)。
+**立项后新规格的存放处**（从 [backlog/](backlog/) 晋升）。任务全收口后冻结入 frozen/（SX 系列先例见 [frozen/SIRCHMUNK_EXTENSION_SPEC_frozen.md](frozen/SIRCHMUNK_EXTENSION_SPEC_frozen.md)）。
 
-新规格格式对齐 frozen/ 中 SIRCHMUNK / OBSIDIAN 先例：含模块设计、测试方案、任务排期与进度跟踪表，任务编号用新前缀避免冲突。
+格式对齐 frozen/ 中 SIRCHMUNK / OBSIDIAN 先例：含模块设计、测试方案、任务排期与进度跟踪表，任务编号用新前缀避免冲突。
+
+| 文档 | 说明 |
+|------|------|
+| [WEBUI_CHAT_SPEC.md](specs/WEBUI_CHAT_SPEC.md) | WebUI 前后端迁移与 Chat 规格（WC 系列，已立项：FastAPI + Next 静态导出迁移 P1–P6、Chat 多轮对话 + RAG 有据回答、真流式；D1 推翻 backlog 的 Vue 选型，§1.2 含分析文档五处勘误） |
 
 ## frozen/ — 已冻结文档
 
@@ -37,7 +41,7 @@
 | 文档 | 说明 |
 |------|------|
 | [OBSIDIAN_RAG_SPEC.md](backlog/OBSIDIAN_RAG_SPEC.md) | Obsidian Vault RAG 扩展规格（V 系列；v0.2 起 M1/M2 Markdown 摄取已移交 IR 规格 IR7，本规格保留 M3 sentence-transformers / M4 Semantic Walk 待排期） |
-| [dashboard-api-migration.md](backlog/dashboard-api-migration.md) | Dashboard 前后端分离迁移提案（Vue 3 + Vite + FastAPI；自 FUTURE_OPTIMIZATION_ROADMAP 原第 1–5 章拆分，含决策三问、目标架构与 P1–P6 实施包） |
+| [dashboard-api-migration.md](backlog/dashboard-api-migration.md) | Dashboard 前后端分离迁移提案（**已立项并入** [specs/WEBUI_CHAT_SPEC.md](specs/WEBUI_CHAT_SPEC.md) WC 系列；原 Vue 3 选型被其 D1 推翻，保留作决策依据与 P1 拆解） |
 | [sirchmunk-capability-completion.md](backlog/sirchmunk-capability-completion.md) | Sirchmunk 剩余能力补齐提案（已立项并收口冻结为 SX 系列，保留作决策依据：telemetry/compile/复用/SSE/参数透传，源码复核证据） |
 | [sirchmunk-extension-followups.md](backlog/sirchmunk-extension-followups.md) | Sirchmunk SX 规格遗留事项台账：明确不做（evolver 等 6 项）、实验负结果存档（编译 GX 不通过、复用保持关闭）、已知缺陷与候选池（流式线程泄漏等 7 项） |
 

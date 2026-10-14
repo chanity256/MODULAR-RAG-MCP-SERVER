@@ -1,7 +1,7 @@
 # Dashboard 前后端分离迁移提案（Dashboard API Migration）
 
 > **起源**：从 [FUTURE_OPTIMIZATION_ROADMAP.md](../reference/FUTURE_OPTIMIZATION_ROADMAP.md) 原第 1–5 章拆分而来（2026-10-07）。
-> **状态**：backlog 提案——已有较完整方案，尚未立项排期；立项后按 [README 约定](README.md)移入 [specs/](../specs/)。
+> **状态**：**已立项**——P1–P6 并入 [specs/WEBUI_CHAT_SPEC.md](../specs/WEBUI_CHAT_SPEC.md)（WC 系列，与 Chat 合并规格，2026-10-14）；其第 3 章 D1 **推翻本文的前端选型**（Vue 3 → React/Next 静态导出，直接移植 sirchmunk `web/`），P4 的 SSE 任务事件改为 WebSocket。本文正文保留作决策依据，P1 拆解与验收命令由 WC1 沿用。
 > **原则**：小步迁移、保持主链路可用、每个阶段独立验收。
 
 <!-- Note: 为何从路线图拆分、章节编号为何保持 6–10 — 见 .agents/notes/implemented/process/2026-10-07-roadmap-migration-split-to-backlog.md -->

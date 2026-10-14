@@ -17,6 +17,6 @@
 | 文档 | 一句话说明 |
 |------|-----------|
 | [OBSIDIAN_RAG_SPEC.md](OBSIDIAN_RAG_SPEC.md) | Obsidian Vault RAG 扩展规格（V 系列；M1/M2 Markdown 摄取已移交 INGESTION_ROBUSTNESS_SPEC 阶段 IR7，剩余 M3/M4 待排期） |
-| [dashboard-api-migration.md](dashboard-api-migration.md) | Dashboard 前后端分离迁移提案（Vue 3 + Vite + FastAPI；自 FUTURE_OPTIMIZATION_ROADMAP 原第 1–5 章拆分，含 P1–P6 实施包） |
+| [dashboard-api-migration.md](dashboard-api-migration.md) | Dashboard 前后端分离迁移提案（**已立项并入** [specs/WEBUI_CHAT_SPEC.md](../specs/WEBUI_CHAT_SPEC.md) WC 系列；原 Vue 3 选型被其 D1 推翻为 React/Next，本页保留作决策依据） |
 | [sirchmunk-capability-completion.md](sirchmunk-capability-completion.md) | Sirchmunk 剩余能力补齐提案（已立项并**收口冻结**为 [frozen/SIRCHMUNK_EXTENSION_SPEC_frozen.md](../frozen/SIRCHMUNK_EXTENSION_SPEC_frozen.md)，本页保留作决策依据） |
 | [sirchmunk-extension-followups.md](sirchmunk-extension-followups.md) | Sirchmunk SX 规格遗留事项台账：明确不做（evolver 等 6 项）、实验负结果存档（编译 GX 不通过、复用保持关闭）、已知缺陷与候选池（流式线程泄漏等 7 项） |

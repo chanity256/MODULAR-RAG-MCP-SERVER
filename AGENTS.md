@@ -8,6 +8,7 @@
 
 - `docs/frozen/SIRCHMUNK_EXTENSION_SPEC_frozen.md` — SX 系列 Sirchmunk 能力补齐（已收口冻结：telemetry 消费、参数透传、compile/复用实验裁决、SSE 流式；改动 agentic_search / sidecar 脚本前先读，遗留事项见 `docs/backlog/sirchmunk-extension-followups.md`）。
 - `docs/frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md` — IR 系列摄取健壮性 + Markdown 摄取（IR0–IR7 已收口；改动摄取链路前先读其 7.1 实现偏差）。
+- `docs/specs/WEBUI_CHAT_SPEC.md` — WC 系列 WebUI 前后端迁移 + Chat（已立项开发中：FastAPI + Next 静态导出、多轮对话 + RAG 有据回答、真流式；改动 `src/api/` / `src/core/chat/` / `frontend/` / Dashboard 服务层前先读，注意 D1 前端选型与 §1.2 对分析文档的勘误）。
 - `docs/analysis/` — 架构分析与演进方向（微服务分析、优化路线图）。
 - `docs/reference/USAGE_GUIDE.md` — 使用速查（启动、配置、sidecar 用法）。
 - `docs/backlog/` — 候选功能与待开发规格（OBSIDIAN V 系列的 M3/M4 可选增强在此待排期，其 M1/M2 已由 IR7 交付；新提案约定见其 README）。
