@@ -149,18 +149,34 @@ class AgenticSearchTool:
     # Tool 入口
     # ------------------------------------------------------------------ #
     def __call__(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        """执行 Agentic 检索并返回 MCP tool result。
+        """执行 Agentic 检索并返回 MCP tool result（自建 trace 并落盘）。
 
         Raises:
             TypeError: arguments 非 dict。
             ToolInvalidParams: 参数非法（query/mode/paths/top_k 校验失败，
                 含 PathGuard 越权——fail-closed，不发请求）。
         """
+        return self.run(arguments)
+
+    def run(
+        self,
+        arguments: dict[str, Any],
+        *,
+        trace: TraceContext | None = None,
+    ) -> dict[str, Any]:
+        """内部入口：与 ``__call__`` 同语义，可注入调用方持有的 trace。
+
+        传入 ``trace`` 时只向其 ``record_stage("agentic_search", ...)``，**不**
+        ``finish()``、不落盘，由调用方统一收尾（WEBUI_CHAT_SPEC D7：Chat 每轮恰好
+        一条 trace）。未传入时行为与 MCP ``tools/call`` 完全一致。
+        """
         query, mode, paths, top_k = self._validate_arguments(arguments)
-        trace = TraceContext(
-            trace_type=TRACE_TYPE_QUERY,
-            metadata={"query": query, "mode": mode, "routes": "agentic"},
-        )
+        owns_trace = trace is None
+        if trace is None:
+            trace = TraceContext(
+                trace_type=TRACE_TYPE_QUERY,
+                metadata={"query": query, "mode": mode, "routes": "agentic"},
+            )
         request = AgenticSearchRequest(
             query=query,
             mode=mode,
@@ -172,12 +188,12 @@ class AgenticSearchTool:
         try:
             response = self._get_search().search(request)
         except AgenticSearchError as exc:
-            self._record_error(trace, exc)
+            self._record_error(trace, exc, finish=owns_trace)
             return self._unavailable_result(exc)
-        self._record_trace(trace, response)
+        self._record_trace(trace, response, finish=owns_trace)
 
         settings = self._settings
-        if settings is not None:
+        if owns_trace and settings is not None:
             persist_trace(trace, log_file=settings.observability.log_file)
         return self._build_result(response, query, top_k)
 
@@ -274,7 +290,7 @@ class AgenticSearchTool:
             structured["answer"] = note
         return tool_result
 
-    def _record_trace(self, trace: TraceContext, response: Any) -> None:
+    def _record_trace(self, trace: TraceContext, response: Any, *, finish: bool = True) -> None:
         trace.record_stage(
             "agentic_search",
             # method 标识具体实现（backend 名），与 F3 阶段打点约定一致。
@@ -290,15 +306,19 @@ class AgenticSearchTool:
                 "agentic_telemetry": response.telemetry,
             },
         )
-        trace.finish()
+        if finish:
+            trace.finish()
 
-    def _record_error(self, trace: TraceContext, exc: AgenticSearchError) -> None:
+    def _record_error(
+        self, trace: TraceContext, exc: AgenticSearchError, *, finish: bool = True
+    ) -> None:
         trace.record_stage(
             "agentic_search",
             method="error",
             details={"error_type": type(exc).__name__, "error": str(exc)},
         )
-        trace.finish()
+        if finish:
+            trace.finish()
 
     @staticmethod
     def _unavailable_result(exc: AgenticSearchError) -> dict[str, Any]:

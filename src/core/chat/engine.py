@@ -16,7 +16,9 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
+import queue
 import threading
 import time
 import urllib.error
@@ -29,6 +31,7 @@ from core.chat.answer_generator import AnswerGenerator
 from core.chat.context import ContextProcessor
 from core.chat.history import build_history
 from core.chat.retriever import (
+    RETRIEVAL_HYBRID,
     RETRIEVAL_MODES,
     ChatRetrievalResult,
     ChatRetriever,
@@ -71,6 +74,9 @@ METHOD_SIDECAR_PASSTHROUGH = "sidecar_passthrough"
 METHOD_PURE_CHAT = "pure_chat"
 
 _TITLE_CHARS = 40
+# search_log 去重窗口与取消轮询间隔（对齐上游 chat.py:424-456 的 0.5s 去重）。
+_LOG_DEDUP_WINDOW_S = 0.5
+_LOG_POLL_S = 0.05
 _PURE_CHAT_SYSTEM = (
     "You are a helpful assistant. Answer the user's question using the conversation so far. "
     "你是一个乐于助人的助手，请结合对话上下文回答用户问题。"
@@ -122,6 +128,15 @@ def classify_error(exc: BaseException) -> ErrorInfo:
     if isinstance(exc, (httpx.TransportError, ConnectionError, TimeoutError, urllib.error.URLError)):
         return ErrorInfo(ERROR_UPSTREAM, _MESSAGES[ERROR_UPSTREAM], True)
     return ErrorInfo(ERROR_INTERNAL, _MESSAGES[ERROR_INTERNAL], False)
+
+
+def _accepts_on_log(retriever: Any) -> bool:
+    """检索器是否声明了可选的 ``on_log`` 形参（或 ``**kwargs``）。"""
+    try:
+        params = inspect.signature(retriever.retrieve).parameters
+    except (TypeError, ValueError, AttributeError):
+        return False
+    return "on_log" in params or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
 
 
 def _default_trace_factory(metadata: dict[str, Any]) -> TraceContext:
@@ -280,7 +295,7 @@ class ChatEngine:
             yield {"type": "status", "stage": "retrieving", "message": "正在检索知识库"}
             try:
                 retrieved = yield from self._retrieve(
-                    state, self._retrievers[mode], search_query, collection, top_k
+                    state, self._retrievers[mode], search_query, collection, top_k, mode, cancel_event
                 )
             except Exception as exc:  # noqa: BLE001
                 info = classify_error(exc)
@@ -406,11 +421,17 @@ class ChatEngine:
         query: str,
         collection: str | None,
         top_k: int | None,
+        mode: str,
+        cancel_event: threading.Event | None,
     ) -> Iterator[dict[str, Any]]:
         attempts = 0
         while True:
             try:
-                return retriever.retrieve(query, collection=collection, top_k=top_k, trace=state.trace)
+                return (
+                    yield from self._call_retriever(
+                        state, retriever, query, collection, top_k, mode, cancel_event
+                    )
+                )
             except Exception as exc:  # noqa: BLE001
                 info = classify_error(exc)
                 if info.transient and attempts < self._settings.pipeline_max_retries:
@@ -420,6 +441,74 @@ class ChatEngine:
                     self._sleep(self._retry_interval_s)
                     continue
                 raise
+
+    def _call_retriever(
+        self,
+        state: _TurnState,
+        retriever: ChatRetriever,
+        query: str,
+        collection: str | None,
+        top_k: int | None,
+        mode: str,
+        cancel_event: threading.Event | None,
+    ) -> Iterator[dict[str, Any]]:
+        """调用检索器；开启进度流时放到工作线程，并把 sidecar 日志转成 ``search_log`` 帧。
+
+        取消时不再等待检索线程（无法中断阻塞中的 HTTP 调用），返回空结果由调用方的
+        取消检查收尾；遗留线程是 daemon，结果被丢弃。
+        """
+        kwargs: dict[str, Any] = {"collection": collection, "top_k": top_k, "trace": state.trace}
+        if not (
+            self._settings.agentic_progress_stream
+            and mode != RETRIEVAL_HYBRID
+            and _accepts_on_log(retriever)
+        ):
+            return retriever.retrieve(query, **kwargs)
+
+        events: queue.Queue[tuple[Any, ...]] = queue.Queue()
+        outcome: dict[str, Any] = {}
+
+        def on_log(level: str, message: str, timestamp: float | None = None) -> None:
+            events.put(("log", level, message, timestamp))
+
+        def work() -> None:
+            try:
+                outcome["value"] = retriever.retrieve(query, on_log=on_log, **kwargs)
+            except BaseException as exc:  # noqa: BLE001 - 原样交回引擎线程分类
+                outcome["error"] = exc
+            finally:
+                events.put(("done",))
+
+        threading.Thread(target=work, name="chat-retrieve", daemon=True).start()
+        last_seen: dict[tuple[str, str], float] = {}
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                return ChatRetrievalResult()
+            try:
+                item = events.get(timeout=_LOG_POLL_S)
+            except queue.Empty:
+                continue
+            if item[0] == "done":
+                break
+            _, level, message, timestamp = item
+            now = time.monotonic()
+            key = (str(level), str(message))
+            previous = last_seen.get(key)
+            last_seen[key] = now
+            if previous is not None and now - previous < _LOG_DEDUP_WINDOW_S:
+                continue
+            frame: dict[str, Any] = {
+                "type": "search_log",
+                "task_id": state.trace.trace_id,
+                "level": str(level),
+                "message": str(message),
+            }
+            if timestamp is not None:
+                frame["timestamp"] = timestamp
+            yield frame
+        if "error" in outcome:
+            raise outcome["error"]
+        return outcome["value"]
 
     def _stream(
         self,
@@ -519,6 +608,10 @@ class ChatEngine:
         if error is not None:
             generation["error_code"] = error.code
         trace.record_stage("chat_generation", **generation)
+        # HybridSearch.search 会对注入的 trace 提前 finish() 并固化总耗时（早于改写后的生成阶段）；
+        # 复位后重新结算，使 total_elapsed_ms 覆盖整轮。
+        trace.total_elapsed_ms = None
+        trace.finished_at = None
         trace.finish()
         if self._persist_trace is not None:
             try:

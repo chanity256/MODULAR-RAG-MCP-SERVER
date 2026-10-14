@@ -18,7 +18,14 @@ _QUERY_STAGES = [
     "fusion",
     "hybrid",
     "rerank",
+    # Chat 轮的阶段（WC7.4）与 agentic 工具阶段：不在列表里会被瀑布图丢掉。
+    "agentic_search",
+    "chat_history",
+    "chat_rewrite",
+    "chat_generation",
 ]
+
+_ALL_SOURCES = "全部"
 
 
 def render(*, trace_service: TraceService | None = None) -> None:
@@ -26,19 +33,37 @@ def render(*, trace_service: TraceService | None = None) -> None:
     st.header("Query 追踪")
     st.caption("查询历史、阶段耗时、Dense/Sparse 对比与 Rerank 变化。")
 
-    keyword = st.text_input("按 Query 关键词搜索", value="")
-    traces = trace_service.search_query_traces(keyword)
+    filter_cols = st.columns([3, 1])
+    keyword = filter_cols[0].text_input("按 Query 关键词搜索", value="")
+    chosen = filter_cols[1].selectbox(
+        "来源",
+        [_ALL_SOURCES, *trace_service.query_sources()],
+        help="chat = WebUI Chat 轮；agentic = MCP agentic_search 工具；default = CLI / query_knowledge_hub",
+    )
+    source = None if chosen == _ALL_SOURCES else chosen
+    traces = trace_service.search_query_traces(keyword, source=source)
     if not traces:
-        st.info("暂无 query trace。先运行一次 `python scripts/query.py` 后再回来查看。")
+        if source or keyword.strip():
+            st.info("没有符合当前筛选条件的 query trace。")
+        else:
+            st.info("暂无 query trace。先运行一次 `python scripts/query.py` 后再回来查看。")
         return
 
-    labels = [_label(item) for item in traces]
+    labels = [_label(item, trace_service) for item in traces]
     selected = st.selectbox("查询记录", labels)
     trace = traces[labels.index(selected)]
 
     metadata = trace.get("metadata") or {}
     st.write(f"**Query**: {metadata.get('query') or '(unknown)'}")
     st.caption(f"trace_id=`{trace.get('trace_id')}` · {trace.get('total_elapsed_ms')} ms")
+    source_label = trace_service.trace_source(trace)
+    if source_label != "default":
+        st.caption(
+            f"来源=`{source_label}`"
+            + "".join(
+                f" · {key}=`{metadata[key]}`" for key in ("retrieval", "session_id", "mode") if metadata.get(key)
+            )
+        )
 
     timings = [item for item in trace_service.stage_timings(trace, _QUERY_STAGES) if item["elapsed_ms"] > 0]
     if not timings:
@@ -84,12 +109,41 @@ def render(*, trace_service: TraceService | None = None) -> None:
         if rows:
             st.table(rows)
 
+    _render_chat(trace)
     _render_agentic(trace)
 
     fusion = _preview(trace, "fusion") or _preview(trace, "hybrid")
     if fusion:
         st.subheader("最终 / 融合结果")
         _render_hits(fusion)
+
+
+def _render_chat(trace: dict[str, Any]) -> None:
+    """渲染 Chat 轮的三个阶段（WC7.4）：数据直接来自 stage 记录，无对应 stage 时隐藏。"""
+    history = _stage(trace, "chat_history")
+    rewrite = _stage(trace, "chat_rewrite")
+    generation = _stage(trace, "chat_generation")
+    if not (history or rewrite or generation):
+        return
+    st.subheader("Chat 阶段")
+    cols = st.columns(4)
+    if history:
+        cols[0].metric("历史消息", f"{history.get('messages_before', 0)} → {history.get('messages_after_filter', 0)}")
+    if rewrite:
+        cols[1].metric("查询改写", "是" if rewrite.get("rewritten") else "否")
+    if generation:
+        cols[2].metric("引用片段", generation.get("chunks", 0))
+        cols[3].metric("回答字数", generation.get("chars", 0))
+        notes = [f"method={generation.get('method')}", f"grounded={generation.get('grounded')}"]
+        if generation.get("cancelled"):
+            notes.append("cancelled=True")
+        if generation.get("error_code"):
+            notes.append(f"error={generation.get('error_code')}")
+        if generation.get("usage"):
+            notes.append(f"usage={generation.get('usage')}")
+        st.caption(" · ".join(notes))
+    if rewrite and rewrite.get("rewritten_query"):
+        st.caption(f"改写后查询：{rewrite['rewritten_query']}")
 
 
 def _render_agentic(trace: dict[str, Any]) -> None:
@@ -166,9 +220,11 @@ def _render_agentic_route(trace: dict[str, Any]) -> None:
         )
 
 
-def _label(trace: dict[str, Any]) -> str:
+def _label(trace: dict[str, Any], trace_service: TraceService | None = None) -> str:
     query = (trace.get("metadata") or {}).get("query") or trace.get("trace_id")
-    return f"{query} · {trace.get('total_elapsed_ms')} ms"
+    source = (trace_service or TraceService).trace_source(trace)
+    prefix = "" if source == "default" else f"[{source}] "
+    return f"{prefix}{query} · {trace.get('total_elapsed_ms')} ms"
 
 
 def _stage(trace: dict[str, Any], name: str) -> dict[str, Any] | None:

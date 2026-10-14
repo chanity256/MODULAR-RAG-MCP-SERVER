@@ -154,6 +154,10 @@ class SessionStore:
             ).fetchall()
         return [_session_row(r) for r in rows]
 
+    def count_sessions(self) -> int:
+        with self._lock:
+            return int(self._conn.execute("SELECT COUNT(*) FROM chat_sessions").fetchone()[0])
+
     def get_session(self, session_id: str, *, with_messages: bool = True) -> dict[str, Any] | None:
         """返回会话；``with_messages`` 时附带 ``messages``（旧 -> 新）。不存在返回 ``None``。"""
         with self._lock:

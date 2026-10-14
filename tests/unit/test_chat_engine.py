@@ -675,3 +675,137 @@ def test_available_retrievals_and_protocol(store):
     h = Harness(store, retrievers={"agentic_fast": FakeRetriever(), "hybrid": FakeRetriever()})
     assert h.engine.available_retrievals == ("hybrid", "agentic_fast")
     assert isinstance(FakeRetriever(), ChatRetriever)
+
+
+# --------------------------------------------------------------------------- WC7.3: progress stream / trace total
+
+class LoggingRetriever:
+    """声明了可选 ``on_log`` 形参的检索器：按计划回放日志，可选阻塞到外部放行。"""
+
+    def __init__(self, logs=(), plan=None, *, gate: threading.Event | None = None, started: threading.Event | None = None):
+        self.logs = list(logs)
+        self.plan = plan or _agentic_result()
+        self.gate = gate
+        self.started = started
+        self.received_on_log: list[Any] = []
+
+    def retrieve(self, query, *, collection=None, top_k=None, trace=None, on_log=None):
+        self.received_on_log.append(on_log)
+        if trace is not None:
+            trace.record_stage("agentic_search", method="fake")
+        for level, message, ts in self.logs:
+            if on_log is not None:
+                on_log(level, message, ts)
+        if self.started is not None:
+            self.started.set()
+        if self.gate is not None:
+            self.gate.wait(5)
+        return self.plan
+
+
+def _progress(**kw):
+    return ChatSettings(agentic_progress_stream=True, **kw)
+
+
+def test_progress_stream_emits_deduped_search_log_frames_before_search_complete(store):
+    r = LoggingRetriever([("info", "analyzing", 1.5), ("info", "analyzing", 1.6), ("warning", "slow", None)])
+    h = Harness(store, retrievers={"agentic_fast": r}, settings=_progress())
+
+    frames = h.run(retrieval="agentic_fast")
+
+    assert types(frames) == [
+        "session", "status", "search_log", "search_log", "search_complete", "sources", "status", "stream", "result",
+    ]
+    logs = [f for f in frames if f["type"] == "search_log"]
+    assert logs[0] == {
+        "type": "search_log", "task_id": frames[-1]["trace_id"], "level": "info", "message": "analyzing", "timestamp": 1.5,
+    }
+    assert logs[1]["level"] == "warning" and "timestamp" not in logs[1]
+    assert callable(r.received_on_log[0])
+
+
+def test_progress_stream_default_off_never_passes_on_log(store):
+    r = LoggingRetriever([("info", "x", None)])
+    h = Harness(store, retrievers={"agentic_fast": r}, settings=ChatSettings())
+
+    frames = h.run(retrieval="agentic_fast")
+
+    assert "search_log" not in types(frames)
+    assert r.received_on_log == [None]
+
+
+def test_progress_stream_not_used_for_hybrid_or_legacy_retrievers(store):
+    legacy = FakeRetriever([_agentic_result()], stage="agentic_search")  # 无 on_log 形参
+    hybrid = LoggingRetriever([("info", "x", None)], plan=_hybrid_result())
+    h = Harness(store, retrievers={"hybrid": hybrid, "agentic_fast": legacy}, settings=_progress())
+
+    assert "search_log" not in types(h.run(retrieval="agentic_fast"))
+    assert "search_log" not in types(h.run(retrieval="hybrid"))
+    assert hybrid.received_on_log == [None]
+
+
+def test_progress_stream_retries_transient_failure_and_classifies(store):
+    class Flaky:
+        def __init__(self):
+            self.n = 0
+
+        def retrieve(self, query, *, collection=None, top_k=None, trace=None, on_log=None):
+            self.n += 1
+            if self.n == 1:
+                raise AgenticSearchBackendError("down")
+            return _agentic_result()
+
+    h = Harness(store, retrievers={"agentic_fast": Flaky()}, settings=_progress())
+    frames = h.run(retrieval="agentic_fast")
+    assert ("status", "retrying") in stages(frames) and frames[-1]["type"] == "result"
+
+    class Dead:
+        def retrieve(self, query, *, collection=None, top_k=None, trace=None, on_log=None):
+            raise AgenticSearchTimeoutError("t")
+
+    h2 = Harness(store, retrievers={"agentic_fast": Dead()}, settings=_progress(pipeline_max_retries=0))
+    assert h2.run(retrieval="agentic_fast")[-1]["code"] == "UPSTREAM"
+
+
+def test_progress_stream_cancel_during_blocking_retrieval(store):
+    gate, started = threading.Event(), threading.Event()
+    r = LoggingRetriever([("info", "go", None)], gate=gate, started=started)
+    h = Harness(store, retrievers={"agentic_fast": r}, settings=_progress())
+    cancel = threading.Event()
+
+    gen = h.engine.run_turn("q", retrieval="agentic_fast", cancel_event=cancel)
+    frames = []
+    try:
+        for frame in gen:
+            frames.append(frame)
+            if frame["type"] == "search_log":
+                assert started.wait(2)
+                cancel.set()
+    finally:
+        gate.set()
+
+    assert types(frames)[-1] == "result" and frames[-1]["cancelled"] is True
+    assert "sources" not in types(frames) and "stream" not in types(frames)
+    assert len(h.persisted) == 1
+
+
+def test_trace_total_elapsed_covers_generation_even_if_retriever_finishes_trace(store):
+    import time as _time
+
+    class FinishingRetriever:
+        def retrieve(self, query, *, collection=None, top_k=None, trace=None):
+            trace.record_stage("hybrid", method="hybrid_search")
+            trace.finish()  # HybridSearch.search 的既有行为
+            return _hybrid_result()
+
+    class SlowLLM(FakeLLM):
+        def chat_stream(self, messages, *, trace=None, **kwargs):
+            _time.sleep(0.06)
+            yield from super().chat_stream(messages, trace=trace, **kwargs)
+
+    h = Harness(store, llm=SlowLLM(), retrievers={"hybrid": FinishingRetriever()})
+    h.run()
+
+    trace = h.persisted[0]
+    assert trace.total_elapsed_ms >= 60
+    assert trace.stages[-1]["stage"] == "chat_generation"

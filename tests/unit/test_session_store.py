@@ -182,3 +182,16 @@ def test_concurrent_session_creation(store):
     for t in threads:
         t.join()
     assert len(set(ids)) == 20 and len(store.list_sessions(limit=100)) == 20
+
+
+def test_count_sessions_tracks_create_and_delete(tmp_path):
+    s = SessionStore(tmp_path / "count.db")
+    try:
+        assert s.count_sessions() == 0
+        a = s.create_session(title="a")
+        s.create_session(title="b")
+        assert s.count_sessions() == 2
+        s.delete_session(a["session_id"])
+        assert s.count_sessions() == 1
+    finally:
+        s.close()

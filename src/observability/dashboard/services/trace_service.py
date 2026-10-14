@@ -8,9 +8,14 @@ from typing import Any
 
 from core.settings import Settings
 
-__all__ = ["TraceService"]
+__all__ = ["KNOWN_SOURCES", "SOURCE_DEFAULT", "TraceService"]
 
 _DEFAULT_TRACES = Path("logs/traces.jsonl")
+
+#: 来源标签：``metadata.routes`` 缺省（CLI / query_knowledge_hub）为 default。
+SOURCE_DEFAULT = "default"
+#: 页面筛选器固定提供的来源（即使当前日志里还没有该来源的 trace）。
+KNOWN_SOURCES: tuple[str, ...] = (SOURCE_DEFAULT, "agentic", "chat")
 
 
 class TraceService:
@@ -53,9 +58,23 @@ class TraceService:
         traces = self.list_traces(trace_type)
         return traces[0] if traces else None
 
-    def search_query_traces(self, keyword: str) -> list[dict[str, Any]]:
+    @staticmethod
+    def trace_source(trace: dict[str, Any]) -> str:
+        """trace 来源标签：取 ``metadata.routes``（``chat`` / ``agentic`` ...），缺省为 ``default``。"""
+        routes = (trace.get("metadata") or {}).get("routes")
+        return str(routes).strip() if isinstance(routes, str) and routes.strip() else SOURCE_DEFAULT
+
+    def query_sources(self) -> list[str]:
+        """筛选器可选来源：固定的 KNOWN_SOURCES + 日志里出现过的其它来源。"""
+        seen = {self.trace_source(item) for item in self.list_traces("query")}
+        return [*KNOWN_SOURCES, *sorted(seen - set(KNOWN_SOURCES))]
+
+    def search_query_traces(self, keyword: str, source: str | None = None) -> list[dict[str, Any]]:
+        """按关键词（query / trace_id）与可选来源筛选 query trace；``source`` 为空表示不筛选。"""
         needle = (keyword or "").strip().lower()
         traces = self.list_traces("query")
+        if source:
+            traces = [item for item in traces if self.trace_source(item) == source]
         if not needle:
             return traces
         matched: list[dict[str, Any]] = []

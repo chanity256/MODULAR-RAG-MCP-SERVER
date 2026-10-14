@@ -7,7 +7,7 @@ hybrid / agentic 两个实现位于应用服务层（``services/chat_retrievers.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Callable, Optional, Protocol, runtime_checkable
 
 from core.types import RetrievalResult
 
@@ -19,12 +19,17 @@ __all__ = [
     "RETRIEVAL_AGENTIC_FAST",
     "RETRIEVAL_AGENTIC_DEEP",
     "RETRIEVAL_MODES",
+    "SearchLogCallback",
 ]
 
 RETRIEVAL_HYBRID = "hybrid"
 RETRIEVAL_AGENTIC_FAST = "agentic_fast"
 RETRIEVAL_AGENTIC_DEEP = "agentic_deep"
 RETRIEVAL_MODES = (RETRIEVAL_HYBRID, RETRIEVAL_AGENTIC_FAST, RETRIEVAL_AGENTIC_DEEP)
+
+
+#: 检索过程日志回调 ``(level, message, timestamp)``；timestamp 为 sidecar 侧 epoch 秒，可缺失。
+SearchLogCallback = Callable[[str, str, Optional[float]], None]
 
 
 class DeepDisabledError(Exception):
@@ -60,6 +65,10 @@ class ChatRetriever(Protocol):
       ``finish()`` 或落盘（D7：每轮恰好一条 trace）。
     - DEEP 被门控拒绝时抛 :class:`DeepDisabledError`；其余失败抛原始异常，
       ChatEngine 统一分类（``LLMRequestError`` / ``AgenticSearchError`` / ``httpx`` / 超时等）。
+    - ``on_log`` 是**可选**能力：仅声明了该形参（或 ``**kwargs``）的实现才会收到，
+      且仅当 ``chat.agentic_progress_stream`` 开启、检索模式为 agentic 时由 ChatEngine 传入；
+      实现可在检索线程中任意次调用它，ChatEngine 负责转成 ``search_log`` 帧。
+      不声明 ``on_log`` 的旧实现保持兼容。
     """
 
     def retrieve(
@@ -69,4 +78,5 @@ class ChatRetriever(Protocol):
         collection: str | None = None,
         top_k: int | None = None,
         trace: Any | None = None,
+        on_log: SearchLogCallback | None = None,
     ) -> ChatRetrievalResult: ...
