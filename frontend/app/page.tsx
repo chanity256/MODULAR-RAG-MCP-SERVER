@@ -1,5 +1,5 @@
-import ComingSoon from "@/components/ComingSoon";
+import ChatView from "@/components/chat/ChatView";
 
 export default function ChatPage() {
-  return <ComingSoon title="Chat" task="WC8" />;
+  return <ChatView />;
 }
