@@ -45,6 +45,7 @@ export function normalizeTraceSummary(raw: unknown): TraceSummary {
     source_path: str(r.source_path),
     collection: str(r.collection),
     routes: str(r.routes),
+    source: str(r.source),
     skipped: typeof r.skipped === "boolean" ? r.skipped : null,
     chunks: num(r.chunks),
     images: num(r.images),

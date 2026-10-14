@@ -29,6 +29,15 @@ export function traceSource(trace: Pick<TraceSummary, "routes" | "metadata">): s
   return value || DEFAULT_SOURCE;
 }
 
+/** Value for the server `routes` param: "all" sends nothing, the client "hybrid" label is the server's `default`. */
+export function routesParam(source: string): string | undefined {
+  if (!source || source === ALL_SOURCES) return undefined;
+  return source === DEFAULT_SOURCE ? "default" : source;
+}
+
+/** Sources always offered in the filter, since a server-filtered list only contains the selected one. */
+export const KNOWN_SOURCES = [DEFAULT_SOURCE, "chat", "agentic"] as const;
+
 /** Distinct sources present in `items`: default source first, the rest alphabetical. */
 export function sourceOptions(items: readonly Pick<TraceSummary, "routes" | "metadata">[]): string[] {
   const found = new Set(items.map(traceSource));

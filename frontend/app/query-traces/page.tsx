@@ -26,7 +26,9 @@ import {
   formatMs,
   formatTime,
   formatValue,
+  KNOWN_SOURCES,
   rerankComparison,
+  routesParam,
   sourceOptions,
   stageHits,
   traceSource,
@@ -176,14 +178,18 @@ export default function QueryTracesPage() {
   const debounced = useDebouncedValue(keyword);
 
   const { data, error, loading, reload } = useAsyncData(
-    (signal) => fetchTraces({ traceType: "query", keyword: debounced, limit: PAGE_SIZE }, signal),
-    `query:${debounced}`,
+    (signal) =>
+      fetchTraces({ traceType: "query", keyword: debounced, routes: routesParam(source), limit: PAGE_SIZE }, signal),
+    `query:${debounced}:${source}`,
     autoRefresh ? 10_000 : 0,
   );
 
   const allItems = data?.items ?? [];
-  const sources = sourceOptions(allItems);
-  const activeSource = source === ALL_SOURCES || sources.includes(source) ? source : ALL_SOURCES;
+  const sources = [...new Set([...KNOWN_SOURCES, ...sourceOptions(allItems), source])].filter(
+    (name) => name !== ALL_SOURCES,
+  );
+  const activeSource = source;
+  // The server already filtered by `routes`; the client filter covers servers that ignore the param.
   const items = filterBySource(allItems, activeSource);
   const shown = items.slice(0, visible);
   const selected = items.find((i) => i.trace_id === selectedId) ?? items[0];

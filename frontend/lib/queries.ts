@@ -46,6 +46,8 @@ export async function fetchOverview(signal?: AbortSignal): Promise<Overview> {
 export interface TraceListParams {
   traceType?: TraceType;
   keyword?: string;
+  /** Server-side source tag filter (`chat` / `agentic` / `default` / ...). */
+  routes?: string;
   limit?: number;
   offset?: number;
 }
@@ -57,6 +59,7 @@ export async function fetchTraces(
   const query = buildQuery({
     trace_type: params.traceType,
     keyword: params.keyword?.trim(),
+    routes: params.routes?.trim(),
     limit: params.limit,
     offset: params.offset,
   });

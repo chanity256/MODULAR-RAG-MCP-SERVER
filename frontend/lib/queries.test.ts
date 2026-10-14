@@ -32,6 +32,13 @@ describe("typed client", () => {
     expect(page.items[0].trace_id).toBe("t");
   });
 
+  it("fetchTraces passes the server-side routes filter", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(json({ items: [], total: 0, limit: 500, offset: 0 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await fetchTraces({ traceType: "query", routes: "default", limit: 500 });
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/traces?trace_type=query&routes=default&limit=500");
+  });
+
   it("fetchTrace encodes the id", async () => {
     const fetchMock = vi.fn().mockResolvedValue(json({ trace_id: "a/b", stages: [] }));
     vi.stubGlobal("fetch", fetchMock);

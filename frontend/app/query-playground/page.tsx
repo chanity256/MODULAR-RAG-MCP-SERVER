@@ -1,5 +1,7 @@
-import ComingSoon from "@/components/ComingSoon";
+"use client";
+
+import PlaygroundView from "@/components/search/PlaygroundView";
 
 export default function Page() {
-  return <ComingSoon title="Query Playground" task="WC9" />;
+  return <PlaygroundView />;
 }

@@ -192,3 +192,12 @@ describe("formatMs", () => {
     expect(formatMs(1234.5)).toBe("1235 ms");
   });
 });
+
+describe("routesParam", () => {
+  it("maps UI source labels to the server routes tag", async () => {
+    const { routesParam } = await import("./traces");
+    expect(routesParam("all")).toBeUndefined();
+    expect(routesParam("hybrid")).toBe("default");
+    expect(routesParam("chat")).toBe("chat");
+  });
+});

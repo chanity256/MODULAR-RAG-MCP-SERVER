@@ -10,6 +10,7 @@ describe("normalizeTracePage", () => {
       metadata: {},
       stage_count: 0,
       routes: null,
+      source: null,
       skipped: null,
       total_elapsed_ms: null,
     });

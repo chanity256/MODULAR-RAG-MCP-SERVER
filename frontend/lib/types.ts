@@ -49,6 +49,8 @@ export interface TraceSummary {
   source_path: string | null;
   collection: string | null;
   routes: string | null;
+  /** Server-side source tag (`routes` filter value; `default` when absent). Older servers omit it. */
+  source: string | null;
   skipped: boolean | null;
   chunks: number | null;
   images: number | null;

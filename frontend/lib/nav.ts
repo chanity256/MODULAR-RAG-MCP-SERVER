@@ -22,7 +22,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/data-browser", label: "Data Browser", icon: "data-browser" },
   { href: "/ingestion-manager", label: "Ingestion Manager", icon: "ingestion-manager" },
   { href: "/evaluation", label: "Evaluation", icon: "evaluation" },
-  { href: "/query-playground", label: "Query Playground", icon: "playground", comingIn: "WC9" },
+  { href: "/query-playground", label: "Query Playground", icon: "playground" },
 ];
 
 /** Strip the trailing slash that `trailingSlash: true` adds to pathnames (root stays "/"). */
