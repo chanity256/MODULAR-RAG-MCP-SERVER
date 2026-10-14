@@ -116,3 +116,11 @@ board.html
 
 # 测试样例 PDF（含个人票据，不入主仓库）
 tests/fixtures/sample_documents/*.pdf
+
+# frontend/ (Next 静态导出工程)：产物与依赖不入库；根规则 lib/ 会误伤 frontend/lib，需显式放行
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/next-env.d.ts
+frontend/*.tsbuildinfo
+!frontend/lib/
