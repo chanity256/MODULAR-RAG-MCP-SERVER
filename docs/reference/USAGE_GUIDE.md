@@ -173,7 +173,7 @@ Dashboard 导航「检索」分组 → 「在线检索」：三模式在线查�
   - Fast：需 `agentic_search.enabled: true`，否则按钮置灰，悬停提示开启方法并启动 sidecar（`scripts/sirchmunk/`）；
   - Deep：另需 `agentic_search.allow_deep: true`，否则置灰并提示开启 `allow_deep`。
   - 默认配置（`enabled: false`）下仅 Normal 可用。
-- **表单**：查询文本 + Top-K；collection 输入仅在 Normal 模式显示。Deep 模式经 sidecar SSE 流式端点检索，等待期间在状态框内实时滚动显示 sidecar 进度日志（最近 30 行）；后端不支持流式时自动回退同步检索（SX5）。
+- **表单**：查询文本 + Top-K；collection 输入仅在 Normal 模式显示。Deep 模式经 sidecar SSE 流式端点检索，等待期间在状态框内实时滚动显示 sidecar 进度日志（最近 30 行）；后端不支持流式时自动回退同步检索（SX5）。**已知上游缺陷**：sidecar 流式端点每次请求新建的存储实例不释放，每次 Deep 检索在 sidecar 留下约 10 个线程（9 个 DuckDB 工作线程 + 1 个 parquet 同步线程，数量随 CPU 核数变化），空闲后不回收。大量使用 Deep 模式后应重启 sidecar；同步端点（MCP tool、Fast/Normal）不受影响（SX5.3）。
 - **结果**：Markdown 答案 + 引用表（来源/页码/分数）；Fast/Deep 额外展示 Agentic 答案、模式、Token、LLM 调用次数、耗时与证据文件。
 - **trace 联动**：每次检索自动写入 trace，到「Query 追踪」页可查看各阶段耗时（agentic 阶段由 S3.2 渲染）。
 - **失败友好**：sidecar 不可用或参数非法时以页面错误提示展示，不崩溃。
@@ -236,7 +236,7 @@ cp scripts/sirchmunk/env.example .env-sirchmunk
 | `LLM_BASE_URL` / `LLM_MODEL_NAME` | 模板默认 DeepSeek `https://api.deepseek.com` + `deepseek-v4-flash`（上游自动关闭思考）。**不要用 `glm-5.3-flash`**：它强制思考且 sidecar 无法关闭，单次 LLM 调用可达数十到上百秒 |
 | `SIRCHMUNK_API_TOKEN` | 生成一个随机 token，**必须与主项目 `agentic_search.api_token` 一致** |
 | `SIRCHMUNK_WORK_PATH` | 默认 `./data/db/sirchmunk`，每进程独占，勿与其他进程共享 |
-| `SIRCHMUNK_ENABLE_CLUSTER_REUSE` | 保持 `false`，可跳过 embedding 模型下载与常驻内存（torch 已随 sidecar venv 安装）。**不要删掉这一行**：上游对未设置按开启处理。需要开启时改为 `true`，再跑 `preflight.sh` 预下载模型 |
+| `SIRCHMUNK_ENABLE_CLUSTER_REUSE` | 保持 `false`，可跳过 embedding 模型下载与常驻内存（torch 已随 sidecar venv 安装）。**不要删掉这一行**：上游对未设置按开启处理。需要开启时改为 `true`，再跑 `preflight.sh` 预下载模型。**开启前须知**（SX4.2 实测）：只有 FAST 原题重问能命中（约 30 ms、0 token），换个说法就达不到 0.85 阈值；只有 FAST 会保存知识簇，DEEP 只能复用 FAST 存下的簇；上游不检查文件是否已修改，文件改动后 FAST 和 DEEP 都会返回旧答案，需清空 `work_path/.cache/knowledge/` 才会失效。语料经常变动时保持关闭 |
 | `LENS_HARD_TOKEN_BUDGET` | 保持 `true`，客户端断连后防止成本泄漏 |
 
 ### 4.4 主项目配置

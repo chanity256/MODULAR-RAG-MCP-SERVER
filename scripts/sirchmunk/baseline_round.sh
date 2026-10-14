@@ -8,6 +8,9 @@
 #
 # 用法: bash scripts/sirchmunk/baseline_round.sh MODE REP OUTDIR
 #   MODE=FAST|DEEP，REP=轮次编号，OUTDIR 建议放在仓库外（避免被检索到）。
+#   BASELINE_EXPECT_REUSE=true：env 文件须开启复用（SX4.2 复用开对照），默认要求关闭。
+#   BASELINE_FIXTURES="a b"：tests/fixtures/agentic/ 下的 fixture 名（不含 .json），
+#   默认 "golden_questions golden_questions_docs"。
 # 结果汇总: python scripts/sirchmunk/aggregate_rounds.py OUTDIR merged.json summary.md
 # 真实调用，消耗 LLM token；不在离线测试套件内。
 set -euo pipefail
@@ -20,7 +23,9 @@ BASE_URL="http://${SIRCHMUNK_HOST:-127.0.0.1}:${SIRCHMUNK_PORT:-8584}"
 mkdir -p "$OUT"
 
 set -a; source "$ENV_FILE"; set +a
-[ "${SIRCHMUNK_ENABLE_CLUSTER_REUSE:-}" = "false" ] || { echo "SIRCHMUNK_ENABLE_CLUSTER_REUSE must be false for the baseline" >&2; exit 2; }
+EXPECT_REUSE="${BASELINE_EXPECT_REUSE:-false}"
+[ "${SIRCHMUNK_ENABLE_CLUSTER_REUSE:-}" = "$EXPECT_REUSE" ] || {
+  echo "SIRCHMUNK_ENABLE_CLUSTER_REUSE must be '$EXPECT_REUSE' (set BASELINE_EXPECT_REUSE to change)" >&2; exit 2; }
 WORK="${SIRCHMUNK_WORK_PATH:?SIRCHMUNK_WORK_PATH not set}"
 [ -d "$WORK/.cache" ] || { echo "work path $WORK/.cache missing" >&2; exit 2; }
 
@@ -50,7 +55,7 @@ done
 
 PY="${PYTHON:-.venv/bin/python}"
 rc=0
-for FX in golden_questions golden_questions_docs; do
+for FX in ${BASELINE_FIXTURES:-golden_questions golden_questions_docs}; do
   "$PY" scripts/sirchmunk/compare.py --base-url "$BASE_URL" ${SIRCHMUNK_API_TOKEN:+--token "$SIRCHMUNK_API_TOKEN"} \
     --repo-root "$REPO" --mode "$MODE" --fixture "tests/fixtures/agentic/${FX}.json" \
     --json-out "$OUT/${MODE}_r${REP}_${FX}.json" --out "$OUT/${MODE}_r${REP}_${FX}.md" >/dev/null || rc=1
