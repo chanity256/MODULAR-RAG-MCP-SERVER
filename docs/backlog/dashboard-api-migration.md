@@ -4,6 +4,8 @@
 > **状态**：backlog 提案——已有较完整方案，尚未立项排期；立项后按 [README 约定](README.md)移入 [specs/](../specs/)。
 > **原则**：小步迁移、保持主链路可用、每个阶段独立验收。
 
+<!-- Note: 为何从路线图拆分、章节编号为何保持 6–10 — 见 .agents/notes/implemented/process/2026-10-07-roadmap-migration-split-to-backlog.md -->
+
 ## 1. 决策三问（对齐路线图第 10 章）
 
 1. **它解决了哪个已经观察到的问题？**——Streamlit Dashboard 的五条现实限制（见第 2 章）：UI 与后端进程耦合、交互能力有限、能力无法被其他客户端复用、认证与并发难扩展、长任务状态不稳定。

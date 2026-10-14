@@ -6,7 +6,7 @@
 
 其余文档**按需选读**，不必预先通读：
 
-- `docs/specs/` — 立项后新规格的落点。当前进行中：`SIRCHMUNK_EXTENSION_SPEC.md`（SX 系列，Sirchmunk 能力补齐；改动 agentic_search / sidecar 脚本前先读）。
+- `docs/frozen/SIRCHMUNK_EXTENSION_SPEC_frozen.md` — SX 系列 Sirchmunk 能力补齐（已收口冻结：telemetry 消费、参数透传、compile/复用实验裁决、SSE 流式；改动 agentic_search / sidecar 脚本前先读，遗留事项见 `docs/backlog/sirchmunk-extension-followups.md`）。
 - `docs/frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md` — IR 系列摄取健壮性 + Markdown 摄取（IR0–IR7 已收口；改动摄取链路前先读其 7.1 实现偏差）。
 - `docs/analysis/` — 架构分析与演进方向（微服务分析、优化路线图）。
 - `docs/reference/USAGE_GUIDE.md` — 使用速查（启动、配置、sidecar 用法）。

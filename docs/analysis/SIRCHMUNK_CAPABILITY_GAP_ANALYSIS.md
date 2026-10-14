@@ -1,6 +1,6 @@
 # Sirchmunk 能力覆盖差距分析
 
-> 版本：0.2 — 基于源码对照的能力覆盖判断；v0.2 经源码复核修正第 3/4/5 节的判断（复用成本、演化可达性、telemetry 形态、树索引门槛与编译覆盖面），候选方向已立项为 [SIRCHMUNK_EXTENSION_SPEC（SX 系列）](../specs/SIRCHMUNK_EXTENSION_SPEC.md)
+> 版本：0.2 — 基于源码对照的能力覆盖判断；v0.2 经源码复核修正第 3/4/5 节的判断（复用成本、演化可达性、telemetry 形态、树索引门槛与编译覆盖面），候选方向已立项为 [SIRCHMUNK_EXTENSION_SPEC（SX 系列）](../frozen/SIRCHMUNK_EXTENSION_SPEC_frozen.md)
 >
 > 基线：sirchmunk 源码锁定在 commit `b314e11`（Merge pull request #184 from modelscope/feat/search_enhance）；本项目处于 SIRCHMUNK_INTEGRATION_SPEC S0–S4 已交付收口状态（分支 `feat/sirchmunk-agentic-search`，commit `690a205`）。
 >
@@ -101,13 +101,13 @@ v0.1 曾按冻结规格 3.2 认为存在 `data.telemetry` 字段未被消费。*
 1. 冻结规格 3.2 的 `data.telemetry` 表述错误（已在其 3.2 加勘误注记）；
 2. `src/libs/agentic_search/converter.py` 的 `parse_search_context()` 确实没有读取这些顶层 telemetry 键（`loop_count`、`budget_remaining`、`retrieval_logs`、机制标记 `self_correct_entered` 等），trace 中也没有相应打点。
 
-属规格与实现的偏差，量小（纯解析 + 打点），修正方案见 [SIRCHMUNK_EXTENSION_SPEC](../specs/SIRCHMUNK_EXTENSION_SPEC.md) SX1。
+属规格与实现的偏差，量小（纯解析 + 打点），修正方案见 [SIRCHMUNK_EXTENSION_SPEC](../frozen/SIRCHMUNK_EXTENSION_SPEC_frozen.md) SX1。
 
 ---
 
 ## 6. 后续候选方向（按性价比排序）
 
-**已立项（2026-10-13）**：下列 1–4 均已按 backlog 流程立项为 [SIRCHMUNK_EXTENSION_SPEC（SX 系列）](../specs/SIRCHMUNK_EXTENSION_SPEC.md)，决策依据见 [backlog/sirchmunk-capability-completion.md](../backlog/sirchmunk-capability-completion.md)。原候选内容存档如下：
+**已立项（2026-10-13）**：下列 1–4 均已按 backlog 流程立项为 [SIRCHMUNK_EXTENSION_SPEC（SX 系列）](../frozen/SIRCHMUNK_EXTENSION_SPEC_frozen.md)，决策依据见 [backlog/sirchmunk-capability-completion.md](../backlog/sirchmunk-capability-completion.md)。原候选内容存档如下：
 
 1. **sidecar 侧跑 `sirchmunk compile`，重跑 DEEP 的 Q5/Q6** → SX3（v0.2 修正：Q5/Q6 答案在 `.py`，编译不覆盖；改为补文档类题评估，Q5/Q6 只看回退；编译须 sidecar 停机执行：work_path 无文件锁；完成后须重启 sidecar：`_tree_paths_cache` 按实例缓存）。
 2. **补齐 telemetry 解析** → SX1（读 `data` 顶层键，白名单收集；`retrieval_logs` 降维计数防 trace 膨胀）。

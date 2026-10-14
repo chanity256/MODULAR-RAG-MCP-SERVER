@@ -1,6 +1,6 @@
 # Sirchmunk 剩余能力补齐提案（SX 系列）
 
-> 状态：已立项（2026-10-13）为 [specs/SIRCHMUNK_EXTENSION_SPEC.md](../specs/SIRCHMUNK_EXTENSION_SPEC.md) SX 系列；本页保留作决策依据，细节以规格为准
+> 状态：已立项（2026-10-13）为 [frozen/SIRCHMUNK_EXTENSION_SPEC_frozen.md](../frozen/SIRCHMUNK_EXTENSION_SPEC_frozen.md) SX 系列，SX0–SX5 已收口冻结（2026-10-14）；本页保留作决策依据，细节以规格为准
 > 依据：[SIRCHMUNK_CAPABILITY_GAP_ANALYSIS](../analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md) v0.2 + 上游源码（`b314e11`）复核
 > 红线不变：主 venv 永不 `import sirchmunk`，不改上游源码，只经 HTTP / sidecar venv CLI 接入。
 
@@ -43,4 +43,4 @@ G0 三方对照（裸 rg 6/6，FAST 2/6，DEEP 1/2）是在**无编译、无复�
 
 ## 后续
 
-已立项：规格见 [specs/SIRCHMUNK_EXTENSION_SPEC.md](../specs/SIRCHMUNK_EXTENSION_SPEC.md)（新前缀 `SX`，已核查与 S/IR/V/G/P/A–I 无冲突），引用本提案作为决策依据。
+已立项：规格见 [frozen/SIRCHMUNK_EXTENSION_SPEC_frozen.md](../frozen/SIRCHMUNK_EXTENSION_SPEC_frozen.md)（新前缀 `SX`，已核查与 S/IR/V/G/P/A–I 无冲突），引用本提案作为决策依据。
