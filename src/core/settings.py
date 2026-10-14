@@ -297,6 +297,8 @@ class ApiSettings:
     allowed_origins: list[str] = field(default_factory=lambda: ["http://localhost:3000"])
     serve_ui: bool = False
     static_dir: str = "./frontend/out"
+    tasks_db: str = "./data/db/tasks.db"
+    max_upload_mb: int = 100
 
 
 @dataclass
@@ -933,6 +935,9 @@ def _build_api(sec: dict[str, Any]) -> ApiSettings:
         not isinstance(o, str) or not o.strip() for o in origins
     ):
         raise ConfigError("config field 'api.allowed_origins' must be a list of non-empty strings")
+    max_upload_mb = _opt(sec, "max_upload_mb", defaults.max_upload_mb)
+    if isinstance(max_upload_mb, bool) or not isinstance(max_upload_mb, int) or max_upload_mb < 1:
+        raise ConfigError(f"config field 'api.max_upload_mb' must be a positive integer, got {max_upload_mb!r}")
     return ApiSettings(
         enabled=_flag("enabled", defaults.enabled),
         host=_text("host", defaults.host),
@@ -941,6 +946,8 @@ def _build_api(sec: dict[str, Any]) -> ApiSettings:
         allowed_origins=[o.strip() for o in origins],
         serve_ui=_flag("serve_ui", defaults.serve_ui),
         static_dir=_text("static_dir", defaults.static_dir),
+        tasks_db=_text("tasks_db", defaults.tasks_db),
+        max_upload_mb=max_upload_mb,
     )
 
 

@@ -49,3 +49,27 @@ def test_missing_config_is_a_clean_error(run_calls, tmp_path, capsys):
     assert start_api.main(["--force", "--config", str(tmp_path / "nope.yaml")]) == 2
     assert run_calls == []
     assert "configuration error" in capsys.readouterr().err
+
+
+def test_serve_ui_flag_overrides_config(run_calls, tmp_path):
+    (tmp_path / "index.html").write_text("<html></html>", encoding="utf-8")
+    import yaml
+
+    data = yaml.safe_load(start_api.DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"))
+    data["api"]["static_dir"] = str(tmp_path)
+    config = tmp_path / "settings.yaml"
+    config.write_text(yaml.safe_dump(data), encoding="utf-8")
+    assert start_api.main(["--force", "--config", str(config), "--serve-ui"]) == 0
+    assert run_calls
+
+
+def test_serve_ui_with_missing_build_fails_fast(run_calls, tmp_path, capsys):
+    import yaml
+
+    data = yaml.safe_load(start_api.DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"))
+    data["api"]["static_dir"] = str(tmp_path / "missing")
+    config = tmp_path / "settings.yaml"
+    config.write_text(yaml.safe_dump(data), encoding="utf-8")
+    assert start_api.main(["--force", "--config", str(config), "--serve-ui"]) == 2
+    assert run_calls == []
+    assert "static_dir" in capsys.readouterr().err

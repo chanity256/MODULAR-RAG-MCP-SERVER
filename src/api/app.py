@@ -16,9 +16,11 @@ from starlette.responses import Response
 
 from api.deps import ServiceContainer
 from api.errors import install_error_handlers
-from api.routes import build_v1_router
+from api.routes import build_v1_router, build_v1_ws_router
 from api.routes import health as health_routes
 from api.security import validate_api_binding
+from api.static import install_static_ui
+from api.tasks import TaskManager
 from core.settings import ApiSettings, Settings, load_settings
 
 __all__ = ["SecurityHeadersMiddleware", "create_app"]
@@ -71,6 +73,8 @@ def create_app(
     app.state.container = container
     app.state.api_token = token
     app.state.api_settings = api_settings
+    # TaskManager 首次访问才建库/起线程池，保持 create_app 零 IO。
+    app.state.task_manager = getattr(container, "task_manager", None) or TaskManager(api_settings.tasks_db)
 
     # add_middleware 后加者在外层：错误转换最内，CORS 最外，使所有响应（含 500）都带头。
     install_error_handlers(app)
@@ -85,4 +89,7 @@ def create_app(
 
     app.include_router(health_routes.router)
     app.include_router(build_v1_router())
+    app.include_router(build_v1_ws_router())
+    # 必须是最后一个注册：挂在 "/" 的静态应用会吞掉其后注册的所有路由（含 WS）。
+    install_static_ui(app, api_settings)
     return app

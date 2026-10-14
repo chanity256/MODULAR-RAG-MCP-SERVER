@@ -31,6 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", default=None, help="覆盖 api.host")
     parser.add_argument("--port", type=int, default=None, help="覆盖 api.port")
     parser.add_argument("--force", action="store_true", help="api.enabled=false 时仍然启动")
+    parser.add_argument("--serve-ui", action="store_true", help="覆盖 api.serve_ui=true（托管 api.static_dir）")
     return parser
 
 
@@ -42,6 +43,8 @@ def resolve_api_settings(settings: object, args: argparse.Namespace) -> object:
         overrides["host"] = args.host
     if args.port is not None:
         overrides["port"] = int(args.port)
+    if getattr(args, "serve_ui", False):
+        overrides["serve_ui"] = True
     return replace(settings, api=replace(api, **overrides)) if overrides else settings  # type: ignore[type-var]
 
 

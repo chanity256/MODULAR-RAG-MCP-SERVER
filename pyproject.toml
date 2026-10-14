@@ -22,6 +22,7 @@ dependencies = [
     # WC 系列 Web API 层（src/api/）与 Chat 流式传输（httpx 发 SSE 请求）
     "fastapi>=0.115,<1.0",
     "uvicorn>=0.30",
+    "python-multipart>=0.0.9",
     "httpx>=0.27",
 ]
 

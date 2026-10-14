@@ -76,6 +76,8 @@ class IngestionService:
         runner: 整批摄取覆盖函数 ``runner(files, *, collection, force,
             on_progress)``；提供时 :meth:`ingest` 直接返回其结果，不再使用
             ``pipeline``（供页面/测试注入）。
+        settings: 默认 Pipeline 使用的配置（缺省 ``load_settings()``，API 层传入
+            以保证与 ``--config`` 一致）。
     """
 
     def __init__(
@@ -84,7 +86,9 @@ class IngestionService:
         upload_dir: str | Path | None = None,
         pipeline: Any | None = None,
         runner: RunnerFn | None = None,
+        settings: Any | None = None,
     ) -> None:
+        self._settings = settings
         self._upload_dir = Path(upload_dir) if upload_dir is not None else DEFAULT_UPLOAD_DIR
         self._pipeline = pipeline
         self._runner = runner
@@ -153,5 +157,5 @@ class IngestionService:
             from core.settings import load_settings
             from ingestion.pipeline import IngestionPipeline
 
-            self._pipeline = IngestionPipeline(load_settings())
+            self._pipeline = IngestionPipeline(self._settings or load_settings())
         return self._pipeline

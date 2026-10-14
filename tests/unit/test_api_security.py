@@ -138,6 +138,8 @@ class TestApiSettingsSection:
         assert api.port == 8600
         assert api.allowed_origins == ["http://localhost:3000"]
         assert api.serve_ui is False
+        assert api.tasks_db == "./data/db/tasks.db"
+        assert api.max_upload_mb == 100
         # 环境变量缺失时占位符被原样保留，由 normalize_token 视为未配置
         assert api.api_token == "${RAG_API_TOKEN}"
         assert normalize_token(api.api_token) is None
@@ -170,6 +172,10 @@ class TestApiSettingsSection:
             {"serve_ui": 1},
             {"static_dir": ""},
             {"api_token": 123},
+            {"tasks_db": ""},
+            {"max_upload_mb": 0},
+            {"max_upload_mb": "100"},
+            {"max_upload_mb": True},
         ],
     )
     def test_invalid_values_fail_fast(self, tmp_path, patch):

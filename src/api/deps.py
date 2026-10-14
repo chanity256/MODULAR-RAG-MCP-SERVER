@@ -15,11 +15,13 @@ import httpx
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from api.chat_wiring import ChatServices
 from api.errors import ApiError
 from api.security import token_matches
 from core.settings import Settings
 from observability.dashboard.services.config_service import ConfigService
 from observability.dashboard.services.data_service import DataService
+from observability.dashboard.services.ingestion_service import IngestionService
 from observability.dashboard.services.trace_service import TraceService
 
 __all__ = [
@@ -56,6 +58,10 @@ class ServiceContainer:
         config_service: ConfigService | None = None,
         data_service: DataService | None = None,
         trace_service: TraceService | None = None,
+        ingestion_service: IngestionService | None = None,
+        evaluation_service: Any | None = None,
+        task_manager: Any | None = None,
+        chat_services: ChatServices | None = None,
         sidecar_probe: Callable[[], bool] | None = None,
         storage_probe: Callable[[], dict[str, bool]] | None = None,
     ) -> None:
@@ -63,6 +69,10 @@ class ServiceContainer:
         self._config = config_service
         self._data = data_service
         self._traces = trace_service
+        self._ingestion = ingestion_service
+        self._evaluation = evaluation_service
+        self.task_manager = task_manager
+        self._chat = chat_services
         self._sidecar_probe = sidecar_probe
         self._storage_probe = storage_probe
         self._lock = threading.Lock()
@@ -91,6 +101,31 @@ class ServiceContainer:
             if self._traces is None:
                 self._traces = TraceService(settings=self._settings)
             return self._traces
+
+    @property
+    def chat(self) -> ChatServices:
+        with self._lock:
+            if self._chat is None:
+                self._chat = ChatServices(self._settings)
+            return self._chat
+
+    @property
+    def ingestion(self) -> IngestionService:
+        with self._lock:
+            if self._ingestion is None:
+                self._ingestion = IngestionService(settings=self._settings)
+            return self._ingestion
+
+    @property
+    def evaluation(self) -> Any:
+        with self._lock:
+            if self._evaluation is None:
+                if self._settings is None:
+                    raise ApiError(503, "Evaluation service is not configured")
+                from observability.dashboard.services.evaluation_service import EvaluationService
+
+                self._evaluation = EvaluationService(self._settings)
+            return self._evaluation
 
     def sidecar_health(self) -> dict[str, Any]:
         """探活失败不抛：未启用 → disabled；注入探针优先于配置。"""

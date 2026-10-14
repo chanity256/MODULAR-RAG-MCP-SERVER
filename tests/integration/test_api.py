@@ -742,7 +742,9 @@ class TestOpenApi:
             "/api/v1/traces/{trace_id}",
         ):
             assert expected in paths, expected
-            assert list(paths[expected]) == ["get"]  # WC2 只读：没有写方法
+            # 读资源只暴露 GET；唯一的写方法是 WC4.2 的文档删除。
+            allowed = ["get", "delete"] if expected == "/api/v1/documents/{document_id}" else ["get"]
+            assert list(paths[expected]) == allowed
 
     def test_schema_documents_models_and_errors(self, client):
         schema = client.get("/openapi.json").json()
