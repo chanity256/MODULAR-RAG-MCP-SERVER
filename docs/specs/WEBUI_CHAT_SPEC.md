@@ -392,7 +392,7 @@ WC5（chat_stream + AnswerGenerator）──► WC6（Chat 核心）──► WC
 | WC9.5 | Playwright 关键用户流程 | [x] | 2026-10-14 | ；frontend/e2e 20 流程（chat/dashboard/data-browser/ingestion/evaluation/playground/auth）对 tests/e2e_web/fake_api_server.py 离线运行，`cd frontend && npm run build && npm run e2e`；默认 pytest/vitest 不触发 |
 | WC10.1 | P6 双轨功能等价核验（七页面逐项对照） | [x] | 2026-10-15 | backlog P6 退役门槛（原文「六页」按七页执行）；七页逐项对照见 docs/analysis/WEBUI_PARITY_AUDIT.md；遗留差异入 docs/backlog/webui-parity-followups.md（均不阻塞）；顺带修 Query Traces chat 阶段面板 |
 | WC10.2 | Streamlit 退役：启动脚本/README/部署说明更新，确认 MCP stdio 不受影响 | [x] | 2026-10-15 | 非物理删除：start_dashboard 弃用提示（stderr）+ README/USAGE_GUIDE 以 Web UI 为主、Streamlit 标 legacy（删除条件见 USAGE_GUIDE §10.9）；MCP stdio 子集 16 passed |
-| WC10.3 | 门控冒烟：`RAG_CHAT_INTEGRATION=1` 多轮 + `RAG_AGENTIC_INTEGRATION=1` agentic 路由 | [ ] | | |
+| WC10.3 | 门控冒烟：`RAG_CHAT_INTEGRATION=1` 多轮 + `RAG_AGENTIC_INTEGRATION=1` agentic 路由 | [ ] | | ；代码完成（2026-10-15）：tests/e2e/test_chat_real_integration.py（4）+ test_chat_agentic_real_integration.py（4），默认全 skip；真实门控运行待用户确认 |
 | WC10.4 | 文档收口：USAGE_GUIDE / README 使用说明、规格任务表收口、冻结流程启动 | [ ] | | ；已完成：USAGE_GUIDE §10 / README / MOC / AGENTS 更新；待 WC10.3 后：规格任务表收口 + 冻结 |
 
 > 纪律：任务全收口后本规格冻结入 `docs/frozen/`；执行中发现的新需求另走 backlog 提案，不在本表新增后改前缀编号。

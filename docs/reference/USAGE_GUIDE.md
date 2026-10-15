@@ -555,7 +555,8 @@ Playwright 流程跑在 `tests/e2e_web/fake_api_server.py` 上：真实 FastAPI 
 | `RAG_LLM_INTEGRATION=1` | 真实 LLM 相关集成测试（`tests/integration/test_chunk_refiner_llm.py` 等） |
 | `RAG_E2E_INTEGRATION=1` | 真实模型端到端 |
 | `RAG_AGENTIC_INTEGRATION=1` | 真实 sidecar 的 `agentic_search` MCP 冒烟（需 sidecar 已启动） |
-| `RAG_CHAT_INTEGRATION=1` | **规划中（WC10.3，尚未交付）**：真实 LLM 多轮 Chat 冒烟（指代消解、话题漂移、流式端到端、会话重启恢复）；当前仓库没有对应测试文件 |
+| `RAG_CHAT_INTEGRATION=1` | 真实 LLM 多轮 Chat 冒烟（`tests/e2e/test_chat_real_integration.py`）：流式端到端、指代消解、话题漂移、会话重启恢复；需 LLM/embedding 可用且本地索引非空，会话库与 trace 落 tmp。运行：`RAG_CHAT_INTEGRATION=1 pytest tests/e2e/test_chat_real_integration.py -v` |
+| `RAG_AGENTIC_INTEGRATION=1`（Chat） | agentic 路由经真实 sidecar（`tests/e2e/test_chat_agentic_real_integration.py`）：FAST 透传、DEEP 门控拒绝、`allow_deep` 开启时的 DEEP、`search_log` 进度帧；需 sidecar 已启动。运行：`RAG_AGENTIC_INTEGRATION=1 pytest tests/e2e/test_chat_agentic_real_integration.py -v` |
 
 ### 10.9 Streamlit Dashboard（legacy）
 
