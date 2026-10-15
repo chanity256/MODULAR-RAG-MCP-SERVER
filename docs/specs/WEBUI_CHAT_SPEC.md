@@ -202,7 +202,7 @@ src/core/chat/
 | ↓ | `stream` | `{content}` | 真流式增量 |
 | ↓ | `sources` | `{citations: [...]}` | `CitationGenerator.to_dict()` 产物（真实 score，§1.2 第 4 条） |
 | ↓ | `result` | `{content, session_id, message_id, grounded, rewritten_query?, usage?, trace_id}` | 终帧；`grounded: false` 仅纯聊天/降级路径 |
-| ↓ | `error` | `{code, message}` | 终帧；code: `AUTH` / `RATE_LIMITED` / `UPSTREAM` / `DEEP_DISABLED` / `INTERNAL` |
+| ↓ | `error` | `{code, message}` | 终帧；code: `AUTH` / `RATE_LIMITED` / `UPSTREAM` / `DEEP_DISABLED` / `INTERNAL`（WC7 实现新增 `BAD_REQUEST`：帧非法/未知字段/未知会话/不可用检索模式/Origin 不允许；`UNAVAILABLE`：`chat.enabled=false`） |
 
 - 连接模型沿用上游「每条消息一个连接」：前端发消息前关闭旧连接再新建（`web/context/GlobalContext.tsx:649-657`），会话连续性靠 `session_id` 而非长连接；故移植成本最低，且取消语义可统一为「断开即取消」。
 - 连接数上限 `chat.max_connections`（上游 100，`chat.py:271`），超限发 `error` 后关闭。
@@ -306,6 +306,8 @@ api:
   allowed_origins: ["http://localhost:3000"]
   serve_ui: false           # true 时托管 frontend/out/
   static_dir: ./frontend/out
+  tasks_db: ./data/db/tasks.db   # WC4.1：任务状态持久化
+  max_upload_mb: 100             # WC4.2：单文件上传上限
 
 chat:
   enabled: true
@@ -388,9 +390,9 @@ WC5（chat_stream + AnswerGenerator）──► WC6（Chat 核心）──► WC
 | WC9.3 | 评估面板页迁移 | [x] | 2026-10-14 | Evaluation 页（提交/进度/指标/逐 query 表/历史） |
 | WC9.4 | Query Playground 页迁移（三模式对比 + telemetry 展示，REST 复用 `SearchService`；决定 normal 模式是否委托 `QueryService`） | [x] | 2026-10-14 | D8；backlog 提案早于 S4.1，未列此页；后端部分已交付：POST /api/v1/search + GET /api/v1/search/capabilities（封装 SearchService），页面待做；页面完成（按模式保留最近结果切换对比）；Query Traces 页改用服务端 routes 过滤；normal 模式仍保持 SearchService 链路（未委托 QueryService） |
 | WC9.5 | Playwright 关键用户流程 | [x] | 2026-10-14 | ；frontend/e2e 20 流程（chat/dashboard/data-browser/ingestion/evaluation/playground/auth）对 tests/e2e_web/fake_api_server.py 离线运行，`cd frontend && npm run build && npm run e2e`；默认 pytest/vitest 不触发 |
-| WC10.1 | P6 双轨功能等价核验（七页面逐项对照） | [ ] | | backlog P6 退役门槛（原文「六页」按七页执行） |
-| WC10.2 | Streamlit 退役：启动脚本/README/部署说明更新，确认 MCP stdio 不受影响 | [ ] | | |
+| WC10.1 | P6 双轨功能等价核验（七页面逐项对照） | [x] | 2026-10-15 | backlog P6 退役门槛（原文「六页」按七页执行）；七页逐项对照见 docs/analysis/WEBUI_PARITY_AUDIT.md；遗留差异入 docs/backlog/webui-parity-followups.md（均不阻塞）；顺带修 Query Traces chat 阶段面板 |
+| WC10.2 | Streamlit 退役：启动脚本/README/部署说明更新，确认 MCP stdio 不受影响 | [x] | 2026-10-15 | 非物理删除：start_dashboard 弃用提示（stderr）+ README/USAGE_GUIDE 以 Web UI 为主、Streamlit 标 legacy（删除条件见 USAGE_GUIDE §10.9）；MCP stdio 子集 16 passed |
 | WC10.3 | 门控冒烟：`RAG_CHAT_INTEGRATION=1` 多轮 + `RAG_AGENTIC_INTEGRATION=1` agentic 路由 | [ ] | | |
-| WC10.4 | 文档收口：USAGE_GUIDE / README 使用说明、规格任务表收口、冻结流程启动 | [ ] | | |
+| WC10.4 | 文档收口：USAGE_GUIDE / README 使用说明、规格任务表收口、冻结流程启动 | [ ] | | ；已完成：USAGE_GUIDE §10 / README / MOC / AGENTS 更新；待 WC10.3 后：规格任务表收口 + 冻结 |
 
 > 纪律：任务全收口后本规格冻结入 `docs/frozen/`；执行中发现的新需求另走 backlog 提案，不在本表新增后改前缀编号。
