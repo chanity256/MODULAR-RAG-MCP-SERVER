@@ -7,6 +7,7 @@ import MetricCard from "@/components/dashboard/MetricCard";
 import { PageHeader, RefreshControls, Section, SourceBadge } from "@/components/dashboard/Section";
 import {
   AgenticRoutesView,
+  ChatStagesView,
   HitsTable,
   RerankTable,
   StageList,
@@ -18,9 +19,11 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { fetchTraces } from "@/lib/queries";
 import {
   ALL_SOURCES,
+  DEFAULT_SOURCE,
   QUERY_STAGES,
   agenticRoutes,
   buildWaterfall,
+  chatSummary,
   filterBySource,
   findStage,
   formatMs,
@@ -29,6 +32,7 @@ import {
   KNOWN_SOURCES,
   rerankComparison,
   routesParam,
+  sourceMetadataNotes,
   sourceOptions,
   stageHits,
   traceSource,
@@ -106,6 +110,9 @@ function QueryDetail({ trace }: { trace: TraceDetail }) {
   const rerankDetails = rerank?.details ?? {};
   const rerankRows = rerankComparison(rerankDetails);
   const routes = agenticRoutes(trace.stages);
+  const chat = chatSummary(trace.stages);
+  const source = traceSource(trace);
+  const sourceNotes = source === DEFAULT_SOURCE ? [] : sourceMetadataNotes(trace.metadata);
   const fusionHits = (() => {
     const fusion = stageHits(findStage(trace.stages, "fusion"));
     return fusion.length > 0 ? fusion : stageHits(findStage(trace.stages, "hybrid"));
@@ -121,6 +128,7 @@ function QueryDetail({ trace }: { trace: TraceDetail }) {
         </div>
         <p className="break-all text-xs text-slate-500 dark:text-slate-400">
           trace_id={trace.trace_id} · {formatMs(trace.total_elapsed_ms)} · {formatTime(trace.started_at)}
+          {sourceNotes.length > 0 && ` · source=${source} · ${sourceNotes.join(" · ")}`}
         </p>
       </div>
 
@@ -145,6 +153,12 @@ function QueryDetail({ trace }: { trace: TraceDetail }) {
             backend={formatValue(rerankDetails.backend)} · fallback={formatValue(rerankDetails.fallback)}
           </p>
           <RerankTable rows={rerankRows} />
+        </Section>
+      )}
+
+      {chat && (
+        <Section title="Chat stages">
+          <ChatStagesView summary={chat} />
         </Section>
       )}
 

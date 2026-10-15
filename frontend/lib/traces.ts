@@ -235,6 +235,62 @@ export function stageProvider(stage: StageRecord): string | null {
   return typeof nested === "string" && nested ? nested : null;
 }
 
+/** A stage field: chat stages record their fields at the top level, other stages under `details`. */
+function stageField(stage: StageRecord | undefined, key: string): unknown {
+  if (!stage) return undefined;
+  const own = stage[key];
+  return own !== undefined ? own : stage.details?.[key];
+}
+
+export interface ChatSummary {
+  /** `messages_before → messages_after_filter`, null without a chat_history stage. */
+  history: string | null;
+  /** Whether the query was rewritten, null without a chat_rewrite stage. */
+  rewritten: boolean | null;
+  rewrittenQuery: string | null;
+  chunks: unknown;
+  chars: unknown;
+  /** `key=value` notes of the generation stage (method, grounded, cancelled, error, usage). */
+  notes: string[];
+}
+
+/** Chat-turn summary (parity with the Streamlit "Chat 阶段" block); null when the trace has no chat stage. */
+export function chatSummary(stages: readonly StageRecord[]): ChatSummary | null {
+  const history = findStage(stages, "chat_history");
+  const rewrite = findStage(stages, "chat_rewrite");
+  const generation = findStage(stages, "chat_generation");
+  if (!history && !rewrite && !generation) return null;
+
+  const notes: string[] = [];
+  if (generation) {
+    notes.push(`method=${formatValue(stageField(generation, "method") ?? generation.method)}`);
+    notes.push(`grounded=${formatValue(stageField(generation, "grounded"))}`);
+    if (stageField(generation, "cancelled")) notes.push("cancelled=true");
+    const errorCode = stageField(generation, "error_code");
+    if (errorCode) notes.push(`error=${formatValue(errorCode)}`);
+    const usage = stageField(generation, "usage");
+    if (usage) notes.push(`usage=${formatValue(usage)}`);
+  }
+  const rewrittenQuery = stageField(rewrite, "rewritten_query");
+  return {
+    history: history
+      ? `${formatValue(stageField(history, "messages_before") ?? 0)} → ${formatValue(stageField(history, "messages_after_filter") ?? 0)}`
+      : null,
+    rewritten: rewrite ? Boolean(stageField(rewrite, "rewritten")) : null,
+    rewrittenQuery: typeof rewrittenQuery === "string" && rewrittenQuery ? rewrittenQuery : null,
+    chunks: stageField(generation, "chunks") ?? 0,
+    chars: stageField(generation, "chars") ?? 0,
+    notes,
+  };
+}
+
+/** Chat/agentic metadata keys worth showing next to a non-default source (same keys as the Streamlit page). */
+export function sourceMetadataNotes(metadata: Record<string, unknown>): string[] {
+  return (["retrieval", "session_id", "mode"] as const)
+    .filter((key) => metadata[key])
+    .map((key) => `${key}=${formatValue(metadata[key])}`);
+}
+
 export function ingestionStatus(trace: Pick<TraceSummary, "skipped">): "skipped" | "success" {
   return trace.skipped ? "skipped" : "success";
 }

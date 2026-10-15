@@ -342,12 +342,32 @@ def _seed_traces() -> list[dict[str, Any]]:
             "started_at": "2026-01-07T10:00:00+00:00",
             "finished_at": "2026-01-07T10:00:02+00:00",
             "total_elapsed_ms": 1500.0,
-            "metadata": {"query": "Seeded chat question about citations", "routes": "chat", "retrieval": "hybrid"},
+            "metadata": {
+                "query": "Seeded chat question about citations",
+                "routes": "chat",
+                "retrieval": "hybrid",
+                "session_id": "seed-session",
+            },
+            # The real ChatEngine records chat_* fields at the stage's top level (not under `details`).
             "stages": [
-                _stage("chat_history", 1.0, messages_before=0),
-                _stage("chat_rewrite", 1.0, enabled=False),
+                {"stage": "chat_history", "elapsed_ms": 1.0, "messages_before": 4, "messages_after_filter": 2},
+                {
+                    "stage": "chat_rewrite",
+                    "elapsed_ms": 1.0,
+                    "enabled": True,
+                    "called": True,
+                    "rewritten": True,
+                    "rewritten_query": "Seeded rewritten query",
+                },
                 _stage("dense_retrieval", 12.0, method="dense", preview=[{"chunk_id": "chunk-guide-1", "score": 0.9}]),
-                _stage("chat_generation", 1200.0, method="llm_stream", grounded=True, chunks=1),
+                {
+                    "stage": "chat_generation",
+                    "elapsed_ms": 1200.0,
+                    "method": "llm_stream",
+                    "grounded": True,
+                    "chunks": 1,
+                    "chars": 42,
+                },
             ],
         },
     ]

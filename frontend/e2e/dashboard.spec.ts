@@ -71,6 +71,10 @@ test.describe("Overview and traces", () => {
     for (const stage of ["chat_history", "chat_rewrite", "chat_generation"]) {
       await expect(timing).toContainText(stage);
     }
+    await expect(page.getByRole("heading", { name: "Chat stages" })).toBeVisible();
+    await expect(page.getByText("4 → 2")).toBeVisible();
+    await expect(page.getByText("Rewritten query: Seeded rewritten query")).toBeVisible();
+    await expect(page.getByText(/source=chat · retrieval=hybrid · session_id=seed-session/)).toBeVisible();
 
     // The default (plain hybrid) source excludes chat traces.
     await page.getByLabel("Filter by source").selectOption("hybrid");
@@ -79,5 +83,6 @@ test.describe("Overview and traces", () => {
     await expect(page.getByText("trace_id=seed-query-rrf")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Dense" })).toBeVisible();
     await expect(page.getByRole("list", { name: "Stage timing" })).not.toContainText("chat_generation");
+    await expect(page.getByRole("heading", { name: "Chat stages" })).toHaveCount(0);
   });
 });

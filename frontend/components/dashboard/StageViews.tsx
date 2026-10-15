@@ -1,3 +1,4 @@
+import MetricCard from "./MetricCard";
 import { Badge } from "./Section";
 import DataTable, { EmptyState, type Column } from "./DataTable";
 import {
@@ -8,6 +9,7 @@ import {
   stageElapsedMs,
   stageProvider,
   type AgenticRoutes,
+  type ChatSummary,
   type Hit,
   type RerankRow,
   type WaterfallRow,
@@ -148,6 +150,27 @@ export function AgenticRoutesView({ routes }: { routes: AgenticRoutes }) {
       )}
       {triggerEntries.length > 0 && (
         <p className="text-xs text-slate-500 dark:text-slate-400">Trigger: {triggerEntries.join(" · ")}</p>
+      )}
+    </div>
+  );
+}
+
+export function ChatStagesView({ summary }: { summary: ChatSummary }) {
+  return (
+    <div className="space-y-2">
+      <div className="grid gap-3 sm:grid-cols-4">
+        <MetricCard label="History messages" value={summary.history ?? "-"} />
+        <MetricCard label="Query rewritten" value={summary.rewritten === null ? "-" : summary.rewritten ? "yes" : "no"} />
+        <MetricCard label="Cited chunks" value={formatValue(summary.chunks)} />
+        <MetricCard label="Answer chars" value={formatValue(summary.chars)} />
+      </div>
+      {summary.notes.length > 0 && (
+        <p className="text-xs text-slate-500 dark:text-slate-400">{summary.notes.join(" · ")}</p>
+      )}
+      {summary.rewrittenQuery && (
+        <p className="break-all text-xs text-slate-500 dark:text-slate-400">
+          Rewritten query: {summary.rewrittenQuery}
+        </p>
       )}
     </div>
   );

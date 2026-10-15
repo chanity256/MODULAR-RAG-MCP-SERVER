@@ -3,11 +3,13 @@ import {
   QUERY_STAGES,
   agenticRoutes,
   buildWaterfall,
+  chatSummary,
   filterBySource,
   findStage,
   formatMs,
   rerankComparison,
   scalarDetails,
+  sourceMetadataNotes,
   sourceOptions,
   stageElapsedMs,
   stageHits,
@@ -199,5 +201,56 @@ describe("routesParam", () => {
     expect(routesParam("all")).toBeUndefined();
     expect(routesParam("hybrid")).toBe("default");
     expect(routesParam("chat")).toBe("chat");
+  });
+});
+
+describe("chatSummary", () => {
+  it("is null for a trace without chat stages", () => {
+    expect(chatSummary([stage("dense_retrieval")])).toBeNull();
+  });
+
+  it("reads top-level stage fields as the engine records them", () => {
+    const summary = chatSummary([
+      stage("chat_history", { messages_before: 6, messages_after_filter: 2 }),
+      stage("chat_rewrite", { rewritten: true, rewritten_query: "full question" }),
+      stage("chat_generation", {
+        method: "llm_stream",
+        grounded: true,
+        chunks: 3,
+        chars: 120,
+        cancelled: true,
+        error_code: "UPSTREAM",
+        usage: { total_tokens: 9 },
+      }),
+    ]);
+    expect(summary).toMatchObject({
+      history: "6 → 2",
+      rewritten: true,
+      rewrittenQuery: "full question",
+      chunks: 3,
+      chars: 120,
+    });
+    expect(summary?.notes).toEqual([
+      "method=llm_stream",
+      "grounded=true",
+      "cancelled=true",
+      "error=UPSTREAM",
+      'usage={"total_tokens":9}',
+    ]);
+  });
+
+  it("falls back to details and tolerates a partial turn", () => {
+    const summary = chatSummary([stage("chat_history", { details: { messages_before: 1 } })]);
+    expect(summary).toMatchObject({ history: "1 → 0", rewritten: null, rewrittenQuery: null, notes: [] });
+  });
+});
+
+describe("sourceMetadataNotes", () => {
+  it("lists only the present keys in a fixed order", () => {
+    expect(sourceMetadataNotes({ session_id: "s1", retrieval: "hybrid", other: 1 })).toEqual([
+      "retrieval=hybrid",
+      "session_id=s1",
+    ]);
+    expect(sourceMetadataNotes({})).toEqual([]);
   });
 });
