@@ -110,6 +110,21 @@ def env(tmp_path_factory: pytest.TempPathFactory):
         base = load_settings(str(PROJECT_ROOT / "config" / "settings.yaml"))
         # 只测 hybrid 路径：关掉 agentic，避免装配 sidecar 工具。
         settings = replace(base, agentic_search=replace(base.agentic_search, enabled=False))
+        # settings.yaml 的 LLM 不可用时，用环境变量临时覆盖（密钥只走环境，不落盘）：
+        # RAG_CHAT_LLM_PROVIDER / _MODEL / _BASE_URL / _API_KEY
+        llm_provider = os.environ.get("RAG_CHAT_LLM_PROVIDER")
+        if llm_provider:
+            settings = replace(
+                settings,
+                llm=replace(
+                    settings.llm,
+                    provider=llm_provider,
+                    model=os.environ.get("RAG_CHAT_LLM_MODEL", settings.llm.model),
+                    base_url=os.environ.get("RAG_CHAT_LLM_BASE_URL") or settings.llm.base_url,
+                    api_key=os.environ.get("RAG_CHAT_LLM_API_KEY") or settings.llm.api_key,
+                    azure_endpoint=None,
+                ),
+            )
         question, collection = _pick_topic(settings)
 
         tmp = tmp_path_factory.mktemp("chat_real")
@@ -168,8 +183,12 @@ def test_streaming_end_to_end(env, conversation):
     assert types[0] == "session"
     assert types.count("stream") >= 2, f"expected multiple stream frames, got {types}"
 
-    ranks = [_FRAME_RANK[t] for t in types]
+    # status 帧会穿插在 search_complete/sources 前后（searching → … → generating），
+    # 只校验非 status 帧的相对顺序，并要求 generating 状态先于首个 stream。
+    ranks = [_FRAME_RANK[t] for t in types if t != "status"]
     assert ranks == sorted(ranks), f"frames out of order: {types}"
+    assert types.index("status") < types.index("stream")
+    assert types[-1] == "result"
     assert "sources" in types and "search_complete" in types
 
     result = frames[-1]
