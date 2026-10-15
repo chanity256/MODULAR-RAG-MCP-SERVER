@@ -3,7 +3,7 @@
 > **📌 冻结记录**
 >
 > - 冻结时间：2026-10-15（WC0–WC10 全部交付收口，移入 docs/frozen/，重命名为 WEBUI_CHAT_SPEC_frozen.md）
-> - 交付范围：FastAPI API 层（`src/api/`）、Next 16 静态导出前端（`frontend/`）、多轮 Chat（`src/core/chat/`，WS 真流式、有据回答、hybrid/agentic 路由）、七页面迁移、Playwright 20 流程。收口时基线：全量离线 2403 passed / 3 skipped；vitest 246；e2e_web 20/20。
+> - 交付范围：FastAPI API 层（`src/api/`）、Next 16 静态导出前端（`frontend/`）、多轮 Chat（`src/core/chat/`，WS 真流式、有据回答、hybrid/agentic 路由）、七页面迁移、Playwright 20 流程。收口时基线：全量离线 2403 passed / 11 skipped（含 8 个门控冒烟）；vitest 246；e2e_web 20/20。
 > - WC10.3 门控冒烟（2026-10-15）：Chat 4/4（DeepSeek）、agentic 4/4（真实 sidecar）。实测观察：①真实流的帧序为 session → status → search_complete → sources → status{generating} → stream×n → result，status 帧穿插在 search_complete/sources 前后，门控测试只校验非 status 帧的相对顺序；②sidecar 未带 token 时，上游 `auth_middleware` 的 401 被 BaseHTTPMiddleware 包成 HTTP 500（INTERNAL_ERROR），表象像 sidecar 内部错误，实为 `SIRCHMUNK_API_TOKEN` 未传给主项目；③DeepSeek 偶发 IncompleteRead / 排队延迟，属上游抖动，重试即过。
 > - 遗留（不阻塞，见 [webui-parity-followups.md](../backlog/webui-parity-followups.md)）：M1 Deep 进度通道、L1 sidecar 托管编排并入 start_api、`api.enabled` 默认值待定；Streamlit 保留为 legacy，删除条件见 USAGE_GUIDE §10.9。
 
