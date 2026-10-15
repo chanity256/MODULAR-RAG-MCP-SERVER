@@ -1,6 +1,13 @@
 # WebUI 前后端迁移与 Chat 规格 (WEBUI_CHAT_SPEC)
 
-> 状态：**已立项**（WC 系列，开发中）｜立项日期：2026-10-14｜上游参考基线：sirchmunk `b314e11`（与 [SIRCHMUNK_EXTENSION_SPEC_frozen](../frozen/SIRCHMUNK_EXTENSION_SPEC_frozen.md) 一致，本文 file:line 均相对 `sirchmunk/src/sirchmunk/` 与 `sirchmunk/web/`）
+> **📌 冻结记录**
+>
+> - 冻结时间：2026-10-15（WC0–WC10 全部交付收口，移入 docs/frozen/，重命名为 WEBUI_CHAT_SPEC_frozen.md）
+> - 交付范围：FastAPI API 层（`src/api/`）、Next 16 静态导出前端（`frontend/`）、多轮 Chat（`src/core/chat/`，WS 真流式、有据回答、hybrid/agentic 路由）、七页面迁移、Playwright 20 流程。收口时基线：全量离线 2403 passed / 3 skipped；vitest 246；e2e_web 20/20。
+> - WC10.3 门控冒烟（2026-10-15）：Chat 4/4（DeepSeek）、agentic 4/4（真实 sidecar）。实测观察：①真实流的帧序为 session → status → search_complete → sources → status{generating} → stream×n → result，status 帧穿插在 search_complete/sources 前后，门控测试只校验非 status 帧的相对顺序；②sidecar 未带 token 时，上游 `auth_middleware` 的 401 被 BaseHTTPMiddleware 包成 HTTP 500（INTERNAL_ERROR），表象像 sidecar 内部错误，实为 `SIRCHMUNK_API_TOKEN` 未传给主项目；③DeepSeek 偶发 IncompleteRead / 排队延迟，属上游抖动，重试即过。
+> - 遗留（不阻塞，见 [webui-parity-followups.md](../backlog/webui-parity-followups.md)）：M1 Deep 进度通道、L1 sidecar 托管编排并入 start_api、`api.enabled` 默认值待定；Streamlit 保留为 legacy，删除条件见 USAGE_GUIDE §10.9。
+
+> 状态：**已冻结**（WC0–WC10 全部交付收口，2026-10-15）｜立项日期：2026-10-14｜上游参考基线：sirchmunk `b314e11`（与 [SIRCHMUNK_EXTENSION_SPEC_frozen](SIRCHMUNK_EXTENSION_SPEC_frozen.md) 一致，本文 file:line 均相对 `sirchmunk/src/sirchmunk/` 与 `sirchmunk/web/`）
 >
 > 决策依据：[backlog/dashboard-api-migration.md](../backlog/dashboard-api-migration.md)（Dashboard 迁移提案 P1–P6）、[analysis/SIRCHMUNK_WEBUI_CHAT_REUSE_ANALYSIS.md](../analysis/SIRCHMUNK_WEBUI_CHAT_REUSE_ANALYSIS.md)（WebUI/Chat 复用分析）。本规格对前者有一处选型推翻（第 3 章 D1），对后者有五处勘误（§1.2）。
 >
@@ -392,7 +399,7 @@ WC5（chat_stream + AnswerGenerator）──► WC6（Chat 核心）──► WC
 | WC9.5 | Playwright 关键用户流程 | [x] | 2026-10-14 | ；frontend/e2e 20 流程（chat/dashboard/data-browser/ingestion/evaluation/playground/auth）对 tests/e2e_web/fake_api_server.py 离线运行，`cd frontend && npm run build && npm run e2e`；默认 pytest/vitest 不触发 |
 | WC10.1 | P6 双轨功能等价核验（七页面逐项对照） | [x] | 2026-10-15 | backlog P6 退役门槛（原文「六页」按七页执行）；七页逐项对照见 docs/analysis/WEBUI_PARITY_AUDIT.md；遗留差异入 docs/backlog/webui-parity-followups.md（均不阻塞）；顺带修 Query Traces chat 阶段面板 |
 | WC10.2 | Streamlit 退役：启动脚本/README/部署说明更新，确认 MCP stdio 不受影响 | [x] | 2026-10-15 | 非物理删除：start_dashboard 弃用提示（stderr）+ README/USAGE_GUIDE 以 Web UI 为主、Streamlit 标 legacy（删除条件见 USAGE_GUIDE §10.9）；MCP stdio 子集 16 passed |
-| WC10.3 | 门控冒烟：`RAG_CHAT_INTEGRATION=1` 多轮 + `RAG_AGENTIC_INTEGRATION=1` agentic 路由 | [ ] | | ；代码完成（2026-10-15）：tests/e2e/test_chat_real_integration.py（4）+ test_chat_agentic_real_integration.py（4），默认全 skip；真实门控运行待用户确认 |
-| WC10.4 | 文档收口：USAGE_GUIDE / README 使用说明、规格任务表收口、冻结流程启动 | [ ] | | ；已完成：USAGE_GUIDE §10 / README / MOC / AGENTS 更新；待 WC10.3 后：规格任务表收口 + 冻结 |
+| WC10.3 | 门控冒烟：`RAG_CHAT_INTEGRATION=1` 多轮 + `RAG_AGENTIC_INTEGRATION=1` agentic 路由 | [x] | 2026-10-15 | tests/e2e/test_chat_real_integration.py 4/4（DeepSeek deepseek-chat，经 `RAG_CHAT_LLM_PROVIDER/_MODEL/_BASE_URL/_API_KEY` 覆盖）+ test_chat_agentic_real_integration.py 4/4（真实 sidecar，需 `SIRCHMUNK_API_TOKEN`）；默认全 skip。实测观察见冻结记录 |
+| WC10.4 | 文档收口：USAGE_GUIDE / README 使用说明、规格任务表收口、冻结流程启动 | [x] | 2026-10-15 | USAGE_GUIDE §10 / README / MOC / AGENTS 更新；任务表收口；规格冻结移入 docs/frozen/WEBUI_CHAT_SPEC_frozen.md；Streamlit 保留为 legacy（不物理删除） |
 
-> 纪律：任务全收口后本规格冻结入 `docs/frozen/`；执行中发现的新需求另走 backlog 提案，不在本表新增后改前缀编号。
+> 纪律：任务全收口后本规格冻结入 `docs/frozen/`（已于 2026-10-15 完成）；执行中发现的新需求另走 backlog 提案，不在本表新增后改前缀编号。

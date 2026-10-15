@@ -399,7 +399,7 @@ RAG_AGENTIC_INTEGRATION=1 pytest tests/e2e/test_agentic_mcp.py -v   # 真实 sid
 
 ## 10. Web UI 与 Chat
 
-Web UI 是主界面：`src/api/`（FastAPI）+ `frontend/`（Next 静态导出，单端口托管）。Chat（多轮对话 + RAG 有据回答）为首页，另有七个管理页面（Overview / Ingestion Traces / Query Traces / Data Browser / Ingestion Manager / Evaluation / Query Playground），与旧 Streamlit 七页逐项对照见 [WEBUI_PARITY_AUDIT.md](../analysis/WEBUI_PARITY_AUDIT.md)。设计与决策见 [WEBUI_CHAT_SPEC.md](../specs/WEBUI_CHAT_SPEC.md)。
+Web UI 是主界面：`src/api/`（FastAPI）+ `frontend/`（Next 静态导出，单端口托管）。Chat（多轮对话 + RAG 有据回答）为首页，另有七个管理页面（Overview / Ingestion Traces / Query Traces / Data Browser / Ingestion Manager / Evaluation / Query Playground），与旧 Streamlit 七页逐项对照见 [WEBUI_PARITY_AUDIT.md](../analysis/WEBUI_PARITY_AUDIT.md)。设计与决策见 [WEBUI_CHAT_SPEC.md](../frozen/WEBUI_CHAT_SPEC_frozen.md)。
 
 ### 10.1 快速开始
 
@@ -555,8 +555,8 @@ Playwright 流程跑在 `tests/e2e_web/fake_api_server.py` 上：真实 FastAPI 
 | `RAG_LLM_INTEGRATION=1` | 真实 LLM 相关集成测试（`tests/integration/test_chunk_refiner_llm.py` 等） |
 | `RAG_E2E_INTEGRATION=1` | 真实模型端到端 |
 | `RAG_AGENTIC_INTEGRATION=1` | 真实 sidecar 的 `agentic_search` MCP 冒烟（需 sidecar 已启动） |
-| `RAG_CHAT_INTEGRATION=1` | 真实 LLM 多轮 Chat 冒烟（`tests/e2e/test_chat_real_integration.py`）：流式端到端、指代消解、话题漂移、会话重启恢复；需 LLM/embedding 可用且本地索引非空，会话库与 trace 落 tmp。运行：`RAG_CHAT_INTEGRATION=1 pytest tests/e2e/test_chat_real_integration.py -v` |
-| `RAG_AGENTIC_INTEGRATION=1`（Chat） | agentic 路由经真实 sidecar（`tests/e2e/test_chat_agentic_real_integration.py`）：FAST 透传、DEEP 门控拒绝、`allow_deep` 开启时的 DEEP、`search_log` 进度帧；需 sidecar 已启动。运行：`RAG_AGENTIC_INTEGRATION=1 pytest tests/e2e/test_chat_agentic_real_integration.py -v` |
+| `RAG_CHAT_INTEGRATION=1` | 真实 LLM 多轮 Chat 冒烟（`tests/e2e/test_chat_real_integration.py`）：流式端到端、指代消解、话题漂移、会话重启恢复；需 LLM/embedding 可用且本地索引非空，会话库与 trace 落 tmp。运行：`RAG_CHAT_INTEGRATION=1 pytest tests/e2e/test_chat_real_integration.py -v`。若 settings 里的 chat LLM 不可用，可用 `RAG_CHAT_LLM_PROVIDER` / `RAG_CHAT_LLM_MODEL` / `RAG_CHAT_LLM_BASE_URL` / `RAG_CHAT_LLM_API_KEY` 覆盖（如 DeepSeek 的 OpenAI 兼容端点） |
+| `RAG_AGENTIC_INTEGRATION=1`（Chat） | agentic 路由经真实 sidecar（`tests/e2e/test_chat_agentic_real_integration.py`）：FAST 透传、DEEP 门控拒绝、`allow_deep` 开启时的 DEEP、`search_log` 进度帧；需 sidecar 已启动，且运行 pytest 的 shell 必须导出与 sidecar 相同的 `SIRCHMUNK_API_TOKEN`（缺失时 sidecar 把 401 包成 HTTP 500 INTERNAL_ERROR，易误判为 sidecar 故障）。运行：`RAG_AGENTIC_INTEGRATION=1 pytest tests/e2e/test_chat_agentic_real_integration.py -v` |
 
 ### 10.9 Streamlit Dashboard（legacy）
 
@@ -565,7 +565,7 @@ Playwright 流程跑在 `tests/e2e_web/fake_api_server.py` 上：真实 FastAPI 
 **删除条件**（须全部满足，且由使用者显式下令；对应 backlog `dashboard-api-migration.md` P6 退役门槛）：
 
 1. [WEBUI_PARITY_AUDIT.md](../analysis/WEBUI_PARITY_AUDIT.md) 的缺口已补齐或明确放弃，遗留项见 [webui-parity-followups.md](../backlog/webui-parity-followups.md)（尤其 Deep 进度日志与 sidecar 托管编排——后者目前是「Streamlit 独有逻辑」）；
-2. WC10.3 门控冒烟通过，WEBUI_CHAT_SPEC 完成冻结；
+2. WC10.3 门控冒烟通过（已于 2026-10-15 通过），WEBUI_CHAT_SPEC 已冻结；
 3. Python、API、前端与 Playwright 测试全部通过；
 4. Web UI 已稳定使用一段时间，使用者确认不再依赖 Streamlit。
 

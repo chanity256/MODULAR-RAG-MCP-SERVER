@@ -10,7 +10,7 @@
 
 | 文档 | 说明 |
 |------|------|
-| [WEBUI_CHAT_SPEC.md](specs/WEBUI_CHAT_SPEC.md) | WebUI 前后端迁移与 Chat 规格（WC 系列，**WC0–WC9 代码完成，WC10 收口中**：WC10.3 门控冒烟待用户确认后执行，完成后冻结；FastAPI + Next 静态导出迁移 P1–P6、Chat 多轮对话 + RAG 有据回答、真流式；D1 推翻 backlog 的 Vue 选型，§1.2 含分析文档五处勘误） |
+| _（暂无进行中的规格）_ | 新规格从 [backlog/](backlog/) 晋升后列于此 |
 
 ## frozen/ — 已冻结文档
 
@@ -22,6 +22,7 @@
 | [SIRCHMUNK_INTEGRATION_SPEC_frozen.md](frozen/SIRCHMUNK_INTEGRATION_SPEC_frozen.md) | Sirchmunk Agentic 检索整合规格（S 系列，S0–S4 已交付收口，G0 终裁记录） |
 | [SIRCHMUNK_EXTENSION_SPEC_frozen.md](frozen/SIRCHMUNK_EXTENSION_SPEC_frozen.md) | Sirchmunk 能力补齐规格（SX 系列，SX0–SX5 已收口冻结：telemetry 消费、参数透传、compile 实验负结果 GX、复用评估保持关闭、SSE 流式；遗留事项见 [backlog/sirchmunk-extension-followups.md](backlog/sirchmunk-extension-followups.md)） |
 | [INGESTION_ROBUSTNESS_SPEC_frozen.md](frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md) | 摄取管线健壮性规格（IR 系列，IR0–IR7 已交付收口，实现偏差见 7.1；现状审计 A1–A7、历史表 v2 / 版本替换 / 同步模式 / 重试诊断 / 通用格式 Loader / M6 Markdown 摄取——v1.1 承接 OBSIDIAN M1/M2，MarkdownLoader + source_filters） |
+| [WEBUI_CHAT_SPEC_frozen.md](frozen/WEBUI_CHAT_SPEC_frozen.md) | WebUI 前后端迁移与 Chat 规格（WC 系列，WC0–WC10 已收口冻结：FastAPI + Next 静态导出迁移 P1–P6、Chat 多轮对话 + RAG 有据回答、真流式；D1 推翻 backlog 的 Vue 选型，§1.2 含分析文档五处勘误；WC10.3 门控冒烟记录见冻结记录；Streamlit 保留为 legacy） |
 | [ACCEPTANCE_GAPS_frozen.md](frozen/ACCEPTANCE_GAPS_frozen.md) | 验收缺口台账（G1–G3，已关闭） |
 
 ## analysis/ — 分析与规划
@@ -42,7 +43,7 @@
 | 文档 | 说明 |
 |------|------|
 | [OBSIDIAN_RAG_SPEC.md](backlog/OBSIDIAN_RAG_SPEC.md) | Obsidian Vault RAG 扩展规格（V 系列；v0.2 起 M1/M2 Markdown 摄取已移交 IR 规格 IR7，本规格保留 M3 sentence-transformers / M4 Semantic Walk 待排期） |
-| [dashboard-api-migration.md](backlog/dashboard-api-migration.md) | Dashboard 前后端分离迁移提案（**已立项并入** [specs/WEBUI_CHAT_SPEC.md](specs/WEBUI_CHAT_SPEC.md) WC 系列；原 Vue 3 选型被其 D1 推翻，保留作决策依据与 P1 拆解） |
+| [dashboard-api-migration.md](backlog/dashboard-api-migration.md) | Dashboard 前后端分离迁移提案（**已立项并入** [frozen/WEBUI_CHAT_SPEC_frozen.md](frozen/WEBUI_CHAT_SPEC_frozen.md) WC 系列；原 Vue 3 选型被其 D1 推翻，保留作决策依据与 P1 拆解） |
 | [sirchmunk-capability-completion.md](backlog/sirchmunk-capability-completion.md) | Sirchmunk 剩余能力补齐提案（已立项并收口冻结为 SX 系列，保留作决策依据：telemetry/compile/复用/SSE/参数透传，源码复核证据） |
 | [webui-parity-followups.md](backlog/webui-parity-followups.md) | WebUI 双轨核验遗留差异（候选池，未立项）：Deep 进度日志、评估趋势图、sidecar 托管编排、追踪列表翻页等；物理删除 Streamlit 前应再评估 |
 | [sirchmunk-extension-followups.md](backlog/sirchmunk-extension-followups.md) | Sirchmunk SX 规格遗留事项台账：明确不做（evolver 等 6 项）、实验负结果存档（编译 GX 不通过、复用保持关闭）、已知缺陷与候选池（流式线程泄漏等 7 项） |

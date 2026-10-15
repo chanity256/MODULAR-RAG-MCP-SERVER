@@ -1,6 +1,6 @@
 # WebUI 双轨核验遗留差异（WebUI Parity Follow-ups）
 
-> **起源**：[WEBUI_CHAT_SPEC](../specs/WEBUI_CHAT_SPEC.md) WC10.1 双轨功能等价核验（2026-10-14，逐项矩阵与缺口清单见 [analysis/WEBUI_PARITY_AUDIT.md](../analysis/WEBUI_PARITY_AUDIT.md)）。
+> **起源**：[WEBUI_CHAT_SPEC](../frozen/WEBUI_CHAT_SPEC_frozen.md) WC10.1 双轨功能等价核验（2026-10-14，逐项矩阵与缺口清单见 [analysis/WEBUI_PARITY_AUDIT.md](../analysis/WEBUI_PARITY_AUDIT.md)）。
 > **状态**：候选池，**未立项**。下列各项均不阻塞 Web UI 作为主界面；Streamlit 保留为 legacy（不删除代码），这些差异是物理删除 Streamlit 之前应再评估的清单。
 
 ## 1. 决策三问
