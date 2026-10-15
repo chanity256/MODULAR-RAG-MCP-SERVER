@@ -1,5 +1,9 @@
 """Dashboard 启动脚本（阶段 G1；S4+ 增加 sidecar 托管编排）。
 
+**已弃用（WC10.2）**：Streamlit Dashboard 进入 legacy 维护状态，主界面改为
+Web UI（``python scripts/start_api.py --serve-ui``）。本脚本保持可用，启动时
+向 stderr 打印弃用提示；删除条件见 docs/reference/USAGE_GUIDE.md。
+
 用法::
 
     python scripts/start_dashboard.py
@@ -33,10 +37,21 @@ SIDECAR_SCRIPT = _ROOT / "scripts" / "sirchmunk" / "start_sidecar.sh"
 SIDECAR_STARTUP_TIMEOUT_S = 60.0
 DEFAULT_CONFIG_PATH = _ROOT / "config" / "settings.yaml"
 
+DEPRECATION_NOTICE = (
+    "[dashboard] DEPRECATED: Streamlit Dashboard 已弃用（legacy，仅维护不新增功能），请改用 Web UI：\n"
+    "  cd frontend && npm ci && npm run build      # 首次或前端有改动时\n"
+    "  python scripts/start_api.py --serve-ui      # http://127.0.0.1:8600\n"
+    "  （api.enabled 默认为 false：在 config/settings.yaml 设 api.enabled: true，或追加 --force；\n"
+    "   sidecar 需另行启动：bash scripts/sirchmunk/start_sidecar.sh）\n"
+    "  详见 docs/reference/USAGE_GUIDE.md「Web UI」一节。"
+)
+
 __all__ = [
     "DEFAULT_CONFIG_PATH",
+    "DEPRECATION_NOTICE",
     "SIDECAR_SCRIPT",
     "build_parser",
+    "emit_deprecation_notice",
     "ensure_sidecar",
     "resolve_port",
     "sidecar_healthy",
@@ -45,7 +60,9 @@ __all__ = [
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Start the Modular RAG Streamlit dashboard.")
+    parser = argparse.ArgumentParser(
+        description="[DEPRECATED] Start the legacy Streamlit dashboard; use scripts/start_api.py --serve-ui."
+    )
     parser.add_argument("--port", type=int, default=None, help="监听端口（默认取 dashboard.port）")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG_PATH), help="配置文件路径")
     parser.add_argument("--headless", action="store_true", help="不自动打开浏览器")
@@ -55,6 +72,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="不托管 sirchmunk sidecar（即使 agentic_search.enabled=true）",
     )
     return parser
+
+
+def emit_deprecation_notice(stream: object = None) -> None:
+    """弃用提示只写 stderr：stdout 保留给既有的 sidecar 编排输出，且不污染管道消费者。"""
+    print(DEPRECATION_NOTICE, file=stream or sys.stderr, flush=True)
 
 
 def resolve_port(args: argparse.Namespace) -> int:
@@ -131,6 +153,7 @@ def stop_sidecar(proc: subprocess.Popen | None) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    emit_deprecation_notice()
     port = resolve_port(args)
 
     # SIGTERM（kill）默认直接终止、不走 finally，会留下孤儿 sidecar /

@@ -10,7 +10,7 @@
 
 | 文档 | 说明 |
 |------|------|
-| [WEBUI_CHAT_SPEC.md](specs/WEBUI_CHAT_SPEC.md) | WebUI 前后端迁移与 Chat 规格（WC 系列，已立项：FastAPI + Next 静态导出迁移 P1–P6、Chat 多轮对话 + RAG 有据回答、真流式；D1 推翻 backlog 的 Vue 选型，§1.2 含分析文档五处勘误） |
+| [WEBUI_CHAT_SPEC.md](specs/WEBUI_CHAT_SPEC.md) | WebUI 前后端迁移与 Chat 规格（WC 系列，**WC0–WC9 代码完成，WC10 收口中**：WC10.3 门控冒烟待用户确认后执行，完成后冻结；FastAPI + Next 静态导出迁移 P1–P6、Chat 多轮对话 + RAG 有据回答、真流式；D1 推翻 backlog 的 Vue 选型，§1.2 含分析文档五处勘误） |
 
 ## frozen/ — 已冻结文档
 
@@ -32,6 +32,7 @@
 |------|------|
 | [MICROSERVICES_ANALYSIS.md](analysis/MICROSERVICES_ANALYSIS.md) | 微服务架构分析：当前模块化单体判断与演进方向 |
 | [SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md](analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md) | Sirchmunk 能力覆盖差距分析：已接入与未接入能力对照、对 G0 结论的影响（v0.2：修正复用成本/演化不可达/telemetry 顶层合并三处判断，候选方向已立项 SX 系列） |
+| [WEBUI_PARITY_AUDIT.md](analysis/WEBUI_PARITY_AUDIT.md) | WebUI 双轨功能等价核验（WC10.1）：Streamlit 七页 ↔ Next 页面 ↔ API 路由逐项矩阵、缺口清单与严重度、Streamlit 退役待决事项 |
 | [SIRCHMUNK_WEBUI_CHAT_REUSE_ANALYSIS.md](analysis/SIRCHMUNK_WEBUI_CHAT_REUSE_ANALYSIS.md) | Sirchmunk WebUI/Chat 复用分析：Chat 实现流程盘点、可复用资产清单（多轮三步法、消息协议、FastAPI 骨架、前端交互）、不抄清单（假流式等）、前端技术栈与传输通道两个待拍板决策 |
 
 ## backlog/ — 候选功能与待开发规格
@@ -43,6 +44,7 @@
 | [OBSIDIAN_RAG_SPEC.md](backlog/OBSIDIAN_RAG_SPEC.md) | Obsidian Vault RAG 扩展规格（V 系列；v0.2 起 M1/M2 Markdown 摄取已移交 IR 规格 IR7，本规格保留 M3 sentence-transformers / M4 Semantic Walk 待排期） |
 | [dashboard-api-migration.md](backlog/dashboard-api-migration.md) | Dashboard 前后端分离迁移提案（**已立项并入** [specs/WEBUI_CHAT_SPEC.md](specs/WEBUI_CHAT_SPEC.md) WC 系列；原 Vue 3 选型被其 D1 推翻，保留作决策依据与 P1 拆解） |
 | [sirchmunk-capability-completion.md](backlog/sirchmunk-capability-completion.md) | Sirchmunk 剩余能力补齐提案（已立项并收口冻结为 SX 系列，保留作决策依据：telemetry/compile/复用/SSE/参数透传，源码复核证据） |
+| [webui-parity-followups.md](backlog/webui-parity-followups.md) | WebUI 双轨核验遗留差异（候选池，未立项）：Deep 进度日志、评估趋势图、sidecar 托管编排、追踪列表翻页等；物理删除 Streamlit 前应再评估 |
 | [sirchmunk-extension-followups.md](backlog/sirchmunk-extension-followups.md) | Sirchmunk SX 规格遗留事项台账：明确不做（evolver 等 6 项）、实验负结果存档（编译 GX 不通过、复用保持关闭）、已知缺陷与候选池（流式线程泄漏等 7 项） |
 
 ## reference/ — 使用参考
@@ -51,5 +53,5 @@
 
 | 文档 | 说明 |
 |------|------|
-| [USAGE_GUIDE.md](reference/USAGE_GUIDE.md) | 项目使用指南：主项目用法、Sirchmunk sidecar 搭建与日常启动、常见问题排查、安全边界 |
+| [USAGE_GUIDE.md](reference/USAGE_GUIDE.md) | 项目使用指南：主项目用法、Sirchmunk sidecar 搭建与日常启动、常见问题排查、安全边界；第 10 章 Web UI 与 Chat（启动、`RAG_API_TOKEN`、`api:`/`chat:` 配置、WS 帧协议、REST 路由、e2e、Streamlit legacy 删除条件） |
 | [FUTURE_OPTIMIZATION_ROADMAP.md](reference/FUTURE_OPTIMIZATION_ROADMAP.md) | 后续优化路线图：候选优化方向与决策纪律（Dashboard 前后端分离迁移已拆分至 [backlog/dashboard-api-migration.md](backlog/dashboard-api-migration.md)，见其 6.10；含第 10 章决策原则） |

@@ -1,6 +1,6 @@
 # 项目使用指南（含 Sirchmunk Agentic 检索）
 
-> 本文档是速查手册，覆盖：① 主项目（Indexed RAG）基本用法；② Sirchmunk sidecar 的启动与 `agentic_search` 工具用法。
+> 本文档是速查手册，覆盖：① 主项目（Indexed RAG）基本用法；② Sirchmunk sidecar 的启动与 `agentic_search` 工具用法；③ Web UI（FastAPI + Next）与 Chat（第 10 章，Streamlit 已降为 legacy）。
 > 详细设计见 [README.md](../../README.md)、[SIRCHMUNK_INTEGRATION_SPEC_frozen.md](../frozen/SIRCHMUNK_INTEGRATION_SPEC_frozen.md)。
 
 ---
@@ -16,6 +16,7 @@
 7. [旁路对比与测试](#7-旁路对比与测试)
 8. [常见问题排查](#8-常见问题排查)
 9. [安全边界（必读）](#9-安全边界必读)
+10. [Web UI 与 Chat](#10-web-ui-与-chat)
 
 ---
 
@@ -66,16 +67,20 @@ Modular-RAG-MCP-Server/
 │
 ├── src/                      # 源代码主目录（分层依赖自上而下，见 DEV_SPEC 5.1）
 │   ├── mcp_server/           # MCP 协议层：stdio JSON-RPC server + tools
-│   ├── core/                 # 业务核心：settings / query_engine / types 契约
+│   ├── api/                  # Web API：FastAPI（鉴权 / 只读与写路由 / 任务 / Chat WS / 静态托管，见第 10 章）
+│   ├── core/                 # 业务核心：settings / query_engine / chat（多轮对话）/ types 契约
 │   ├── ingestion/            # 摄取管线：Loader → Split → Transform → Embed → Upsert + DocumentManager
 │   ├── libs/                 # 可插拔抽象层：各组件 Base* + 工厂（loader / embedding / vector_store / agentic_search 等）
-│   └── observability/        # TraceContext（JSON Lines 落盘）+ Streamlit Dashboard（七页面）
+│   └── observability/        # TraceContext（JSON Lines 落盘）+ dashboard/services（API 层共享服务）+ Streamlit 页面（legacy）
+│
+├── frontend/                 # Web UI：Next 静态导出（构建产物 frontend/out/ 由 start_api.py --serve-ui 托管）
 │
 ├── scripts/                  # CLI 脚本
 │   ├── ingest.py             # 摄取（含 --sync / --prune / --dry-run / --retry-failed，见 2.2）
 │   ├── query.py              # 查询（--verbose / --agentic，见 2.3）
 │   ├── evaluate.py           # RAG 评估（golden set + composite 指标）
-│   ├── start_dashboard.py    # Dashboard 启动器（自动托管 sidecar，见第 5 节）
+│   ├── start_api.py          # Web UI / API 启动器（主界面，见第 10 章）
+│   ├── start_dashboard.py    # Streamlit 启动器（已弃用 legacy，自动托管 sidecar，见第 5 节）
 │   └── sirchmunk/            # sidecar 环境与旁路对比工具（setup_venv / start_sidecar / preflight / compare）
 │
 ├── tests/                    # 离线测试套件（unit / integration / e2e；fixtures/ 为测试夹具与金标准集）
@@ -153,17 +158,28 @@ PYTHONPATH=src python -m mcp_server.server
 
 Claude Desktop 同理，配置块为 `mcpServers`。
 
-### 2.6 Dashboard 与评估
+### 2.6 Web UI 与评估
+
+主界面是 Web UI（FastAPI + Next 静态导出，含 Chat 与七个管理页面），完整说明见[第 10 章](#10-web-ui-与-chat)：
 
 ```bash
-python scripts/start_dashboard.py          # http://localhost:8501，七页面管理平台
+(cd frontend && npm ci && npm run build)   # 首次或前端有改动时
+python scripts/start_api.py --serve-ui     # http://127.0.0.1:8600（api.enabled 默认 false，见 10.1）
+```
+
+Streamlit Dashboard 已弃用（legacy，保留可用，删除条件见 [10.9](#109-streamlit-dashboardlegacy)）：
+
+```bash
+python scripts/start_dashboard.py          # http://localhost:8501，启动时 stderr 打印弃用提示
 
 python scripts/evaluate.py                 # 默认 golden set + composite 后端
 python scripts/evaluate.py --evaluator custom --top-k 5   # 纯离线指标
 python scripts/evaluate.py --retrieval-mode hybrid+agentic --agentic-trigger always   # agentic A/B（需 sidecar 启用）
 ```
 
-### 2.7 Dashboard「在线检索」页（S4）
+### 2.7 「在线检索」页（S4；Streamlit legacy 页，Web UI 对应 Query Playground）
+
+> Web UI 的 Query Playground 与下述行为等价，但 Deep 模式走同步检索、**没有实时进度日志**（有意规避 SX5.3 线程泄漏，见 [10.6](#106-agentic_progress_stream-与-sidecar-线程泄漏警告)）。以下描述的是 Streamlit 页。
 
 Dashboard 导航「检索」分组 → 「在线检索」：三模式在线查询，不写代码、不敲 CLI 也能检索。
 
@@ -264,7 +280,9 @@ agentic_search:
 
 ## 5. 日常启动与关闭
 
-**推荐：一条命令全搞定**（Dashboard 启动器自动托管 sidecar）：
+**Web UI 路径**：`start_api.py` **不托管** sidecar；启用 agentic 时先手动起 sidecar（下方分步第 1 步），再 `python scripts/start_api.py --serve-ui`。
+
+**Streamlit legacy 路径：一条命令全搞定**（Dashboard 启动器自动托管 sidecar；启动时 stderr 会打印弃用提示）：
 
 ```bash
 python scripts/start_dashboard.py
@@ -346,7 +364,7 @@ python scripts/sirchmunk/aggregate_rounds.py /tmp/rounds merged.json summary.md
 ### 7.2 测试套件
 
 ```bash
-pytest -q                                        # 全量离线（零网络，默认全绿）
+pytest -q                                        # 全量离线（零网络，默认全绿）；看计数用 pytest tests -o addopts="" -q -p no:cacheprovider
 RAG_AGENTIC_INTEGRATION=1 pytest tests/e2e/test_agentic_mcp.py -v   # 真实 sidecar 冒烟（需先启动 sidecar）
 ```
 
@@ -376,3 +394,178 @@ RAG_AGENTIC_INTEGRATION=1 pytest tests/e2e/test_agentic_mcp.py -v   # 真实 sid
   2. 调用后：过滤证据中落在白名单外的条目（防注入诱导泄露）。
 - **信任模型**：语料内容不可信（prompt injection 可操纵 Agent 读文件），agentic 答案按不可信输入处理。
 - **部署要求**：sidecar 只监听 `127.0.0.1` 并始终开启 Bearer；重度使用 DEEP 模式建议在受限用户/容器内运行。
+
+---
+
+## 10. Web UI 与 Chat
+
+Web UI 是主界面：`src/api/`（FastAPI）+ `frontend/`（Next 静态导出，单端口托管）。Chat（多轮对话 + RAG 有据回答）为首页，另有七个管理页面（Overview / Ingestion Traces / Query Traces / Data Browser / Ingestion Manager / Evaluation / Query Playground），与旧 Streamlit 七页逐项对照见 [WEBUI_PARITY_AUDIT.md](../analysis/WEBUI_PARITY_AUDIT.md)。设计与决策见 [WEBUI_CHAT_SPEC.md](../specs/WEBUI_CHAT_SPEC.md)。
+
+### 10.1 快速开始
+
+前置：Node 22（`frontend/.nvmrc`，`engines >= 20.9`）、已 `source .venv/bin/activate`。
+
+```bash
+# 1. 构建前端（产物 frontend/out/，不入库；前端有改动需重新构建）
+cd frontend && npm ci && npm run build && cd ..
+
+# 2. 启动（单端口托管 API + UI）：http://127.0.0.1:8600
+python scripts/start_api.py --serve-ui
+```
+
+注意：
+
+- **`api.enabled` 默认 `false`**，此时 `start_api.py` 以退出码 2 拒绝启动。二选一：在 `config/settings.yaml` 设 `api.enabled: true`，或命令行追加 `--force`。
+- `--serve-ui` 覆盖 `api.serve_ui`；`frontend/out/index.html` 不存在时启动即 fail-fast（提示先构建）。
+- 其它覆盖：`--host` / `--port` / `--config`。
+- `start_api.py` **不托管 sidecar**；用 Fast/Deep（Playground）或 `agentic_fast` / `agentic_deep`（Chat）需先手动起 sidecar（第 5 节）。
+- Chat 复用 `settings.yaml` 的 `llm:` 配置，hybrid 检索要求已摄取数据（第 2.2 节或 Ingestion Manager 页）。
+
+**前端开发模式**（热更新，前后端分开启动）：
+
+```bash
+# 终端 1：后端（allowed_origins 默认已含 http://localhost:3000）
+python scripts/start_api.py --force
+
+# 终端 2：前端 dev server http://localhost:3000
+cd frontend && NEXT_PUBLIC_API_BASE=http://localhost:8600 npm run dev
+```
+
+`NEXT_PUBLIC_API_BASE` 留空 = 同源（单端口托管形态，构建产物默认如此）；见 `frontend/.env.example`。该变量在构建期内联，改值后需重新 `npm run build`。
+
+### 10.2 鉴权：`RAG_API_TOKEN`
+
+- Web API 的 token 来自环境变量 **`RAG_API_TOKEN`**（`api.api_token: ${RAG_API_TOKEN}`），**与 `SIRCHMUNK_API_TOKEN` 完全独立**：前者会进入浏览器（localStorage + WS URL 的 `?token=`，会出现在 access log），复用将把 sidecar 凭据暴露给浏览器。两者各自轮换，勿设成同值。
+- **loopback 且无 token**：允许启动、免鉴权（仅本机访问）。
+- **非 loopback（如 `--host 0.0.0.0`）且无 token**：启动即 fail-fast（`ConfigError`）。远程访问必须先 `export RAG_API_TOKEN=<随机串>`。
+- **占位符视为空**：环境变量缺失时配置里的字面量 `${RAG_API_TOKEN}` 会被保留，`normalize_token` 把这种 `^\$\{.+\}$` 形态、空串、纯空白一律按「未配置」处理，避免公开已知字面量成为 token。
+- 配置了 token 后：HTTP 校验 `Authorization: Bearer <token>`（常数时间比较）；WS 经 `?token=` 查询参数或 header。`GET /health` 免鉴权。
+- 前端：遇 401 时错误区会出现 token 输入框（填 `RAG_API_TOKEN` 的值，存入 localStorage 键 `rag_api_token`），保存后自动重试。
+
+### 10.3 配置参考（`config/settings.yaml`）
+
+两节均为可选节：缺失走默认、非法值启动即报错。
+
+```yaml
+api:
+  enabled: false                 # 只影响 scripts/start_api.py（可用 --force 绕过）；Streamlit 与 MCP 不受影响
+  host: 127.0.0.1
+  port: 8600
+  api_token: ${RAG_API_TOKEN}    # 未解析占位符 = 无 token；host 非 loopback 时必须有真实 token
+  allowed_origins: ["http://localhost:3000"]   # CORS 白名单，同时用于 Chat WS 的 Origin 校验
+  serve_ui: false                # true 时托管 static_dir（等价命令行 --serve-ui）
+  static_dir: ./frontend/out
+  tasks_db: ./data/db/tasks.db   # 后台任务（摄取/评估）状态持久化；重启时遗留的 running 任务标为 failed/interrupted
+  max_upload_mb: 100             # 单个上传文件上限，超出 413
+
+chat:
+  enabled: true                  # false 时 WS 握手后以 error{UNAVAILABLE} 拒绝
+  history_max_turns: 10          # 多轮历史双预算裁剪：条数
+  history_max_tokens: 32000      # 与 token 估算（len/3.5）
+  relevance_filter: true         # 话题漂移过滤（一次轻量 LLM 调用；失败保留历史）；省调用的逃生门
+  query_rewrite: true            # RAG 检索前的指代消解改写（失败用原句）
+  default_retrieval: hybrid      # hybrid | agentic_fast | agentic_deep
+  max_context_chunks: 8          # 送入答案生成的 chunk 上限
+  session_db: ./data/db/chat_sessions.db
+  max_connections: 100           # 并发 Chat WS 连接上限，超限 error{RATE_LIMITED}
+  pipeline_max_retries: 1        # 瞬态错误重试次数，仅在首个 stream 帧之前生效
+  fallback_to_chat_only: false   # true 才在检索失败时降级纯聊天（grounded:false）
+  agentic_progress_stream: false # true 走 sidecar 流式端点并转 search_log 帧，有线程泄漏风险（10.6）
+```
+
+### 10.4 Chat 使用
+
+**检索模式**（每轮可选，界面上的模式选择器读 `GET /api/v1/chat/capabilities`，只列当前可用的）：
+
+| 模式 | 路径 | 前提 |
+|------|------|------|
+| `hybrid`（默认） | Dense + BM25 + RRF + Rerank 取上下文，LLM 流式生成带 `[n]` 引用的答案 | 已摄取数据 + `llm` 可用 |
+| `agentic_fast` | 经 `AgenticSearchTool`（PathGuard / 参数校验 / trace 原样生效）调 sidecar FAST，**sidecar 答案整块透传**，不再经本项目 LLM | `agentic_search.enabled: true` + sidecar 运行 |
+| `agentic_deep` | 同上，DEEP 模式（数十秒） | 另需 `agentic_search.allow_deep: true`，否则 `error{DEEP_DISABLED}` |
+
+**降级与 `grounded`**：
+
+- 检索失败默认直接发 `error` 帧（引用必须可溯源）。仅 `chat.fallback_to_chat_only: true` 时降级为纯聊天：先发 `search_error` 帧，再生成答案，且终帧 `result.grounded: false`。`DEEP_DISABLED` 不降级。
+- `grounded: false` = 本答案**没有检索证据与引用支撑**（纯聊天/降级路径），界面在结果区顶部显著提示；`true` = 答案基于检索结果（含空检索短路给出的固定「未命中」文案）。
+
+**会话**：首轮不带 `session_id` 则服务端新建并下发 `session` 帧；用户消息到达即落库，助手消息在终帧落库（取消/中断时保存已生成部分，`metadata.cancelled: true`）。数据在 `chat.session_db`，重启不丢。每轮写**恰好一条** `query` trace（`metadata.routes="chat"`，含 `chat_history` / `chat_rewrite` / `chat_generation` 三个阶段），在 Query Traces 页选来源 `chat` 查看。
+
+**WS 帧协议**（`WS /api/v1/chat`，一帧一个 JSON 对象；上行未知字段被拒绝而非忽略）：
+
+| 方向 | type | 载荷 |
+|------|------|------|
+| ↑ | `user_message` | `{message, session_id?, retrieval?, collection?, top_k?}` |
+| ↑ | `cancel` | 无；轮进行中到达则终止并以 `result{cancelled:true}` 收尾，已生成部分落库 |
+| ↓ | `session` | `{session_id}`（新会话时） |
+| ↓ | `status` | `{stage, message?}`，stage: `rewriting` / `retrieving` / `generating` / `retrying` |
+| ↓ | `search_log` | `{task_id, level, message, timestamp?}`，仅 agentic 且 `agentic_progress_stream` 开启 |
+| ↓ | `search_complete` / `search_error` | `{message}` |
+| ↓ | `stream` | `{content}`，真流式增量（agentic 为一整块） |
+| ↓ | `sources` | `{citations: [...]}`，真实 score |
+| ↓ | `result` | 终帧 `{content, session_id, message_id, grounded, rewritten_query?, usage?, trace_id, cancelled?}` |
+| ↓ | `error` | 终帧 `{code, message}` |
+
+**错误码**：`AUTH`（token 缺失/错误，或 LLM 401/403）、`RATE_LIMITED`（连接超限或上游 429）、`UPSTREAM`（上游/sidecar 失败）、`DEEP_DISABLED`、`INTERNAL`；协议层另有 `BAD_REQUEST`（帧非法、会话不存在、未启用的检索模式、Origin 不允许、首帧 30s 超时、轮进行中收到 `cancel` 以外的帧）与 `UNAVAILABLE`（`chat.enabled=false`）。协议类拒绝在握手后先发 `error` 帧再以 1008 关闭，浏览器能看到原因。
+
+**连接模型与 Origin**：沿用「**每条消息一个连接**」——前端发消息前关闭旧连接再新建，会话连续性靠 `session_id`；断开即取消。握手校验 `Origin`（须在 `api.allowed_origins` 内或与 `Host` 同源；无 `Origin` 的非浏览器客户端放行），防止无 token 的 loopback 部署被任意网页连上读取知识库。瞬态错误（连接/超时/429/5xx）重试 `pipeline_max_retries` 次并发 `status{retrying}`，**首个 `stream` 帧之后不再重试**（避免重复内容），直接发 `error` 并保存已生成部分。
+
+### 10.5 REST 路由索引
+
+前缀 `/api/v1`，均需鉴权（配置了 token 时），统一错误体 `{"success": false, "error": {code, message, details}}`。交互式文档：`/docs`（OpenAPI）。
+
+| 类别 | 路由 |
+|------|------|
+| 健康（免鉴权，不带前缀） | `GET /health` |
+| 只读 | `GET /overview`；`GET /collections`、`GET /collections/{name}`；`GET /documents`（`collection` / `keyword` / `limit<=500` / `offset`）、`GET /documents/{source_path}?collection=`；`GET /images`、`GET /images/{image_id}`（图片字节）；`GET /traces`（`trace_type` / `keyword` / `routes` / `limit<=500` / `offset`）、`GET /traces/{trace_id}` |
+| 写（后台任务，202 + `task_id`） | `POST /uploads`（multipart 字段 `files`，201）；`POST /ingestions`（`{files, collection, force}`，只接受已上传文件名；同文件同集合重复提交 409）；`POST /evaluations`（`{backend, test_set_path?, top_k?, filters?}`；同时只允许一个，409）；`DELETE /documents/{source_path}?collection=`（同步，Chroma + BM25 + 图片 + 摄取历史） |
+| 任务 | `GET /tasks`（`kind` / `status` / `limit<=200` / `offset`）、`GET /tasks/{task_id}`（断线恢复轮询）；**`WS /tasks/{task_id}/events`**：先回放当前快照再推送 `{type:"task_event", task_id, status, detail, timestamp, version}`，终态后服务端关闭 |
+| 检索（Query Playground） | `POST /search`（`{mode: normal\|fast\|deep, query, top_k?, collection?}`，被门控拒绝 403 `AGENTIC_DISABLED` / `DEEP_DISABLED`；检索自身失败 200 + `is_error`）；`GET /search/capabilities` |
+| Chat | `WS /chat`；`GET /chat/capabilities`；`GET /chat/sessions`、`GET /chat/sessions/{session_id}`、`DELETE /chat/sessions/{session_id}` |
+
+任务状态机 `pending → running → succeeded / failed`，状态持久化在 `api.tasks_db`；进程重启时遗留的 `running` 任务标为 `failed`（`interrupted`）。
+
+### 10.6 `agentic_progress_stream` 与 sidecar 线程泄漏警告
+
+sirchmunk sidecar 的**流式端点**每次请求新建 `KnowledgeStorage` 且不关闭，每次稳定泄漏约 10 个线程（9 个 DuckDB 工作线程 + 1 个 parquet 同步线程），空闲后不回收（SX5.3 实测，上游缺陷，按「不改上游」红线不修；见 [sirchmunk-extension-followups.md](../backlog/sirchmunk-extension-followups.md) #1）。因此：
+
+- `chat.agentic_progress_stream` **默认 `false`**：Chat 的 agentic 模式走同步 `search()`，不受影响，代价是没有 `search_log` 进度帧。
+- 设为 `true` 才改走流式并把 sidecar 日志转 `search_log` 帧；**大量使用后需重启 sidecar**。
+- Web 的 Query Playground Deep 同样走同步检索（无进度日志）；Streamlit legacy 的 Deep 走流式，受同一泄漏影响。
+
+### 10.7 测试与 Playwright e2e
+
+```bash
+pytest tests -o addopts="" -q -p no:cacheprovider      # 全量离线（含 tests/e2e_web 假后端启动冒烟）
+pytest tests/e2e_web -q                                 # 假后端冒烟：UI 托管 + 种子只读路由 + 一轮脚本化 chat；frontend/out 未构建则 skip
+
+# 前端静态检查与单测（无需浏览器）
+cd frontend && npm run typecheck && npm run lint && npm test
+
+# 浏览器端到端（opt-in，不属默认套件；首次需装浏览器）
+cd frontend && npx playwright install chromium
+cd frontend && npm run build && npm run e2e
+```
+
+Playwright 流程跑在 `tests/e2e_web/fake_api_server.py` 上：真实 FastAPI 应用 + 真实静态导出，所有后端依赖用 fake，**不需要网络、模型或 sidecar**；它自己用 `.venv/bin/python` 起两个服务（普通 + 带 token 的鉴权流），可用 `PYTHON` / `E2E_PORT` / `E2E_AUTH_PORT` 覆盖。覆盖 Chat 主流程、Overview/Traces、Data Browser、Ingestion Manager、Evaluation、Playground 与鉴权。
+
+### 10.8 门控环境变量（默认跳过，显式开启才触网）
+
+| 变量 | 用途 |
+|------|------|
+| `RAG_LLM_INTEGRATION=1` | 真实 LLM 相关集成测试（`tests/integration/test_chunk_refiner_llm.py` 等） |
+| `RAG_E2E_INTEGRATION=1` | 真实模型端到端 |
+| `RAG_AGENTIC_INTEGRATION=1` | 真实 sidecar 的 `agentic_search` MCP 冒烟（需 sidecar 已启动） |
+| `RAG_CHAT_INTEGRATION=1` | **规划中（WC10.3，尚未交付）**：真实 LLM 多轮 Chat 冒烟（指代消解、话题漂移、流式端到端、会话重启恢复）；当前仓库没有对应测试文件 |
+
+### 10.9 Streamlit Dashboard（legacy）
+
+状态：**已弃用，保留可用**。`python scripts/start_dashboard.py` 照常启动，仅在 stderr 打印弃用提示；Streamlit 页面代码与测试（`tests/e2e/test_dashboard_smoke.py` 等）均保留。它不再新增功能，只修阻断性缺陷。MCP stdio server 与 Streamlit **完全无依赖关系**（`src/mcp_server/` 不 import dashboard），删除或启动与否都不影响 MCP。
+
+**删除条件**（须全部满足，且由使用者显式下令；对应 backlog `dashboard-api-migration.md` P6 退役门槛）：
+
+1. [WEBUI_PARITY_AUDIT.md](../analysis/WEBUI_PARITY_AUDIT.md) 的缺口已补齐或明确放弃，遗留项见 [webui-parity-followups.md](../backlog/webui-parity-followups.md)（尤其 Deep 进度日志与 sidecar 托管编排——后者目前是「Streamlit 独有逻辑」）；
+2. WC10.3 门控冒烟通过，WEBUI_CHAT_SPEC 完成冻结；
+3. Python、API、前端与 Playwright 测试全部通过；
+4. Web UI 已稳定使用一段时间，使用者确认不再依赖 Streamlit。
+
+**删除范围**：删 `src/observability/dashboard/app.py`、`pages/`、`scripts/start_dashboard.py` 及其测试（`test_dashboard_smoke.py`、`test_start_dashboard.py`、`test_query_traces_source.py` 中针对页面的部分）、`pyproject.toml` / `requirements.txt` 的 `streamlit`（与仅页面用的 `pandas`，删前确认无他处使用）。**保留** `src/observability/dashboard/services/`（`DataService` / `TraceService` / `ConfigService` / `IngestionService` / `EvaluationService` / `QueryService` / `SearchService` 是 API 层的依赖；届时可再评估是否搬出 dashboard 目录）。

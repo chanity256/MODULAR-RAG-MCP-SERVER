@@ -174,3 +174,40 @@ def test_ensure_sidecar_script_exit_is_not_fatal(monkeypatch):
     monkeypatch.setattr(sp, "Popen", lambda cmd, **k: DeadProc())
     root = Path(__file__).resolve().parents[2]
     assert cli.ensure_sidecar(_agentic_settings(True), root=root) is None
+
+
+# --------------------------------------------------------------------- #
+# 弃用提示（WC10.2）：只写 stderr，stdout 纪律不变
+# --------------------------------------------------------------------- #
+
+
+def test_deprecation_notice_points_to_web_ui():
+    assert "scripts/start_api.py --serve-ui" in cli.DEPRECATION_NOTICE
+    assert "DEPRECATED" in cli.DEPRECATION_NOTICE
+
+
+def test_main_prints_deprecation_notice_to_stderr_only(monkeypatch, capsys):
+    """弃用提示进 stderr、不进 stdout；Streamlit 子进程照常启动并回传退出码。"""
+    launched = {}
+
+    class FakeStreamlit:
+        def wait(self):
+            return 0
+
+        def poll(self):
+            return 0
+
+    def fake_popen(cmd, **kwargs):
+        launched["cmd"] = cmd
+        return FakeStreamlit()
+
+    monkeypatch.setattr(cli.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(cli.signal, "signal", lambda *a, **k: None)
+
+    assert cli.main(["--port", "8502", "--no-sidecar"]) == 0
+
+    captured = capsys.readouterr()
+    assert "scripts/start_api.py --serve-ui" in captured.err
+    assert "DEPRECATED" not in captured.out
+    assert launched["cmd"][1:4] == ["-m", "streamlit", "run"]
+    assert "8502" in launched["cmd"]

@@ -20,9 +20,9 @@
 | 目录 | 内容 |
 |------|------|
 | [docs/frozen/](docs/frozen/) | 已冻结文档：[DEV_SPEC_frozen.md](docs/frozen/DEV_SPEC_frozen.md)（主规格，架构参考）、[SIRCHMUNK_INTEGRATION_SPEC_frozen.md](docs/frozen/SIRCHMUNK_INTEGRATION_SPEC_frozen.md)（S 系列）、[SIRCHMUNK_EXTENSION_SPEC_frozen.md](docs/frozen/SIRCHMUNK_EXTENSION_SPEC_frozen.md)（SX 系列，Sirchmunk 能力补齐，已收口）、[INGESTION_ROBUSTNESS_SPEC_frozen.md](docs/frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md)（IR 系列，IR0–IR7 已交付收口：摄取健壮性 + Markdown 摄取）、[ACCEPTANCE_GAPS_frozen.md](docs/frozen/ACCEPTANCE_GAPS_frozen.md) |
-| [docs/specs/](docs/specs/) | 开发规格落点：[WEBUI_CHAT_SPEC.md](docs/specs/WEBUI_CHAT_SPEC.md)（WC 系列，WebUI 前后端迁移 + Chat，已立项） |
-| [docs/analysis/](docs/analysis/) | 分析与规划：[MICROSERVICES_ANALYSIS.md](docs/analysis/MICROSERVICES_ANALYSIS.md)、[SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md](docs/analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md)、[SIRCHMUNK_WEBUI_CHAT_REUSE_ANALYSIS.md](docs/analysis/SIRCHMUNK_WEBUI_CHAT_REUSE_ANALYSIS.md)（WebUI/Chat 复用分析） |
-| [docs/backlog/](docs/backlog/) | 候选功能与待开发规格：[OBSIDIAN_RAG_SPEC.md](docs/backlog/OBSIDIAN_RAG_SPEC.md)、[dashboard-api-migration.md](docs/backlog/dashboard-api-migration.md)（Dashboard 前后端分离迁移提案）、[sirchmunk-extension-followups.md](docs/backlog/sirchmunk-extension-followups.md)（SX 规格遗留事项台账）等 |
+| [docs/specs/](docs/specs/) | 开发规格落点：[WEBUI_CHAT_SPEC.md](docs/specs/WEBUI_CHAT_SPEC.md)（WC 系列，WebUI 前后端迁移 + Chat，WC0–WC9 代码完成，WC10 收口中） |
+| [docs/analysis/](docs/analysis/) | 分析与规划：[MICROSERVICES_ANALYSIS.md](docs/analysis/MICROSERVICES_ANALYSIS.md)、[SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md](docs/analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md)、[SIRCHMUNK_WEBUI_CHAT_REUSE_ANALYSIS.md](docs/analysis/SIRCHMUNK_WEBUI_CHAT_REUSE_ANALYSIS.md)（WebUI/Chat 复用分析）、[WEBUI_PARITY_AUDIT.md](docs/analysis/WEBUI_PARITY_AUDIT.md)（Streamlit ↔ Web UI 七页双轨等价核验） |
+| [docs/backlog/](docs/backlog/) | 候选功能与待开发规格：[OBSIDIAN_RAG_SPEC.md](docs/backlog/OBSIDIAN_RAG_SPEC.md)、[dashboard-api-migration.md](docs/backlog/dashboard-api-migration.md)（Dashboard 前后端分离迁移提案）、[sirchmunk-extension-followups.md](docs/backlog/sirchmunk-extension-followups.md)（SX 规格遗留事项台账）、[webui-parity-followups.md](docs/backlog/webui-parity-followups.md)（WebUI 双轨核验遗留差异）等 |
 | [docs/reference/](docs/reference/) | 使用参考：[USAGE_GUIDE.md](docs/reference/USAGE_GUIDE.md)（速查手册）、[FUTURE_OPTIMIZATION_ROADMAP.md](docs/reference/FUTURE_OPTIMIZATION_ROADMAP.md)（优化路线图） |
 
 ---
@@ -53,7 +53,8 @@
 | **Ingestion Pipeline** | PDF → Markdown → Chunk → Transform → Embedding → Upsert | 全链路数据摄取，支持多模态图片描述（Image Captioning） |
 | **Hybrid Search** | Dense (向量) + Sparse (BM25) + RRF Fusion + Rerank | 粗排召回 + 精排重排的两段式检索架构 |
 | **MCP Server** | 标准 MCP 协议暴露 Tools | `query_knowledge_hub`、`list_collections`、`get_document_summary` |
-| **Dashboard** | Streamlit 七页面管理平台 | 检索（在线检索）/ 系统总览 / 数据浏览 / Ingestion 管理 / 摄取追踪 / 查询追踪 / 评估面板 |
+| **Web UI** | FastAPI + Next 静态导出，单端口托管（主界面） | Chat（多轮对话 + 有据回答）+ 七个管理页：Overview / Data Browser / Ingestion Manager / Ingestion Traces / Query Traces / Evaluation / Query Playground |
+| **Dashboard（legacy）** | Streamlit 七页面管理平台（已弃用，保留可用） | 与 Web UI 七页功能等价，见 [WEBUI_PARITY_AUDIT.md](docs/analysis/WEBUI_PARITY_AUDIT.md) |
 | **Evaluation** | Ragas + Custom 评估体系 | 支持 golden test set 回归测试，拒绝"凭感觉"调优 |
 | **Observability** | 全链路白盒化追踪 | Ingestion 与 Query 两条链路的每一个中间状态透明可见 |
 | **Skill 驱动全流程** | 从编写到测试、打包、配置一键完成 | auto-coder / qa-tester / package / setup 等 Skill 覆盖完整开发生命周期（笔记中每个 Skill 的使用和设计思路均有讲解，请参考配套视频） |
@@ -68,7 +69,7 @@
 
 **📡 MCP 生态集成**：遵循 Model Context Protocol 标准，可直接对接 GitHub Copilot、Claude Desktop 等 MCP Client，零前端开发，一次开发处处可用。
 
-**📊 可视化管理 + 自动化评估**：Streamlit Dashboard 提供完整的数据管理与链路追踪能力，集成 Ragas 等评估框架，建立基于数据的迭代反馈回路。
+**📊 可视化管理 + 自动化评估**：Web UI（FastAPI + Next，Streamlit Dashboard 已降为 legacy）提供完整的数据管理、链路追踪与 Chat 能力，集成 Ragas 等评估框架，建立基于数据的迭代反馈回路。
 
 **🧪 三层测试体系**：Unit / Integration / E2E 分层测试，覆盖独立模块逻辑、模块间交互、完整链路（MCP Client / Dashboard）。
 
@@ -277,17 +278,41 @@ python scripts/evaluate.py --retrieval-mode hybrid+agentic --agentic-trigger alw
 
 **安全边界与默认关闭**：第三路复用 PathGuard fail-closed 防护，且 `enabled: false` 为默认口径——G0 终裁结论是本仓库自指语料上裸 rg 6/6 严格优于 sidecar，故 agentic 路默认不参与检索；是否启用由真实语料场景决定。真实 sidecar 的相关测试永不自动运行，须显式 `RAG_AGENTIC_INTEGRATION=1` 门控（见第 8 节）。
 
-### 6. 启动 Dashboard
+### 6. 启动 Web UI（主界面）
 
 ```bash
-python scripts/start_dashboard.py
-# 或
-streamlit run src/observability/dashboard/app.py
+(cd frontend && npm ci && npm run build)   # 首次或前端有改动时（Node 22）
+python scripts/start_api.py --serve-ui     # http://127.0.0.1:8600
 ```
+
+- `api.enabled` 默认 `false`：在 `config/settings.yaml` 设 `api.enabled: true`，或命令行追加 `--force`。
+- 首页是 **Chat**（多轮对话 + RAG 有据回答，检索模式 hybrid / agentic_fast / agentic_deep），另有七个管理页：
+
+| 页面 | 功能 |
+|------|------|
+| Query Playground | 三模式在线查询：Normal / Fast / Deep（agentic，默认关闭）、引用与 agentic 指标（Deep 无实时进度日志） |
+| Overview | 组件配置卡片 + 数据资产统计 + 最近 trace 健康状态 |
+| Data Browser | 文档/Chunk/图片浏览（集合筛选、关键词搜索、分页、带确认的删除） |
+| Ingestion Manager | 上传文件 → 后台摄取任务（实时进度，刷新可恢复）、删除文档 |
+| Ingestion Traces | 摄取历史、阶段耗时瀑布图 |
+| Query Traces | 查询历史、来源筛选（hybrid / chat / agentic）、Dense/Sparse 对比、Rerank 前后变化、Chat 阶段 |
+| Evaluation | 选择后端运行评估（后台任务）、指标卡片、持久化历史对比 |
+
+- 非 loopback 访问须设环境变量 `RAG_API_TOKEN`（独立于 `SIRCHMUNK_API_TOKEN`）；前端开发模式、`api:`/`chat:` 配置、WS 帧协议、REST 路由索引、Playwright e2e 命令见 [docs/reference/USAGE_GUIDE.md 第 10 章](docs/reference/USAGE_GUIDE.md#10-web-ui-与-chat)。
+- `start_api.py` 不托管 sidecar；用 agentic 检索时需先手动 `bash scripts/sirchmunk/start_sidecar.sh`。
+
+#### Streamlit Dashboard（已弃用 legacy）
+
+```bash
+python scripts/start_dashboard.py          # http://localhost:8501，启动时 stderr 打印弃用提示
+# 或 streamlit run src/observability/dashboard/app.py
+```
+
+Streamlit 页面仍可用但不再新增功能；删除条件与范围见 [USAGE_GUIDE 10.9](docs/reference/USAGE_GUIDE.md#109-streamlit-dashboardlegacy)。MCP stdio server 与其无依赖。以下为 legacy 说明。
 
 `start_dashboard.py` 会按配置托管 sidecar：`agentic_search.enabled=true` 时自动拉起 sirchmunk sidecar（独立 venv/进程，进程隔离不变）、等健康后再启动 Dashboard；sidecar 已在运行则直接复用；Dashboard 退出时自动停掉由它拉起的 sidecar。`--no-sidecar` 可跳过托管。
 
-浏览器打开 http://localhost:8501，七个页面（按导航分组）：
+浏览器打开 http://localhost:8501，七个页面（按导航分组，legacy）：
 
 | 页面 | 功能 |
 |------|------|
@@ -315,6 +340,9 @@ pytest -q                          # 全量（默认全绿、离线、零网络�
 pytest tests/unit -q               # 单元测试
 pytest tests/integration -q        # 集成测试
 pytest tests/e2e -q                # E2E（MCP client 模拟 / Dashboard 冒烟 / Recall 回归）
+pytest tests/e2e_web -q            # Web UI 假后端启动冒烟（需先构建 frontend/out，否则 skip）
+(cd frontend && npm run typecheck && npm run lint && npm test)   # 前端静态检查与单测
+(cd frontend && npx playwright install chromium && npm run build && npm run e2e)   # 浏览器 e2e（opt-in，离线假后端）
 RAG_LLM_INTEGRATION=1 pytest tests/integration/test_chunk_refiner_llm.py -v   # 真实 LLM（可选，产生费用）
 RAG_AGENTIC_INTEGRATION=1 pytest tests/e2e/test_agentic_mcp.py -v               # 真实 sirchmunk sidecar 冒烟（需先启动 sidecar）
 ```

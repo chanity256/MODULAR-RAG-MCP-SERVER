@@ -8,7 +8,7 @@
 
 - `docs/frozen/SIRCHMUNK_EXTENSION_SPEC_frozen.md` — SX 系列 Sirchmunk 能力补齐（已收口冻结：telemetry 消费、参数透传、compile/复用实验裁决、SSE 流式；改动 agentic_search / sidecar 脚本前先读，遗留事项见 `docs/backlog/sirchmunk-extension-followups.md`）。
 - `docs/frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md` — IR 系列摄取健壮性 + Markdown 摄取（IR0–IR7 已收口；改动摄取链路前先读其 7.1 实现偏差）。
-- `docs/specs/WEBUI_CHAT_SPEC.md` — WC 系列 WebUI 前后端迁移 + Chat（已立项开发中：FastAPI + Next 静态导出、多轮对话 + RAG 有据回答、真流式；改动 `src/api/` / `src/core/chat/` / `frontend/` / Dashboard 服务层前先读，注意 D1 前端选型与 §1.2 对分析文档的勘误）。
+- `docs/specs/WEBUI_CHAT_SPEC.md` — WC 系列 WebUI 前后端迁移 + Chat（WC0–WC9 代码完成，WC10 收口中：FastAPI + Next 静态导出、多轮对话 + RAG 有据回答、真流式；Web UI 是主界面，Streamlit 已弃用 legacy、保留可用；改动 `src/api/` / `src/core/chat/` / `frontend/` / Dashboard 服务层前先读，注意 D1 前端选型与 §1.2 对分析文档的勘误；Web UI 使用、配置与 Streamlit 删除条件见 `docs/reference/USAGE_GUIDE.md` 第 10 章，七页等价核验见 `docs/analysis/WEBUI_PARITY_AUDIT.md`）。
 - `docs/analysis/` — 架构分析与演进方向（微服务分析、优化路线图）。
 - `docs/reference/USAGE_GUIDE.md` — 使用速查（启动、配置、sidecar 用法）。
 - `docs/backlog/` — 候选功能与待开发规格（OBSIDIAN V 系列的 M3/M4 可选增强在此待排期，其 M1/M2 已由 IR7 交付；新提案约定见其 README）。
@@ -21,9 +21,10 @@
 source .venv/bin/activate            # 主项目 venv
 
 # 测试（全量离线，零网络，默认必须全绿）
-pytest tests -q                      # ~1706 passed / 3 skipped
+pytest tests -q                      # 看计数用 pytest tests -o addopts="" -q；当前 2403 passed / 3 skipped
 pytest tests/unit/test_xxx.py -q     # 单文件
 pytest tests/unit/test_xxx.py::test_name   # 单用例
+pytest tests/e2e_web -q              # Web UI 假后端启动冒烟（frontend/out 未构建则 skip）
 
 # 门控的真实集成测试（默认跳过，仅显式开启才触网）
 RAG_LLM_INTEGRATION=1 pytest ...
@@ -34,7 +35,13 @@ RAG_AGENTIC_INTEGRATION=1 pytest tests/e2e/test_agentic_mcp.py -v   # 需 sideca
 python scripts/ingest.py --path data/documents/ --collection default   # 摄取
 python scripts/query.py --query "..." --verbose                        # 查询
 python scripts/evaluate.py                                             # 评估
-python scripts/start_dashboard.py                                      # Dashboard (localhost:8501)
+python scripts/start_api.py --serve-ui                                 # Web UI（主界面，127.0.0.1:8600；api.enabled 默认 false，需改配置或加 --force）
+python scripts/start_dashboard.py                                      # Streamlit Dashboard（legacy 已弃用，localhost:8501）
+
+# Web UI 前端（Node 22）
+(cd frontend && npm ci && npm run build)                               # 构建 frontend/out/，start_api.py --serve-ui 托管
+(cd frontend && npm run typecheck && npm run lint && npm test)         # 前端静态检查 + vitest
+(cd frontend && npx playwright install chromium && npm run e2e)        # Playwright e2e（opt-in，离线假后端，需先 build）
 
 # MCP Server（stdio）
 PYTHONPATH=src python -m mcp_server.server
