@@ -31,6 +31,7 @@
 
 | 文档 | 说明 |
 |------|------|
+| [STORAGE_SCALING_ANALYSIS.md](analysis/STORAGE_SCALING_ANALYSIS.md) | 存储层扩容分析（2026-10-16）：各存储现状与扩容极限、瓶颈顺序（BM25 → 向量库 → 元数据库）、对 PostgreSQL/DuckDB 的判断（均非对症）、分阶段演进路线（阶段 0 保持文件型不动，动作落地前另走 backlog 提案） |
 | [MICROSERVICES_ANALYSIS.md](analysis/MICROSERVICES_ANALYSIS.md) | 微服务架构分析：当前模块化单体判断与演进方向 |
 | [SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md](analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md) | Sirchmunk 能力覆盖差距分析：已接入与未接入能力对照、对 G0 结论的影响（v0.2：修正复用成本/演化不可达/telemetry 顶层合并三处判断，候选方向已立项 SX 系列） |
 | [WEBUI_PARITY_AUDIT.md](analysis/WEBUI_PARITY_AUDIT.md) | WebUI 双轨功能等价核验（WC10.1）：Streamlit 七页 ↔ Next 页面 ↔ API 路由逐项矩阵、缺口清单与严重度、Streamlit 退役待决事项 |
