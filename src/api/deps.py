@@ -24,6 +24,7 @@ from observability.dashboard.services.data_service import DataService
 from observability.dashboard.services.ingestion_service import IngestionService
 from observability.dashboard.services.search_service import SearchService
 from observability.dashboard.services.trace_service import TraceService
+from observability.log_files import resolve_log_path
 
 __all__ = [
     "ServiceContainer",
@@ -166,7 +167,7 @@ class ServiceContainer:
             settings = self._settings
             probe = lambda: {  # noqa: E731
                 "vector_store": Path(settings.vector_store.persist_path).exists(),
-                "traces": Path(settings.observability.log_file).parent.exists(),
+                "traces": resolve_log_path(settings.observability.log_file).parent.exists(),
             }
         try:
             components = {str(k): bool(v) for k, v in probe().items()}

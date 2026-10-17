@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from core.settings import Settings
+from observability.log_files import resolve_log_path
 
 __all__ = ["KNOWN_SOURCES", "SOURCE_DEFAULT", "TraceService"]
 
@@ -29,11 +30,11 @@ class TraceService:
         settings: Settings | None = None,
     ) -> None:
         if traces_path is not None:
-            self._path = Path(traces_path)
+            self._path = resolve_log_path(traces_path)
         elif settings is not None:
-            self._path = Path(settings.observability.log_file)
+            self._path = resolve_log_path(settings.observability.log_file)
         else:
-            self._path = _DEFAULT_TRACES
+            self._path = resolve_log_path(_DEFAULT_TRACES)
         self._cache_lock = threading.Lock()
         self._cache_key: tuple[int, int] | None = None
         self._cache_records: list[dict[str, Any]] = []

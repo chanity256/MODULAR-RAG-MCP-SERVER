@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 from core.trace.trace_context import TraceContext
+from observability.log_files import resolve_log_path
 from observability.logger import get_logger
 
 __all__ = ["persist_trace", "DEFAULT_TRACE_LOG"]
@@ -20,7 +21,7 @@ DEFAULT_TRACE_LOG = "logs/traces.jsonl"
 def persist_trace(trace: TraceContext, log_file: str | None = None) -> None:
     """``finish`` + 追加一行 JSON 到 traces.jsonl。"""
     trace.finish()
-    path = Path(log_file or DEFAULT_TRACE_LOG)
+    path = resolve_log_path(log_file or DEFAULT_TRACE_LOG)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as fh:
