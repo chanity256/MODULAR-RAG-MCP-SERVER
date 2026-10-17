@@ -10,7 +10,7 @@
 
 | 文档 | 说明 |
 |------|------|
-| _（暂无进行中的规格）_ | 新规格从 [backlog/](backlog/) 晋升后列于此 |
+| [LOGGING_SPEC.md](specs/LOGGING_SPEC.md) | 日志分层与按日切分规格（LG 系列，进行中）：Trace 日志按日落盘 `logs/traces/`、应用运行日志落盘 `logs/app/`、保留期 30 天、测试隔离（`RAG_LOG_ROOT`）、历史 `traces.jsonl` 迁移 |
 
 ## frozen/ — 已冻结文档
 
