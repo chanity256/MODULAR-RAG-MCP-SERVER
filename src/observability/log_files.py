@@ -6,13 +6,15 @@
 from __future__ import annotations
 
 import os
-from datetime import date
+import re
+from datetime import date, timedelta
 from pathlib import Path
 
 __all__ = [
     "LOG_ROOT_ENV",
     "TRACE_FILE_PREFIX",
     "TRACE_FILE_SUFFIX",
+    "cleanup_expired",
     "daily_path",
     "is_single_file",
     "local_today",
@@ -56,3 +58,41 @@ def trace_target(log_file: str | Path, day: date | None = None) -> Path:
     if is_single_file(path):
         return path
     return daily_path(path, TRACE_FILE_PREFIX, TRACE_FILE_SUFFIX, day or local_today())
+
+
+def cleanup_expired(
+    directory: str | Path,
+    prefix: str,
+    suffix: str,
+    retention_days: int,
+    today: date | None = None,
+) -> list[Path]:
+    """删除过期的按日文件，保留含今天在内最近 ``retention_days`` 个日期。
+
+    只匹配严格的 ``<prefix>-YYYY-MM-DD<suffix>`` 文件名，其他文件不碰；
+    ``retention_days <= 0`` 不清理；单个文件删除失败跳过、不抛出。
+    """
+    if retention_days <= 0:
+        return []
+    root = Path(directory)
+    if not root.is_dir():
+        return []
+    pattern = re.compile(rf"^{re.escape(prefix)}-(\d{{4}}-\d{{2}}-\d{{2}}){re.escape(suffix)}$")
+    cutoff = (today or local_today()) - timedelta(days=retention_days)
+    removed: list[Path] = []
+    for path in root.iterdir():
+        match = pattern.match(path.name)
+        if match is None or not path.is_file():
+            continue
+        try:
+            day = date.fromisoformat(match.group(1))
+        except ValueError:
+            continue
+        if day > cutoff:
+            continue
+        try:
+            path.unlink()
+        except OSError:
+            continue
+        removed.append(path)
+    return sorted(removed)
