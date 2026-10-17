@@ -135,7 +135,7 @@
 
 - 输入 `--src`（默认 `logs/traces.jsonl`）、`--dest`（默认 `logs/traces`）、`--dry-run`、`--keep-test-records`。
 - 按 `started_at` 转本地日期分桶写入 `traces-YYYY-MM-DD.jsonl`；目标文件已存在时追加，并跳过已存在的 `trace_id`（可重复执行）。
-- 测试记录判定（仅 ingestion）：`metadata.source_path` 为空，或位于系统临时目录 / `/tmp/` / `/var/folders/` / 含 `pytest-of-` / 含 `tests/fixtures`。query 记录无可靠来源标识，全部保留。
+- 测试记录判定（仅 ingestion）：`metadata.source_path` 为空，或位于系统临时目录 / `/tmp/` / `/var/folders/` / 含 `pytest-of-` / 含 `tests/fixtures`。query 记录无可靠来源标识，全部保留。（实现时补充了一条 query 判定，见 7.1。）
 - 非 dry-run 时原文件改名为 `<src>.migrated`，不删除。输出各类计数。
 
 ```mermaid
@@ -209,13 +209,22 @@ observability:
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 验收标准 |
 |---------|---------|------|---------|---------|
 | LG0 | 规格立项 | [x] | 2026-10-17 | 本文档；MOC / README / AGENTS 同步登记 |
-| LG1 | 测试隔离 | [ ] | | `RAG_LOG_ROOT` 解析 + conftest fixture + 回归用例；全量测试后仓库 `logs/` 无新增写入 |
-| LG2 | Trace 按日写入 + 配置 | [ ] | | `log_files` 模块；`persist_trace` 目录模式；settings 默认值与校验；`config/settings.yaml` 同步 |
-| LG3 | TraceService 目录模式 | [ ] | | 按文件缓存；多日合并；API 健康检查对解析后路径求值；既有追踪页 / API 用例零回归 |
-| LG4 | 应用运行日志 | [ ] | | `setup_app_logging` + `DailyFileHandler`；五个入口接线；`log_level` 生效；uvicorn 日志落盘 |
-| LG5 | 保留期清理 | [ ] | | `cleanup_expired` + 跨天触发；边界单测 |
-| LG6 | 历史迁移 | [ ] | | `scripts/migrate_traces.py` + 单测；对真实文件先 dry-run，经用户确认后执行 |
-| LG7 | 文档收口 | [ ] | | USAGE_GUIDE 日志章节；全量离线测试全绿并记录计数；本规格进度表与实现偏差更新 |
+| LG1 | 测试隔离 | [x] | 2026-10-17 | `RAG_LOG_ROOT` 解析 + conftest fixture + 回归用例；全量测试后仓库 `logs/` 无新增写入（`c162925`） |
+| LG2 | Trace 按日写入 + 配置 | [x] | 2026-10-17 | `log_files` 模块；`persist_trace` 目录模式；settings 默认值与校验；`config/settings.yaml` 同步（`5104cc9`，与 LG3 合并提交） |
+| LG3 | TraceService 目录模式 | [x] | 2026-10-17 | 按文件缓存；多日合并；API 健康检查对解析后路径求值；既有追踪页 / API 用例零回归（`5104cc9`） |
+| LG4 | 应用运行日志 | [x] | 2026-10-17 | `setup_app_logging` + `DailyFileHandler`；五个入口接线；`log_level` 生效；uvicorn 日志落盘（`301b8d4`） |
+| LG5 | 保留期清理 | [x] | 2026-10-17 | `cleanup_expired` + 跨天触发；边界单测（`542d353`，先于 LG4 实施） |
+| LG6 | 历史迁移 | [~] | | `scripts/migrate_traces.py` + 单测；对真实文件先 dry-run，经用户确认后执行（脚本 `4fcfd98`；dry-run 已完成，正式执行待确认） |
+| LG7 | 文档收口 | [x] | 2026-10-17 | USAGE_GUIDE 日志章节；全量离线测试全绿并记录计数；本规格进度表与实现偏差更新（`ae8fb29`；2451 passed / 11 skipped） |
+
+### 7.1 实现偏差与收口记录
+
+- **LG2 + LG3 合并提交**：默认 `log_file` 改为目录后，若 TraceService 未同时支持目录模式，中间提交会让 Web UI 读不到 trace，因此两者同一提交落地。
+- **LG5 先于 LG4**：`DailyFileHandler` 开新文件时调用 `cleanup_expired`，先交付清理函数。
+- **遗留 `get_trace_logger` 修正**（LG7）：原实现把 `log_file` 当文件打开，目录默认值下会失败；改为经 `trace_target` 解析到当天文件。该接口仍为遗留路径，生产写入走 `core.trace.persist`。
+- **迁移判定补充**（LG6）：除 3.7 的 ingestion 规则外，`trace_type=query` 但无 `metadata.query` 且首阶段为 `integrity` 的记录也按测试记录剔除（测试向 pipeline 注入默认 query 类型 trace 所致，真实查询不会出现）；同一源文件内重复的 `trace_id` 只保留首条（计 `duplicates`）。
+- **真实文件 dry-run**（`logs/traces.jsonl`，45 MB）：total=16562、kept=595、dropped_test=15767、invalid=0、duplicates=200、already_present=0；保留记录分布在 8-18、10-05、10-06、10-07、10-13、10-14、10-15 七天。
+- **测试隔离核验**：LG1 起每次全量测试前后对仓库 `logs/` 做文件快照比对，均无变化。最终计数 2451 passed / 11 skipped（AGENTS.md 中 2403 为立项前基线）。
 
 ---
 

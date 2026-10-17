@@ -22,7 +22,7 @@
 source .venv/bin/activate            # 主项目 venv
 
 # 测试（全量离线，零网络，默认必须全绿）
-pytest tests -q                      # 看计数用 pytest tests -o addopts="" -q；当前 2403 passed / 11 skipped
+pytest tests -q                      # 看计数用 pytest tests -o addopts="" -q；当前 2451 passed / 11 skipped
 pytest tests/unit/test_xxx.py -q     # 单文件
 pytest tests/unit/test_xxx.py::test_name   # 单用例
 pytest tests/e2e_web -q              # Web UI 假后端启动冒烟（frontend/out 未构建则 skip）
@@ -58,7 +58,7 @@ PYTHONPATH=src python -m mcp_server.server
 - **`src/core/`** — 业务核心：`settings.py`（dataclass 配置 + 校验，配置缺失走默认、非法值 fail-fast）、`query_engine/`（查询预处理 → Dense + BM25 双路召回 → RRF 融合 → 可选 Rerank → Response Builder）、`types.py`（Document/Chunk/ChunkRecord 契约）。
 - **`src/ingestion/`** — 摄取管线：Loader → Splitter → Transform → Embed → Upsert，含 DocumentManager（跨 4 存储协调删除）与 SHA256 增量跳过。
 - **`src/libs/`** — 可插拔抽象层：每类组件一个 `Base*` 抽象 + 工厂函数（`llm/embedding/splitter/loader/vector_store/reranker/agentic_search`），由 `config/settings.yaml` 配置驱动装配。切换后端 = 改配置，不改业务代码。
-- **`src/observability/`** — TraceContext（JSON Lines 写 `logs/traces.jsonl`，`method`/`provider` 字段驱动 Dashboard 动态渲染）+ Streamlit Dashboard（`pages/` 七页面 + `services/` 业务封装；页面层禁止直接 import Pipeline/核心组件）。
+- **`src/observability/`** — TraceContext（JSON Lines 按日写 `logs/traces/traces-YYYY-MM-DD.jsonl`，`method`/`provider` 字段驱动 Dashboard 动态渲染）+ Streamlit Dashboard（`pages/` 七页面 + `services/` 业务封装；页面层禁止直接 import Pipeline/核心组件）。
 
 存储：Chroma（嵌入 `data/db/chroma/`，dense 向量 + chunk 原文 + metadata）、BM25 JSON 索引、图片 SQLite（`data/db/image_index.db`）、摄取历史 SQLite（SHA256 去重）。
 
