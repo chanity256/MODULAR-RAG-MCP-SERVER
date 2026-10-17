@@ -10,7 +10,7 @@
 
 | 文档 | 说明 |
 |------|------|
-| [LOGGING_SPEC.md](specs/LOGGING_SPEC.md) | 日志分层与按日切分规格（LG 系列，进行中）：Trace 日志按日落盘 `logs/traces/`、应用运行日志落盘 `logs/app/`、保留期 30 天、测试隔离（`RAG_LOG_ROOT`）、历史 `traces.jsonl` 迁移 |
+| _（暂无进行中的规格）_ | 新规格从 [backlog/](backlog/) 晋升后列于此 |
 
 ## frozen/ — 已冻结文档
 
@@ -23,6 +23,7 @@
 | [SIRCHMUNK_EXTENSION_SPEC_frozen.md](frozen/SIRCHMUNK_EXTENSION_SPEC_frozen.md) | Sirchmunk 能力补齐规格（SX 系列，SX0–SX5 已收口冻结：telemetry 消费、参数透传、compile 实验负结果 GX、复用评估保持关闭、SSE 流式；遗留事项见 [backlog/sirchmunk-extension-followups.md](backlog/sirchmunk-extension-followups.md)） |
 | [INGESTION_ROBUSTNESS_SPEC_frozen.md](frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md) | 摄取管线健壮性规格（IR 系列，IR0–IR7 已交付收口，实现偏差见 7.1；现状审计 A1–A7、历史表 v2 / 版本替换 / 同步模式 / 重试诊断 / 通用格式 Loader / M6 Markdown 摄取——v1.1 承接 OBSIDIAN M1/M2，MarkdownLoader + source_filters） |
 | [WEBUI_CHAT_SPEC_frozen.md](frozen/WEBUI_CHAT_SPEC_frozen.md) | WebUI 前后端迁移与 Chat 规格（WC 系列，WC0–WC10 已收口冻结：FastAPI + Next 静态导出迁移 P1–P6、Chat 多轮对话 + RAG 有据回答、真流式；D1 推翻 backlog 的 Vue 选型，§1.2 含分析文档五处勘误；WC10.3 门控冒烟记录见冻结记录；Streamlit 保留为 legacy） |
+| [LOGGING_SPEC_frozen.md](frozen/LOGGING_SPEC_frozen.md) | 日志分层与按日切分规格（LG 系列，LG0–LG7 已收口冻结）：Trace 日志按日落盘 `logs/traces/`、应用运行日志落盘 `logs/app/`、保留期 30 天、测试隔离（`RAG_LOG_ROOT`）、历史 `traces.jsonl` 迁移（真实迁移结果与实现偏差见 7.1） |
 | [ACCEPTANCE_GAPS_frozen.md](frozen/ACCEPTANCE_GAPS_frozen.md) | 验收缺口台账（G1–G3，已关闭） |
 
 ## analysis/ — 分析与规划

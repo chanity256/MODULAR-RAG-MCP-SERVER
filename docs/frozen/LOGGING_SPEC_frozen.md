@@ -2,7 +2,14 @@
 
 # 日志分层与按日切分规格 (LOGGING_SPEC)
 
-> 版本：0.1 — 立项（2026-10-17），现状审计 + 模块设计 + 项目排期
+> **📌 冻结记录**
+>
+> - 冻结时间：2026-10-17（LG0–LG7 全部交付收口，移入 docs/frozen/，重命名为 LOGGING_SPEC_frozen.md）
+> - 交付范围：Trace 日志按日落盘 `logs/traces/traces-YYYY-MM-DD.jsonl`（`.jsonl` 结尾的 `log_file` 保留单文件模式）、TraceService 按文件缓存、应用运行日志 `logs/app/<component>-YYYY-MM-DD.log`（api / mcp / ingest / query / evaluate 五个入口）、`retention_days` 保留期清理（默认 30）、测试经 `RAG_LOG_ROOT` 隔离、历史 `traces.jsonl` 迁移脚本。收口时基线：全量离线 2451 passed / 11 skipped，测试前后仓库 `logs/` 无变化。
+> - 真实迁移（2026-10-17）：16562 条 → 保留 595 条（7 个日文件），剔除测试记录 15767 条、重复 trace_id 200 条；原文件保留为 `logs/traces.jsonl.migrated`。实现偏差见 7.1。
+> - 遗留（未做，见 2.2）：`observability.enabled` / `detail_level` / `dashboard.traces_dir` 仍解析但不消费；遗留 `TraceCollector` / `write_trace` 保留（`get_trace_logger` 仅修正路径解析）；sidecar 日志规范化未做。如需推进另走 backlog 提案。
+
+> 状态：**已冻结**（LG0–LG7 全部交付收口，2026-10-17）｜版本：0.1 — 立项（2026-10-17），现状审计 + 模块设计 + 项目排期
 >
 > 起源：会话内对 `logs/traces.jsonl` 的体量审计（见 1.2），经用户确认四项决策（见 2.3）后立项；未经 backlog 草案阶段，决策依据直接记录在本规格第 1、2 章。
 >
@@ -242,6 +249,6 @@ observability:
 
 ## 9. 参考
 
-- [DEV_SPEC_frozen.md](../frozen/DEV_SPEC_frozen.md)：F1 TraceContext、F2 JSON Lines logger、G5 TraceService。
-- [WEBUI_CHAT_SPEC_frozen.md](../frozen/WEBUI_CHAT_SPEC_frozen.md)：Web UI 追踪页、chat trace 每轮一条的契约。
+- [DEV_SPEC_frozen.md](DEV_SPEC_frozen.md)：F1 TraceContext、F2 JSON Lines logger、G5 TraceService。
+- [WEBUI_CHAT_SPEC_frozen.md](WEBUI_CHAT_SPEC_frozen.md)：Web UI 追踪页、chat trace 每轮一条的契约。
 - [STORAGE_SCALING_ANALYSIS.md](../analysis/STORAGE_SCALING_ANALYSIS.md)：`logs/traces.jsonl` 在存储清单中的定位。

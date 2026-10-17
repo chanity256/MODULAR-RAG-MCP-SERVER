@@ -196,7 +196,7 @@ Dashboard 导航「检索」分组 → 「在线检索」：三模式在线查�
 
 ### 2.8 日志与追踪
 
-日志分两层，都按**本地日期**切分，默认保留 30 天（设计见 [LOGGING_SPEC](../specs/LOGGING_SPEC.md)）：
+日志分两层，都按**本地日期**切分，默认保留 30 天（设计见 [LOGGING_SPEC_frozen](../frozen/LOGGING_SPEC_frozen.md)）：
 
 | 层 | 位置 | 内容 | 谁读 |
 |---|---|---|---|
