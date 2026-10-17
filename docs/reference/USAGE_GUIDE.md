@@ -90,7 +90,7 @@ Modular-RAG-MCP-Server/
 │   ├── db/                   # 存储：chroma/（向量）、bm25/（稀疏索引）、image_index.db、ingestion_history.db、sirchmunk/
 │   └── images/               # 摄取抽取的图片文件（按 doc_hash 分目录）
 │
-├── logs/                     # 运行日志：traces.jsonl（全链路 trace 落盘）+ sidecar 日志与对比报告
+├── logs/                     # 日志（见 2.8）：traces/ 按日 trace、app/ 按日应用日志 + sidecar 日志与对比报告
 └── cache/                    # 运行时缓存（captions / embeddings / processing，可安全清除重建）
 ```
 
@@ -193,6 +193,31 @@ Dashboard 导航「检索」分组 → 「在线检索」：三模式在线查�
 - **结果**：Markdown 答案 + 引用表（来源/页码/分数）；Fast/Deep 额外展示 Agentic 答案、模式、Token、LLM 调用次数、耗时与证据文件。
 - **trace 联动**：每次检索自动写入 trace，到「Query 追踪」页可查看各阶段耗时（agentic 阶段由 S3.2 渲染）。
 - **失败友好**：sidecar 不可用或参数非法时以页面错误提示展示，不崩溃。
+
+### 2.8 日志与追踪
+
+日志分两层，都按**本地日期**切分，默认保留 30 天（设计见 [LOGGING_SPEC](../specs/LOGGING_SPEC.md)）：
+
+| 层 | 位置 | 内容 | 谁读 |
+|---|---|---|---|
+| Trace 日志 | `logs/traces/traces-YYYY-MM-DD.jsonl` | 每次查询（default / agentic / chat）与摄取的分阶段耗时、method、provider | Web UI / Dashboard 追踪页 |
+| 应用运行日志 | `logs/app/<component>-YYYY-MM-DD.log` | 进程启动、WARNING / ERROR、降级重试、异常堆栈、uvicorn 服务日志 | 人工排障 |
+
+`component` 为 `api`（`start_api.py`）、`mcp`（MCP server）、`ingest` / `query` / `evaluate`（CLI）。应用日志与 stderr 内容相同；uvicorn 访问日志只走 stderr，不落盘。MCP server 的 stdout 仍只输出 JSON-RPC。
+
+```yaml
+observability:
+  log_file: ./logs/traces   # 目录 = 按日切分；以 .jsonl 结尾 = 旧的单文件模式
+  app_log_dir: ./logs/app
+  retention_days: 30        # 0 = 不清理
+  logging:
+    log_level: INFO         # 应用日志级别：DEBUG | INFO | WARNING | ERROR | CRITICAL
+```
+
+- **清理**：进程启动时与跨天切换文件时，删除 `logs/traces/` 和 `logs/app/` 下超出保留期的日文件（只匹配 `<前缀>-YYYY-MM-DD` 命名，其他文件不动）。
+- **常用查看**：`tail -f logs/app/api-$(date +%F).log`；`grep -h '"routes": "chat"' logs/traces/traces-*.jsonl`。
+- **`RAG_LOG_ROOT`**：设置后，配置里的相对日志路径相对它解析。测试套件自动把它指向临时目录，所以跑 `pytest` 不会写仓库 `logs/`；临时手动试验也可以 `RAG_LOG_ROOT=/tmp/x python scripts/query.py ...`。
+- **旧的单文件迁移**：升级前的 `logs/traces.jsonl` 不再被读取。先 `python scripts/migrate_traces.py --dry-run` 看统计，再去掉 `--dry-run` 执行：按日拆分到 `logs/traces/`，剔除测试产生的记录，原文件改名为 `traces.jsonl.migrated` 保留。
 
 ---
 
@@ -383,6 +408,7 @@ RAG_AGENTIC_INTEGRATION=1 pytest tests/e2e/test_agentic_mcp.py -v   # 真实 sid
 | compile 每个文件都报 `OutputFormat has no attribute 'PLAIN'` | sidecar venv 装到了 kreuzberg 5.x（`--pre` 回退会拉到预发布版），上游仍用 4.x 枚举名。执行 `.venv-sirchmunk/bin/pip install "kreuzberg>=4.0.0,<5"`；新版 `setup_venv.sh` 已自动锁定 |
 | Token 成本异常 | 确认 `LENS_HARD_TOKEN_BUDGET=true`、`max_token_budget` / `max_loops` 未被调大；客户端断连不会取消 sidecar 执行 |
 | 知识簇缓存损坏 | 多进程共享了 `SIRCHMUNK_WORK_PATH`；该目录必须每进程独占 |
+| 追踪页看不到升级前的历史记录 | 旧的 `logs/traces.jsonl` 未迁移；执行 `python scripts/migrate_traces.py`（见 2.8） |
 
 ---
 

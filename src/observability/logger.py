@@ -26,6 +26,7 @@ from observability.log_files import (
     is_single_file,
     local_today,
     resolve_log_path,
+    trace_target,
 )
 
 _CONFIGURED = False
@@ -64,7 +65,6 @@ def get_logger(name: str = "modular-rag") -> logging.Logger:
 # ---------------------------------------------------------------------------
 
 import json as _json
-from pathlib import Path as _Path
 
 from core.settings import Settings as _Settings
 
@@ -109,13 +109,14 @@ def get_trace_logger(log_file: str | None = None) -> logging.Logger:
 
     Args:
         log_file: 目标 JSONL 文件路径；``None`` 取
-            ``settings.observability.log_file``（默认 ``logs/traces.jsonl``）。
+            ``settings.observability.log_file``。目录（按日模式）时取首次调用当天的文件；
+            遗留接口，生产写入走 ``core.trace.persist``（会随日期切换）。
     """
     _configure()
     logger = logging.getLogger(_TRACES_LOGGER_NAME)
     if logger.handlers:  # 已配置（多进程/重复调用幂等，取首路径）
         return logger
-    path = _Path(log_file or _Settings().observability.log_file)
+    path = trace_target(log_file or _Settings().observability.log_file)
     path.parent.mkdir(parents=True, exist_ok=True)
     handler = logging.FileHandler(path, encoding="utf-8")
     handler.setFormatter(JSONFormatter())

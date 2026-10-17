@@ -3,7 +3,7 @@
 ``collect(trace)``：
 1. 若 trace 未 ``finish()`` 则先补调（保证总耗时/结束时间存在）；
 2. 追加到内存列表（供测试/立即读取）；
-3. 经 ``observability.logger.write_trace`` 追加到 ``logs/traces.jsonl``。
+3. 经 ``observability.logger.write_trace`` 追加到 trace 日志（遗留路径；生产写入走 ``core.trace.persist``）。
 
 写入失败（如目录只读）不抛出——trace 持久化属于旁路可观测性，
 不允许影响主链路。
