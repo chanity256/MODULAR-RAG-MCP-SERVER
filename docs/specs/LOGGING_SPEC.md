@@ -214,7 +214,7 @@ observability:
 | LG3 | TraceService 目录模式 | [x] | 2026-10-17 | 按文件缓存；多日合并；API 健康检查对解析后路径求值；既有追踪页 / API 用例零回归（`5104cc9`） |
 | LG4 | 应用运行日志 | [x] | 2026-10-17 | `setup_app_logging` + `DailyFileHandler`；五个入口接线；`log_level` 生效；uvicorn 日志落盘（`301b8d4`） |
 | LG5 | 保留期清理 | [x] | 2026-10-17 | `cleanup_expired` + 跨天触发；边界单测（`542d353`，先于 LG4 实施） |
-| LG6 | 历史迁移 | [~] | | `scripts/migrate_traces.py` + 单测；对真实文件先 dry-run，经用户确认后执行（脚本 `4fcfd98`；dry-run 已完成，正式执行待确认） |
+| LG6 | 历史迁移 | [x] | 2026-10-17 | `scripts/migrate_traces.py` + 单测；对真实文件先 dry-run，经用户确认后执行（脚本 `4fcfd98`；已正式执行，见 7.1） |
 | LG7 | 文档收口 | [x] | 2026-10-17 | USAGE_GUIDE 日志章节；全量离线测试全绿并记录计数；本规格进度表与实现偏差更新（`ae8fb29`；2451 passed / 11 skipped） |
 
 ### 7.1 实现偏差与收口记录
@@ -223,7 +223,7 @@ observability:
 - **LG5 先于 LG4**：`DailyFileHandler` 开新文件时调用 `cleanup_expired`，先交付清理函数。
 - **遗留 `get_trace_logger` 修正**（LG7）：原实现把 `log_file` 当文件打开，目录默认值下会失败；改为经 `trace_target` 解析到当天文件。该接口仍为遗留路径，生产写入走 `core.trace.persist`。
 - **迁移判定补充**（LG6）：除 3.7 的 ingestion 规则外，`trace_type=query` 但无 `metadata.query` 且首阶段为 `integrity` 的记录也按测试记录剔除（测试向 pipeline 注入默认 query 类型 trace 所致，真实查询不会出现）；同一源文件内重复的 `trace_id` 只保留首条（计 `duplicates`）。
-- **真实文件 dry-run**（`logs/traces.jsonl`，45 MB）：total=16562、kept=595、dropped_test=15767、invalid=0、duplicates=200、already_present=0；保留记录分布在 8-18、10-05、10-06、10-07、10-13、10-14、10-15 七天。
+- **真实文件 dry-run**（`logs/traces.jsonl`，45 MB）：total=16562、kept=595、dropped_test=15767、invalid=0、duplicates=200、already_present=0；保留记录分布在 8-18、10-05、10-06、10-07、10-13、10-14、10-15 七天。经用户确认后正式执行，结果与 dry-run 一致：生成 7 个日文件共 595 行（约 0.5 MB），原文件保留为 `logs/traces.jsonl.migrated`；TraceService 读取全部 595 条耗时约 5 ms（迁移前冷加载 45 MB 约 0.45 s）。`traces-2026-08-18.jsonl` 已超出 30 天保留期，下次进程入口启动时会被清理（原始记录仍在 `.migrated` 备份中）。
 - **测试隔离核验**：LG1 起每次全量测试前后对仓库 `logs/` 做文件快照比对，均无变化。最终计数 2451 passed / 11 skipped（AGENTS.md 中 2403 为立项前基线）。
 
 ---
