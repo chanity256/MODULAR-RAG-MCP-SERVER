@@ -148,8 +148,17 @@ class EvaluationConfig:
 
 @dataclass
 class ObservabilityConfig:
+    """可观测性配置（LOGGING_SPEC 第 6 章）。
+
+    ``log_file`` 以 ``.jsonl`` 结尾为单文件模式，否则视为目录、按本地日期切分；
+    ``app_log_dir`` 仅在进程入口调用 ``setup_app_logging`` 时启用；
+    ``retention_days`` 为按日文件保留天数，``0`` 表示不清理。
+    """
+
     enabled: bool = True
-    log_file: str = "./logs/traces.jsonl"
+    log_file: str = "./logs/traces"
+    app_log_dir: str = "./logs/app"
+    retention_days: int = 30
     log_level: str = "INFO"
     detail_level: str = "standard"
     extra: dict[str, Any] = field(default_factory=dict)
@@ -556,13 +565,26 @@ def _build_evaluation(sec: dict[str, Any]) -> EvaluationConfig:
     )
 
 
+_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+
+
 def _build_observability(sec: dict[str, Any]) -> ObservabilityConfig:
     logging_sec = sec.get("logging", {}) if isinstance(sec.get("logging"), dict) else {}
-    known = {"enabled", "log_file", "logging", "detail_level"}
+    known = {"enabled", "log_file", "app_log_dir", "retention_days", "logging", "detail_level"}
+    log_level = str(_opt(logging_sec, "log_level", "INFO")).strip().upper()
+    if log_level not in _LOG_LEVELS:
+        raise ConfigError(
+            f"invalid field: observability.logging.log_level must be one of {', '.join(_LOG_LEVELS)}"
+        )
+    retention_days = _opt(sec, "retention_days", 30)
+    if isinstance(retention_days, bool) or not isinstance(retention_days, int) or retention_days < 0:
+        raise ConfigError("invalid field: observability.retention_days must be a non-negative integer")
     return ObservabilityConfig(
         enabled=bool(_opt(sec, "enabled", True)),
-        log_file=_opt(sec, "log_file", "./logs/traces.jsonl"),
-        log_level=_opt(logging_sec, "log_level", "INFO"),
+        log_file=_opt(sec, "log_file", "./logs/traces"),
+        app_log_dir=_opt(sec, "app_log_dir", "./logs/app"),
+        retention_days=retention_days,
+        log_level=log_level,
         detail_level=_opt(sec, "detail_level", "standard"),
         extra=_extra(sec, known),
     )

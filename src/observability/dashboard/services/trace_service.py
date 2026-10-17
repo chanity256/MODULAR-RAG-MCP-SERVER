@@ -1,4 +1,8 @@
-"""TraceService：解析 traces.jsonl，按 trace_type 分类（阶段 G5）。"""
+"""TraceService：解析 trace 日志，按 trace_type 分类（阶段 G5）。
+
+路径以 ``.jsonl`` 结尾为单文件；否则为按日目录，读取其中全部
+``traces-YYYY-MM-DD.jsonl``（LOGGING_SPEC 3.4）。
+"""
 
 from __future__ import annotations
 
@@ -8,11 +12,11 @@ from pathlib import Path
 from typing import Any
 
 from core.settings import Settings
-from observability.log_files import resolve_log_path
+from observability.log_files import TRACE_FILE_PREFIX, TRACE_FILE_SUFFIX, is_single_file, resolve_log_path
 
 __all__ = ["KNOWN_SOURCES", "SOURCE_DEFAULT", "TraceService"]
 
-_DEFAULT_TRACES = Path("logs/traces.jsonl")
+_DEFAULT_TRACES = Path("logs/traces")
 
 #: 来源标签：``metadata.routes`` 缺省（CLI / query_knowledge_hub）为 default。
 SOURCE_DEFAULT = "default"
@@ -36,8 +40,8 @@ class TraceService:
         else:
             self._path = resolve_log_path(_DEFAULT_TRACES)
         self._cache_lock = threading.Lock()
-        self._cache_key: tuple[int, int] | None = None
-        self._cache_records: list[dict[str, Any]] = []
+        # 按文件缓存：键为 (mtime_ns, size)。目录模式下历史日文件不再变化，只有当天文件会失效。
+        self._file_cache: dict[Path, tuple[tuple[int, int], list[dict[str, Any]]]] = {}
 
     @property
     def path(self) -> Path:
@@ -106,29 +110,46 @@ class TraceService:
             return [{"stage": name, "elapsed_ms": totals[name]} for name in wanted]
         return extras
 
+    def _trace_files(self) -> list[Path]:
+        if is_single_file(self._path):
+            return [self._path]
+        if not self._path.is_dir():
+            return []
+        return sorted(self._path.glob(f"{TRACE_FILE_PREFIX}-*{TRACE_FILE_SUFFIX}"))
+
     def _load(self) -> list[dict[str, Any]]:
-        """解析 traces.jsonl；以 (mtime_ns, size) 为键缓存，文件变化即失效。
+        """解析 trace 日志（单文件或按日目录）；逐文件以 (mtime_ns, size) 为键缓存。
 
         返回新列表（调用方可原地排序），其中的 trace dict 与缓存共享，调用方只读。
         """
+        files = self._trace_files()
+        records: list[dict[str, Any]] = []
+        for path in files:
+            records.extend(self._load_file(path))
+        with self._cache_lock:
+            for stale in set(self._file_cache) - set(files):
+                del self._file_cache[stale]
+        return records
+
+    def _load_file(self, path: Path) -> list[dict[str, Any]]:
         try:
-            stat = self._path.stat()
+            stat = path.stat()
         except OSError:
             return []
-        if not self._path.is_file():
+        if not path.is_file():
             return []
         key = (stat.st_mtime_ns, stat.st_size)
         with self._cache_lock:
-            if self._cache_key == key:
-                return list(self._cache_records)
+            cached = self._file_cache.get(path)
+            if cached is not None and cached[0] == key:
+                return cached[1]
         try:
-            records = self._parse(self._path.read_text(encoding="utf-8"))
+            records = self._parse(path.read_text(encoding="utf-8"))
         except OSError:
             return []
         with self._cache_lock:
-            self._cache_key = key
-            self._cache_records = records
-        return list(records)
+            self._file_cache[path] = (key, records)
+        return records
 
     @staticmethod
     def _parse(text: str) -> list[dict[str, Any]]:

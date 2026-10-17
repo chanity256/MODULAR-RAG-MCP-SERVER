@@ -120,9 +120,11 @@ evaluation:
 # 可观测性配置
 observability:
   enabled: true
-  log_file: ./logs/traces.jsonl
+  log_file: ./logs/traces   # 目录 = 按本地日期切分 traces-YYYY-MM-DD.jsonl；以 .jsonl 结尾 = 单文件
+  app_log_dir: ./logs/app   # 应用运行日志 <component>-YYYY-MM-DD.log（仅进程入口启用）
+  retention_days: 30        # 按日文件保留天数；0 = 不清理
   logging:
-    log_level: INFO         # DEBUG | INFO | WARNING
+    log_level: INFO         # DEBUG | INFO | WARNING | ERROR | CRITICAL
   detail_level: standard    # minimal | standard | verbose
 
 # Dashboard 管理平台配置

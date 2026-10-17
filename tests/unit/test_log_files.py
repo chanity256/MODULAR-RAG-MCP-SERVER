@@ -8,7 +8,7 @@ from pathlib import Path
 from core.settings import ObservabilityConfig
 from core.trace.persist import persist_trace
 from core.trace.trace_context import TRACE_TYPE_INGESTION, TraceContext
-from observability.log_files import LOG_ROOT_ENV, resolve_log_path
+from observability.log_files import LOG_ROOT_ENV, resolve_log_path, trace_target
 
 
 class TestResolveLogPath:
@@ -39,7 +39,7 @@ def test_default_config_trace_lands_in_log_root(isolated_log_root):
     """回归：默认 ``observability.log_file`` 的 trace 不得写进仓库 logs/（L1）。"""
     trace = TraceContext(trace_type=TRACE_TYPE_INGESTION, metadata={"source_path": "x.md"})
     persist_trace(trace, log_file=ObservabilityConfig().log_file)
-    target = resolve_log_path(ObservabilityConfig().log_file)
+    target = trace_target(ObservabilityConfig().log_file)
     assert target.resolve().is_relative_to(isolated_log_root.resolve())
     ids = [json.loads(line)["trace_id"] for line in target.read_text(encoding="utf-8").splitlines()]
     assert trace.trace_id in ids
