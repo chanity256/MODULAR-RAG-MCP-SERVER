@@ -56,6 +56,7 @@ def main(argv: list[str] | None = None) -> int:
 
     from api.app import create_app
     from core.settings import ConfigError, load_settings
+    from observability.logger import setup_app_logging
 
     try:
         settings = resolve_api_settings(load_settings(args.config), args)
@@ -68,7 +69,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[api] configuration error: {exc}", file=sys.stderr)
         return 2
 
-    uvicorn.run(app, host=api.host, port=api.port, log_level="info")
+    setup_app_logging(settings, "api")
+    # log_config=None：uvicorn 默认 dictConfig 会给 "uvicorn" logger 设 propagate=False，
+    # 日志到不了 root 的文件 handler；不配置时由 root（stderr + 按日文件）统一输出。
+    uvicorn.run(app, host=api.host, port=api.port, log_level="info", log_config=None)
     return 0
 
 

@@ -501,4 +501,7 @@ def main(
 
 
 if __name__ == "__main__":
+    from observability.logger import setup_cli_logging
+
+    setup_cli_logging("query", sys.argv[1:], DEFAULT_CONFIG_PATH)
     raise SystemExit(main())

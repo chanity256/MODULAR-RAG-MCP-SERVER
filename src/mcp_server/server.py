@@ -170,8 +170,21 @@ def build_default_protocol_handler(settings: Any | None = None) -> ProtocolHandl
 
 
 def main(stdin: TextIO | None = None, stdout: TextIO | None = None) -> int:
-    """模块级入口：``python -m mcp_server.server``。"""
-    return MCPServer(protocol_handler=build_default_protocol_handler()).serve(
+    """模块级入口：``python -m mcp_server.server``。
+
+    配置可加载时启用应用日志（stderr + ``logs/app/mcp-YYYY-MM-DD.log``，不碰 stdout）；
+    无配置时维持原行为启动。
+    """
+    from core.settings import ConfigError, load_settings
+    from observability.logger import setup_app_logging
+
+    try:
+        settings = load_settings()
+    except (ConfigError, FileNotFoundError, OSError):
+        settings = None
+    if settings is not None:
+        setup_app_logging(settings, "mcp")
+    return MCPServer(protocol_handler=build_default_protocol_handler(settings)).serve(
         stdin=stdin, stdout=stdout
     )
 

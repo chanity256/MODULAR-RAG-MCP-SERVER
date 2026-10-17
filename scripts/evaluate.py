@@ -593,4 +593,7 @@ def _run_agentic_mode(
 
 
 if __name__ == "__main__":
+    from observability.logger import setup_cli_logging
+
+    setup_cli_logging("evaluate", sys.argv[1:], DEFAULT_CONFIG_PATH)
     sys.exit(main())

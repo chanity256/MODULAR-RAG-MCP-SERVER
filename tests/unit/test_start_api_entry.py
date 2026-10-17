@@ -30,7 +30,29 @@ def test_disabled_by_default_refuses_to_start(run_calls, capsys):
 
 def test_force_starts_on_default_loopback(run_calls):
     assert start_api.main(["--force"]) == 0
-    assert run_calls == [{"host": "127.0.0.1", "port": 8600, "log_level": "info"}]
+    assert run_calls == [{"host": "127.0.0.1", "port": 8600, "log_level": "info", "log_config": None}]
+
+
+def test_start_enables_daily_app_log(run_calls, isolated_log_root):
+    import logging
+
+    from observability.logger import DailyFileHandler
+
+    assert start_api.main(["--force"]) == 0
+    handlers = [h for h in logging.getLogger().handlers if isinstance(h, DailyFileHandler)]
+    assert len(handlers) == 1
+    path = handlers[0].current_path
+    assert path.name.startswith("api-") and path.is_file()
+    assert path.resolve().is_relative_to(isolated_log_root.resolve())
+
+
+def test_refused_start_does_not_enable_app_log(run_calls):
+    import logging
+
+    from observability.logger import DailyFileHandler
+
+    assert start_api.main([]) == 2
+    assert not any(isinstance(h, DailyFileHandler) for h in logging.getLogger().handlers)
 
 
 def test_cli_overrides_host_and_port(run_calls, monkeypatch):
