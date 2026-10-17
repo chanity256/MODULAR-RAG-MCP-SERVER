@@ -99,6 +99,10 @@ traces.jsonl
 
 # Auto-coder skill cache
 .github/skills/auto-coder/.spec_hash
+.factory/skills/auto-coder/
+
+# Archify 工具产物
+.archify/
 
 # Secrets
 .env.local
