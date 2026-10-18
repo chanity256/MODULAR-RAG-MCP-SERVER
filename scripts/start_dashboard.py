@@ -25,17 +25,26 @@ import os
 import signal
 import subprocess
 import sys
-import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]
 _SRC = _ROOT / "src"
 _APP = _SRC / "observability" / "dashboard" / "app.py"
-SIDECAR_SCRIPT = _ROOT / "scripts" / "sirchmunk" / "start_sidecar.sh"
-SIDECAR_STARTUP_TIMEOUT_S = 60.0
 DEFAULT_CONFIG_PATH = _ROOT / "config" / "settings.yaml"
+
+# Sidecar 编排迁移到共享模块（WS0）；importlib 按路径加载本文件的测试
+# （test_start_dashboard.py）不会带 scripts/ 到 sys.path，这里自行补上。
+_SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+import sidecar_manager as _sidecar_manager  # noqa: E402
+from sidecar_manager import (  # noqa: E402,F401 -- 原样再导出，调用方与测试不受影响
+    SIDECAR_SCRIPT,
+    SIDECAR_STARTUP_TIMEOUT_S,
+    sidecar_healthy,
+    stop_sidecar,
+)
 
 DEPRECATION_NOTICE = (
     "[dashboard] DEPRECATED: Streamlit Dashboard 已弃用（legacy，仅维护不新增功能），请改用 Web UI：\n"
@@ -89,66 +98,17 @@ def resolve_port(args: argparse.Namespace) -> int:
 
 
 # --------------------------------------------------------------------- #
-# Sidecar 托管编排（S4+）：探活 → 拉起 → 等健康 → 随 Dashboard 退出回收
+# Sidecar 托管编排（S4+，WS0 起共享实现在 scripts/sidecar_manager.py）：
+# 探活 → 拉起 → 等健康 → 随 Dashboard 退出回收
 # --------------------------------------------------------------------- #
-def sidecar_healthy(base_url: str, timeout: float = 2.0) -> bool:
-    """探活 sidecar：任何 HTTP 响应（含 401 鉴权拒绝）都算进程存活。"""
-    try:
-        with urllib.request.urlopen(f"{base_url.rstrip('/')}/api/v1/search/status", timeout=timeout):
-            return True
-    except urllib.error.HTTPError:
-        return True  # 有响应即存活（无 token 时 401/500 也算）
-    except (urllib.error.URLError, TimeoutError, OSError):
-        return False
-
-
-def ensure_sidecar(settings: object, *, root: Path = _ROOT) -> subprocess.Popen | None:
-    """按配置确保 sidecar 就绪。
-
-    Returns:
-        本脚本拉起的 sidecar 进程（调用方负责在退出时终止）；
-        复用外部实例 / agentic 关闭 / 启动失败时返回 ``None``。
-    """
-    agentic = getattr(settings, "agentic_search")
-    if not getattr(agentic, "enabled", False):
-        print("[dashboard] agentic_search.enabled=false，跳过 sidecar")
-        return None
-    base_url = getattr(agentic, "base_url")
-    if sidecar_healthy(base_url):
-        print(f"[dashboard] sidecar 已在运行（{base_url}），直接复用")
-        return None
-    if not SIDECAR_SCRIPT.exists():
-        print(f"[dashboard] 警告：找不到 {SIDECAR_SCRIPT}，agentic 检索不可用，仅启动 Dashboard")
-        return None
-
-    print(f"[dashboard] 启动 sirchmunk sidecar（{base_url}）……")
-    proc = subprocess.Popen(["bash", str(SIDECAR_SCRIPT)], cwd=str(root))
-    deadline = time.monotonic() + SIDECAR_STARTUP_TIMEOUT_S
-    while time.monotonic() < deadline:
-        if sidecar_healthy(base_url):
-            print(f"[dashboard] sidecar 就绪（pid={proc.pid}）")
-            return proc
-        if proc.poll() is not None:
-            print(f"[dashboard] 警告：sidecar 启动脚本退出（exit={proc.returncode}），"
-                  "检查 .env-sirchmunk 与 venv；agentic 检索不可用，仅启动 Dashboard")
-            return None
-        time.sleep(1)
-    proc.terminate()
-    print("[dashboard] 警告：sidecar 启动超时，已终止；仅启动 Dashboard")
-    return None
-
-
-def stop_sidecar(proc: subprocess.Popen | None) -> None:
-    """回收本脚本拉起的 sidecar（先 TERM，10s 不退再 KILL）。"""
-    if proc is None or proc.poll() is not None:
-        return
-    print("[dashboard] 停止 sidecar……")
-    proc.terminate()
-    try:
-        proc.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait(timeout=5)
+def ensure_sidecar(settings: object, *, root: Path | None = None) -> subprocess.Popen | None:
+    """委托共享模块；probe/超时取本模块全局量，保持既有单测的 patch 面。"""
+    return _sidecar_manager.ensure_sidecar(
+        settings,
+        root=_ROOT if root is None else root,
+        probe=sidecar_healthy,
+        startup_timeout_s=SIDECAR_STARTUP_TIMEOUT_S,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
