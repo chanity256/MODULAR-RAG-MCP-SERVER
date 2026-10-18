@@ -162,3 +162,6 @@ api:
   static_dir: ./frontend/out
   tasks_db: ./data/db/tasks.db   # 后台任务（摄取/评估）状态持久化
   max_upload_mb: 100             # 单个上传文件大小上限（超出返回 413）
+  # WS2：Playground Deep 进度日志流式（WS /api/v1/search/ws）。默认 false：
+  # 流式命中 SX5.3 上游线程泄漏（每请求约 10 线程不回收），上游修复后再开启
+  deep_progress_stream: false

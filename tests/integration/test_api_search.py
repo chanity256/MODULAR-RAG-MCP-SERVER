@@ -1,4 +1,5 @@
-"""Query Playground REST：``POST /api/v1/search`` + ``GET /api/v1/search/capabilities``（WC9.4 后端）。
+"""Query Playground REST + WS：``POST /api/v1/search``、``GET /api/v1/search/capabilities``
+与 ``WS /api/v1/search/ws``（WC9.4 后端 / WEBUI_SIDECAR_SPEC WS2）。
 
 全部离线：注入 fake SearchService，或把 fake query/agentic tool 注入真实 SearchService
 以验证门控与归一化；零网络、零真实模型。
@@ -6,10 +7,13 @@
 
 from __future__ import annotations
 
+import json
+import threading
 from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from api.app import create_app
 from api.deps import ServiceContainer
@@ -32,6 +36,8 @@ class FakeSearch:
         self.allow_deep = allow_deep
         self.outcome = outcome
         self.calls: list[tuple] = []
+        self.stream_logs: list[tuple] = []
+        self.gate: threading.Event | None = None  # 非 None 时 run_stream 阻塞到 set
 
     def availability(self, settings=None):
         deep = self.enabled and self.allow_deep
@@ -52,6 +58,25 @@ class FakeSearch:
             citations=[{"id": 1, "source": "a.md", "page": 2, "score": 0.9, "text": "t"}],
             agentic_meta=meta,
             elapsed_ms=12.5,
+        )
+
+    def run_stream(self, mode, query, top_k=None, collection=None, *, on_event):
+        """SX5 契约同形：deep 走流式回调，其余模式回退 run（结果形态一致）。"""
+        self.calls.append(("stream", mode, query, top_k, collection))
+        for level, message, ts in self.stream_logs:
+            on_event(level, message, ts)
+        if self.gate is not None:
+            self.gate.wait(5)
+        if mode != "deep":
+            return self.run(mode, query, top_k=top_k, collection=collection)
+        if self.outcome is not None:
+            return self.outcome
+        return SearchOutcome(
+            mode="deep",
+            markdown=f"answer for {query}",
+            citations=[{"id": 1, "source": "a.md", "page": 2, "score": 0.9, "text": "t"}],
+            agentic_meta={"mode": "DEEP"},
+            elapsed_ms=8.0,
         )
 
 
@@ -226,3 +251,125 @@ class TestWithRealSearchService:
         client = make_client(self._service(enabled=True, allow_deep=True, agentic_tool=agentic_tool))
         body = post(client, mode="fast", query="q").json()
         assert body["is_error"] is True and body["error"] == "sidecar unavailable"
+
+
+class TestSearchWebsocket:
+    """``WS /api/v1/search/ws``（WS2）：门控拒绝、帧序列、cancel、门控预检。"""
+
+    @staticmethod
+    def _recv_until_closed(ws) -> list[dict]:
+        frames = []
+        try:
+            while True:
+                frames.append(json.loads(ws.receive_text()))
+        except WebSocketDisconnect:
+            pass
+        return frames
+
+    def test_gate_off_rejects_without_touching_service(self):
+        """默认 deep_progress_stream=false：error 帧 + 关闭，不进检索链路（SX5.3 门控）。"""
+        service = FakeSearch()
+        client = make_client(service, ApiSettings(deep_progress_stream=False))
+        with client.websocket_connect("/api/v1/search/ws") as ws:
+            frames = self._recv_until_closed(ws)
+        assert len(frames) == 1
+        assert frames[0]["type"] == "error" and frames[0]["code"] == "UNAVAILABLE"
+        assert "deep_progress_stream" in frames[0]["message"]
+        assert service.calls == []
+
+    def test_capabilities_reports_progress_stream(self):
+        off = make_client(FakeSearch()).get("/api/v1/search/capabilities").json()
+        on = make_client(FakeSearch(), ApiSettings(deep_progress_stream=True)).get(
+            "/api/v1/search/capabilities"
+        ).json()
+        assert off["progress_stream"] is False and on["progress_stream"] is True
+
+    def test_deep_stream_frames(self):
+        """开启后：search_log 逐条（0.5s 去重）→ search_result（对齐 SearchResponse）。"""
+        service = FakeSearch()
+        service.stream_logs = [("info", "analyzing", 1.5), ("info", "analyzing", 1.6), ("warning", "slow", None)]
+        client = make_client(service, ApiSettings(deep_progress_stream=True))
+        with client.websocket_connect("/api/v1/search/ws") as ws:
+            ws.send_text(json.dumps({"mode": "deep", "query": "q"}))
+            frames = self._recv_until_closed(ws)
+
+        assert [f["type"] for f in frames] == ["search_log", "search_log", "search_result"]
+        assert frames[0] == {
+            "type": "search_log", "task_id": frames[0]["task_id"], "level": "info",
+            "message": "analyzing", "timestamp": 1.5,
+        }
+        assert frames[0]["task_id"] == frames[1]["task_id"]
+        assert frames[1]["level"] == "warning" and "timestamp" not in frames[1]
+        result = frames[2]
+        assert result["mode"] == "deep" and result["query"] == "q"
+        assert result["markdown"] == "answer for q" and result["is_error"] is False
+        assert result["structured"]["agentic"] == {"mode": "DEEP"}
+        assert service.calls == [("stream", "deep", "q", None, None)]
+
+    def test_fast_mode_falls_back_to_run(self):
+        service = FakeSearch()
+        client = make_client(service, ApiSettings(deep_progress_stream=True))
+        with client.websocket_connect("/api/v1/search/ws") as ws:
+            ws.send_text(json.dumps({"mode": "fast", "query": "q"}))
+            frames = self._recv_until_closed(ws)
+        assert [f["type"] for f in frames] == ["search_result"]
+        assert frames[0]["mode"] == "fast" and frames[0]["is_error"] is False
+        assert service.calls == [("stream", "fast", "q", None, None), ("fast", "q", None, None)]
+
+    @pytest.mark.parametrize(
+        ("kwargs", "code"),
+        [({"enabled": False}, "AGENTIC_DISABLED"), ({"enabled": True, "allow_deep": False}, "DEEP_DISABLED")],
+    )
+    def test_mode_gating_rejected_before_service(self, kwargs, code):
+        """与 REST 同款门控预检：被拒请求不触达检索（构造不出错误结果）。"""
+        service = FakeSearch(**kwargs)
+        client = make_client(service, ApiSettings(deep_progress_stream=True))
+        with client.websocket_connect("/api/v1/search/ws") as ws:
+            ws.send_text(json.dumps({"mode": "deep", "query": "q"}))
+            frames = self._recv_until_closed(ws)
+        assert frames[0]["type"] == "error" and frames[0]["code"] == code
+        assert service.calls == []
+
+    def test_invalid_start_frame_is_bad_request(self):
+        client = make_client(FakeSearch(), ApiSettings(deep_progress_stream=True))
+        with client.websocket_connect("/api/v1/search/ws") as ws:
+            ws.send_text(json.dumps({"query": "   "}))
+            frames = self._recv_until_closed(ws)
+        assert frames[0]["type"] == "error" and frames[0]["code"] == "BAD_REQUEST"
+
+    def test_cancel_before_search_is_noop(self):
+        client = make_client(FakeSearch(), ApiSettings(deep_progress_stream=True))
+        with client.websocket_connect("/api/v1/search/ws") as ws:
+            ws.send_text(json.dumps({"type": "cancel"}))
+            frames = self._recv_until_closed(ws)
+        assert frames == []
+
+    def test_cancel_during_search_discards_result(self):
+        """cancel 后进度停止、结果帧被丢弃（阻塞中的检索不可中断，只丢弃）。"""
+        service = FakeSearch()
+        service.stream_logs = [("info", "step1", None)]
+        gate = threading.Event()
+        service.gate = gate
+        client = make_client(service, ApiSettings(deep_progress_stream=True))
+        with client.websocket_connect("/api/v1/search/ws") as ws:
+            ws.send_text(json.dumps({"mode": "deep", "query": "q"}))
+            assert json.loads(ws.receive_text())["message"] == "step1"
+            ws.send_text(json.dumps({"type": "cancel"}))
+            gate.set()
+            frames = self._recv_until_closed(ws)
+        assert all(f["type"] != "search_result" for f in frames)
+        assert all(f["type"] != "search_log" for f in frames)
+
+    def test_second_start_frame_is_violation(self):
+        """轮进行中再收到检索帧 = 协议违例：error 帧 + 不发结果 + 1008 关闭。"""
+        service = FakeSearch()
+        gate = threading.Event()
+        service.gate = gate
+        client = make_client(service, ApiSettings(deep_progress_stream=True))
+        with client.websocket_connect("/api/v1/search/ws") as ws:
+            ws.send_text(json.dumps({"mode": "deep", "query": "q"}))
+            ws.send_text(json.dumps({"mode": "deep", "query": "again"}))
+            gate.set()
+            frames = self._recv_until_closed(ws)
+        assert frames[0]["type"] == "error" and frames[0]["code"] == "BAD_REQUEST"
+        assert all(f["type"] != "search_result" for f in frames)

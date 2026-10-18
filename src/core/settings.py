@@ -308,6 +308,10 @@ class ApiSettings:
     static_dir: str = "./frontend/out"
     tasks_db: str = "./data/db/tasks.db"
     max_upload_mb: int = 100
+    # WS2：Playground Deep 进度日志流式端点（WS /api/v1/search/ws）开关。
+    # 默认 false：run_stream 走 sidecar search_stream，命中 SX5.3 上游线程泄漏
+    # （每请求约 10 线程不回收），上游修复并验证回落后再建议开启。
+    deep_progress_stream: bool = False
 
 
 @dataclass
@@ -970,6 +974,7 @@ def _build_api(sec: dict[str, Any]) -> ApiSettings:
         static_dir=_text("static_dir", defaults.static_dir),
         tasks_db=_text("tasks_db", defaults.tasks_db),
         max_upload_mb=max_upload_mb,
+        deep_progress_stream=_flag("deep_progress_stream", defaults.deep_progress_stream),
     )
 
 

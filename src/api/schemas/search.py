@@ -1,4 +1,5 @@
-"""Query Playground 协议模型：``POST /search`` 与 ``GET /search/capabilities``（WC9.4）。"""
+"""Query Playground 协议模型：``POST /search``、``GET /search/capabilities`` 与
+``WS /search/ws``（WC9.4 / WEBUI_SIDECAR_SPEC WS2）。"""
 
 from __future__ import annotations
 
@@ -6,7 +7,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, field_validator
 
-__all__ = ["ModeStatus", "SearchCapabilities", "SearchRequest", "SearchResponse"]
+__all__ = [
+    "ModeStatus",
+    "SearchCapabilities",
+    "SearchCancelFrame",
+    "SearchRequest",
+    "SearchResponse",
+    "SearchStartFrame",
+]
 
 SearchMode = Literal["normal", "fast", "deep"]
 
@@ -60,3 +68,21 @@ class SearchCapabilities(BaseModel):
     agentic_enabled: bool = Field(description="agentic_search.enabled (fast available)")
     allow_deep: bool = Field(description="agentic_search.allow_deep AND enabled (deep available)")
     availability: dict[str, ModeStatus]
+    # WS2：api.deep_progress_stream——WS /search/ws 是否可用（默认 false，SX5.3 门控）。
+    progress_stream: bool = Field(default=False, description="api.deep_progress_stream (WS /search/ws)")
+
+
+class SearchStartFrame(SearchRequest):
+    """WS /search/ws 上行首帧：与 REST ``SearchRequest`` 同形（无 type 字段）。
+
+    端点侧先识别 ``{"type": "cancel"}``（:class:`SearchCancelFrame`），其余帧按本
+    模型校验；``extra=forbid`` 继承自 SearchRequest，拼错字段名会被拒绝。
+    """
+
+
+class SearchCancelFrame(BaseModel):
+    """WS /search/ws 上行取消帧（与 chat 的 cancel 帧同形；检索不可中断，结果被丢弃）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["cancel"]

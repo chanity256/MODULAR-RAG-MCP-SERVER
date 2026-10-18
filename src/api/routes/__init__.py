@@ -39,4 +39,5 @@ def build_v1_ws_router() -> APIRouter:
     router = APIRouter(prefix=API_PREFIX)
     router.include_router(tasks.ws_router)
     router.include_router(chat.ws_router)
+    router.include_router(search.ws_router)
     return router
