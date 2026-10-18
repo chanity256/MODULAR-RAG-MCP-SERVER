@@ -1,10 +1,10 @@
 # Sirchmunk WebUI / Chat 复用分析
 
-> 状态：分析文档，非可执行排期｜分析日期：2026-10-14｜参考基线：sirchmunk `b314e11`（与 [SIRCHMUNK_EXTENSION_SPEC_frozen](../frozen/SIRCHMUNK_EXTENSION_SPEC_frozen.md) 源码实证基线一致，本文 file:line 均相对 `sirchmunk/src/sirchmunk/` 与 `sirchmunk/web/`）
+> 状态：分析文档，非可执行排期｜分析日期：2026-10-14｜参考基线：sirchmunk `b314e11`（与 [SIRCHMUNK_EXTENSION_SPEC_frozen](../frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md) 源码实证基线一致，本文 file:line 均相对 `sirchmunk/src/sirchmunk/` 与 `sirchmunk/web/`）
 >
-> **后续**：已立项为 [frozen/WEBUI_CHAT_SPEC_frozen.md](../frozen/WEBUI_CHAT_SPEC_frozen.md)（WC 系列），其 §1.2 含对本文的五处勘误（主链路无 LLM 生成步骤、LLM 层无流式能力、前端实为 Next 16/React 19、`relevance_score` 硬编码、三步法触发条件不对称），以该规格为准。
+> **后续**：已立项为 [frozen/06_WEBUI_CHAT_SPEC_frozen.md](../frozen/06_WEBUI_CHAT_SPEC_frozen.md)（WC 系列），其 §1.2 含对本文的五处勘误（主链路无 LLM 生成步骤、LLM 层无流式能力、前端实为 Next 16/React 19、`relevance_score` 硬编码、三步法触发条件不对称），以该规格为准。
 >
-> 关联文档：[dashboard-api-migration.md](../backlog/dashboard-api-migration.md)（Dashboard 前后端分离迁移提案，P1–P6）、[MICROSERVICES_ANALYSIS.md](MICROSERVICES_ANALYSIS.md)（架构演进方向）
+> 关联文档：[dashboard-api-migration_backlog_frozen.md](../frozen/dashboard-api-migration_backlog_frozen.md)（Dashboard 前后端分离迁移提案，P1–P6）、[MICROSERVICES_ANALYSIS.md](MICROSERVICES_ANALYSIS.md)（架构演进方向）
 
 ---
 

@@ -3,7 +3,7 @@
 > **性质**：WEBUI_CHAT_SPEC **WC10.1**（backlog `dashboard-api-migration.md` P6 退役门槛的第一条）的核验记录，非可执行排期。
 > **日期**：2026-10-14　**核验对象**：Streamlit 七页面（`src/observability/dashboard/pages/*.py`）↔ Next 页面（`frontend/app/*`、`frontend/components/*`、`frontend/lib/*`）↔ 其背后的 API 路由（`src/api/routes/*`）。
 > **方法**：逐页通读两侧实现与 API 路由后逐项对照，不凭印象；每条结论可在列出的文件中复核。
-> **结论一句话**：七页面的**数据含义与操作主流程全部等价**，另有多处改进；发现 **1 项 Medium、4 项 Low** 缺口与 **1 项运维提示**；其中 L2（Chat 阶段面板）已在核验中直接修复，其余均不阻塞「双轨并存」。Medium 项（Deep 进度日志）是**有意取舍**，需用户拍板后才能谈 Streamlit 删除。遗留项另记入 [backlog/webui-parity-followups.md](../backlog/webui-parity-followups.md)。
+> **结论一句话**：七页面的**数据含义与操作主流程全部等价**，另有多处改进；发现 **1 项 Medium、4 项 Low** 缺口与 **1 项运维提示**；其中 L2（Chat 阶段面板）已在核验中直接修复，其余均不阻塞「双轨并存」。Medium 项（Deep 进度日志）是**有意取舍**，需用户拍板后才能谈 Streamlit 删除。遗留项另记入 [backlog/webui-parity-followups_backlog.md](../backlog/webui-parity-followups_backlog.md)。
 
 ## 1. 状态图例
 

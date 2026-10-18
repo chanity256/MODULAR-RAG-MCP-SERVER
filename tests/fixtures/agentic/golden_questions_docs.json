@@ -11,7 +11,7 @@
       "id": "D2",
       "category": "doc_navigation",
       "query": "When the ingestion history database is upgraded to the v2 table, what happens to the old table, and how is that migration rolled back if something goes wrong? Why is there no automatic rollback command?",
-      "expected_sources": ["docs/frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md"]
+      "expected_sources": ["docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md"]
     },
     {
       "id": "D3",
@@ -23,7 +23,7 @@
       "id": "D4",
       "category": "doc_navigation",
       "query": "Does retrying previously failed files resume ingestion from the failed stage? If a store-stage failure exhausts its retries, how are the separate stores brought back to a consistent state, and what happens if that cleanup itself fails?",
-      "expected_sources": ["docs/frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md"]
+      "expected_sources": ["docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md"]
     }
   ]
 }

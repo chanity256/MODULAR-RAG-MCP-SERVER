@@ -29,15 +29,15 @@
 
     {"id": "P3-seed", "group": "P3", "role": "seed", "category": "doc_navigation",
      "query": "When the ingestion history database is upgraded to the v2 table, what happens to the old table, and how is that migration rolled back if something goes wrong? Why is there no automatic rollback command?",
-     "expected_sources": ["docs/frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md"], "answer_should_contain": "ingestion_history"},
+     "expected_sources": ["docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md"], "answer_should_contain": "ingestion_history"},
     {"id": "P3-repeat", "group": "P3", "role": "repeat", "category": "doc_navigation",
      "query": "When the ingestion history database is upgraded to the v2 table, what happens to the old table, and how is that migration rolled back if something goes wrong? Why is there no automatic rollback command?",
-     "expected_sources": ["docs/frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md"], "answer_should_contain": "ingestion_history"},
+     "expected_sources": ["docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md"], "answer_should_contain": "ingestion_history"},
     {"id": "P3-reword", "group": "P3", "role": "reword", "category": "doc_navigation",
      "query": "During the v2 migration of the ingestion history store, how is the legacy table treated, what is the manual way to undo the migration, and why is no rollback command provided?",
-     "expected_sources": ["docs/frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md"], "answer_should_contain": "ingestion_history"},
+     "expected_sources": ["docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md"], "answer_should_contain": "ingestion_history"},
     {"id": "P3-distractor", "group": "P3", "role": "distractor", "category": "doc_navigation",
      "query": "Which ingestion errors are classified as retryable, and what backoff does the ingestion pipeline apply between retries?",
-     "expected_sources": ["docs/frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md"], "answer_should_contain": "backoff"}
+     "expected_sources": ["docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md"], "answer_should_contain": "backoff"}
   ]
 }

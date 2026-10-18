@@ -1,7 +1,7 @@
 # 项目使用指南（含 Sirchmunk Agentic 检索）
 
 > 本文档是速查手册，覆盖：① 主项目（Indexed RAG）基本用法；② Sirchmunk sidecar 的启动与 `agentic_search` 工具用法；③ Web UI（FastAPI + Next）与 Chat（第 10 章，Streamlit 已降为 legacy）。
-> 详细设计见 [README.md](../../README.md)、[SIRCHMUNK_INTEGRATION_SPEC_frozen.md](../frozen/SIRCHMUNK_INTEGRATION_SPEC_frozen.md)。
+> 详细设计见 [README.md](../../README.md)、[03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md](../frozen/03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md)。
 
 ---
 
@@ -49,7 +49,7 @@ Sirchmunk sidecar（独立 venv + 独立进程，127.0.0.1:8584 + Bearer）
 
 ### 2.1 目录结构速览
 
-树形总览（格式对齐 [DEV_SPEC 5.2](../frozen/DEV_SPEC_frozen.md)）：
+树形总览（格式对齐 [DEV_SPEC 5.2](../frozen/01_DEV_SPEC_frozen.md)）：
 
 ```
 Modular-RAG-MCP-Server/
@@ -117,7 +117,7 @@ python scripts/ingest.py --collection default --retry-failed                    
 - **退出码**：`0` 全部成功或跳过；`1` 有文件失败；`2` 用法或配置错误。
 - **可选配置**：`ingestion.retry`（缺省不重试）、`ingestion.version_policy`（缺省 `auto`），样例见 `config/settings.yaml` 注释。
 
-产物：Chroma 向量库（`data/db/chroma/`）、BM25 索引（`data/db/bm25/`）、图片索引与摄取历史（`data/db/`）。摄取历史表为 `ingestion_history_v2`，首次打开旧库时自动迁移，旧表改名 `ingestion_history_legacy_backup` 保留（需回滚时手工改回表名）。设计见 [INGESTION_ROBUSTNESS_SPEC_frozen.md](../frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md)。
+产物：Chroma 向量库（`data/db/chroma/`）、BM25 索引（`data/db/bm25/`）、图片索引与摄取历史（`data/db/`）。摄取历史表为 `ingestion_history_v2`，首次打开旧库时自动迁移，旧表改名 `ingestion_history_legacy_backup` 保留（需回滚时手工改回表名）。设计见 [04_INGESTION_ROBUSTNESS_SPEC_frozen.md](../frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md)。
 
 ### 2.3 查询
 
@@ -196,7 +196,7 @@ Dashboard 导航「检索」分组 → 「在线检索」：三模式在线查�
 
 ### 2.8 日志与追踪
 
-日志分两层，都按**本地日期**切分，默认保留 30 天（设计见 [LOGGING_SPEC_frozen](../frozen/LOGGING_SPEC_frozen.md)）：
+日志分两层，都按**本地日期**切分，默认保留 30 天（设计见 [LOGGING_SPEC_frozen](../frozen/07_LOGGING_SPEC_frozen.md)）：
 
 | 层 | 位置 | 内容 | 谁读 |
 |---|---|---|---|
@@ -236,7 +236,7 @@ Sirchmunk 是 modelscope 开源的「**无索引 Agentic 检索**」引擎：用
 
 **代价**：FAST 模式约 2–5s，DEEP 模式数十秒；每次查询 2~N 次 LLM 调用（有 Token 成本）；结果非确定性。
 
-**当前状态**：主项目侧适配（S1）已完成并合入；sidecar 已在 2026-10-05 实际跑通并完成旁路对比，**闸门 G0 未通过**，`agentic_search` 保持 `enabled: false` 默认关闭。G0 终裁后经显式指令重启：S2（HybridSearch 可选第三路 + `--agentic` CLI）与 S3（source 级 A/B 评估框架 + Dashboard agentic 展示）均已交付（2026-10-06），但**默认关闭口径不变**，真实 sidecar A/B 实测数据未执行（受 `RAG_AGENTIC_INTEGRATION` 门控与 G0 结论约束）。结论与数据见 `SIRCHMUNK_INTEGRATION_SPEC_frozen.md` 第 7 章与 S3 阶段进度备注。
+**当前状态**：主项目侧适配（S1）已完成并合入；sidecar 已在 2026-10-05 实际跑通并完成旁路对比，**闸门 G0 未通过**，`agentic_search` 保持 `enabled: false` 默认关闭。G0 终裁后经显式指令重启：S2（HybridSearch 可选第三路 + `--agentic` CLI）与 S3（source 级 A/B 评估框架 + Dashboard agentic 展示）均已交付（2026-10-06），但**默认关闭口径不变**，真实 sidecar A/B 实测数据未执行（受 `RAG_AGENTIC_INTEGRATION` 门控与 G0 结论约束）。结论与数据见 `03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md` 第 7 章与 S3 阶段进度备注。
 
 ---
 
@@ -425,7 +425,7 @@ RAG_AGENTIC_INTEGRATION=1 pytest tests/e2e/test_agentic_mcp.py -v   # 真实 sid
 
 ## 10. Web UI 与 Chat
 
-Web UI 是主界面：`src/api/`（FastAPI）+ `frontend/`（Next 静态导出，单端口托管）。Chat（多轮对话 + RAG 有据回答）为首页，另有七个管理页面（Overview / Ingestion Traces / Query Traces / Data Browser / Ingestion Manager / Evaluation / Query Playground），与旧 Streamlit 七页逐项对照见 [WEBUI_PARITY_AUDIT.md](../analysis/WEBUI_PARITY_AUDIT.md)。设计与决策见 [WEBUI_CHAT_SPEC.md](../frozen/WEBUI_CHAT_SPEC_frozen.md)。
+Web UI 是主界面：`src/api/`（FastAPI）+ `frontend/`（Next 静态导出，单端口托管）。Chat（多轮对话 + RAG 有据回答）为首页，另有七个管理页面（Overview / Ingestion Traces / Query Traces / Data Browser / Ingestion Manager / Evaluation / Query Playground），与旧 Streamlit 七页逐项对照见 [WEBUI_PARITY_AUDIT.md](../analysis/WEBUI_PARITY_AUDIT.md)。设计与决策见 [06_WEBUI_CHAT_SPEC_frozen.md](../frozen/06_WEBUI_CHAT_SPEC_frozen.md)。
 
 ### 10.1 快速开始
 
@@ -552,7 +552,7 @@ chat:
 
 ### 10.6 `agentic_progress_stream` 与 sidecar 线程泄漏警告
 
-sirchmunk sidecar 的**流式端点**每次请求新建 `KnowledgeStorage` 且不关闭，每次稳定泄漏约 10 个线程（9 个 DuckDB 工作线程 + 1 个 parquet 同步线程），空闲后不回收（SX5.3 实测，上游缺陷，按「不改上游」红线不修；见 [sirchmunk-extension-followups.md](../backlog/sirchmunk-extension-followups.md) #1）。因此：
+sirchmunk sidecar 的**流式端点**每次请求新建 `KnowledgeStorage` 且不关闭，每次稳定泄漏约 10 个线程（9 个 DuckDB 工作线程 + 1 个 parquet 同步线程），空闲后不回收（SX5.3 实测，上游缺陷，按「不改上游」红线不修；见 [sirchmunk-extension-followups_backlog.md](../backlog/sirchmunk-extension-followups_backlog.md) #1）。因此：
 
 - `chat.agentic_progress_stream` **默认 `false`**：Chat 的 agentic 模式走同步 `search()`，不受影响，代价是没有 `search_log` 进度帧。
 - 设为 `true` 才改走流式并把 sidecar 日志转 `search_log` 帧；**大量使用后需重启 sidecar**。
@@ -588,9 +588,9 @@ Playwright 流程跑在 `tests/e2e_web/fake_api_server.py` 上：真实 FastAPI 
 
 状态：**已弃用，保留可用**。`python scripts/start_dashboard.py` 照常启动，仅在 stderr 打印弃用提示；Streamlit 页面代码与测试（`tests/e2e/test_dashboard_smoke.py` 等）均保留。它不再新增功能，只修阻断性缺陷。MCP stdio server 与 Streamlit **完全无依赖关系**（`src/mcp_server/` 不 import dashboard），删除或启动与否都不影响 MCP。
 
-**删除条件**（须全部满足，且由使用者显式下令；对应 backlog `dashboard-api-migration.md` P6 退役门槛）：
+**删除条件**（须全部满足，且由使用者显式下令；对应 `dashboard-api-migration_backlog_frozen.md` P6 退役门槛）：
 
-1. [WEBUI_PARITY_AUDIT.md](../analysis/WEBUI_PARITY_AUDIT.md) 的缺口已补齐或明确放弃，遗留项见 [webui-parity-followups.md](../backlog/webui-parity-followups.md)（尤其 Deep 进度日志与 sidecar 托管编排——后者目前是「Streamlit 独有逻辑」）；
+1. [WEBUI_PARITY_AUDIT.md](../analysis/WEBUI_PARITY_AUDIT.md) 的缺口已补齐或明确放弃，遗留项见 [webui-parity-followups_backlog.md](../backlog/webui-parity-followups_backlog.md)（尤其 Deep 进度日志与 sidecar 托管编排——后者目前是「Streamlit 独有逻辑」）；
 2. WC10.3 门控冒烟通过（已于 2026-10-15 通过），WEBUI_CHAT_SPEC 已冻结；
 3. Python、API、前端与 Playwright 测试全部通过；
 4. Web UI 已稳定使用一段时间，使用者确认不再依赖 Streamlit。

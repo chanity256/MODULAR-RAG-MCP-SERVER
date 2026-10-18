@@ -3,20 +3,20 @@
 
 > **📌 冻结记录**
 >
-> - 冻结时间：2026-10-06（移入 docs/frozen/，重命名为 DEV_SPEC_frozen.md）
-> - 完成概要：主规格，阶段 A–I 共 68 项任务全部收口——PDF 摄取、Loader/Splitter/Embed 管线、Chroma + BM25 双路召回与 RRF 融合、可选 Rerank、MCP Server（stdio JSON-RPC）、Streamlit Dashboard、评估与 E2E；验收缺口 G1–G3 关闭（见 [ACCEPTANCE_GAPS_frozen.md](ACCEPTANCE_GAPS_frozen.md)）。
+> - 冻结时间：2026-10-06（移入 docs/frozen/，重命名为 01_DEV_SPEC_frozen.md）
+> - 完成概要：主规格，阶段 A–I 共 68 项任务全部收口——PDF 摄取、Loader/Splitter/Embed 管线、Chroma + BM25 双路召回与 RRF 融合、可选 Rerank、MCP Server（stdio JSON-RPC）、Streamlit Dashboard、评估与 E2E；验收缺口 G1–G3 关闭（见 [02_ACCEPTANCE_GAPS_frozen.md](02_ACCEPTANCE_GAPS_frozen.md)）。
 
 > 版本：0.1 — 文档结构草案
 
 > **📌 收口备注（2026-10-06）**
 >
-> 本规格的**历史任务已全部结束**：第 6 章排期中阶段 A–I 共 68 项任务全部 `[x]` 完成，验收缺口 G1–G3（PDF fixtures 恢复与摄取、非空库查询命中、golden set 回填与评估非零）亦已落地（见 [ACCEPTANCE_GAPS_frozen.md](ACCEPTANCE_GAPS_frozen.md)）。
+> 本规格的**历史任务已全部结束**：第 6 章排期中阶段 A–I 共 68 项任务全部 `[x]` 完成，验收缺口 G1–G3（PDF fixtures 恢复与摄取、非空库查询命中、golden set 回填与评估非零）亦已落地（见 [02_ACCEPTANCE_GAPS_frozen.md](02_ACCEPTANCE_GAPS_frozen.md)）。
 >
 > **本文档自此冻结为架构与设计参考**，排期表不再新增或改动任务。后续增量工作转入独立规格跟踪：
 >
-> - [OBSIDIAN_RAG_SPEC.md](../backlog/OBSIDIAN_RAG_SPEC.md) — Obsidian 多格式解析（V 系列增量）
-> - [SIRCHMUNK_INTEGRATION_SPEC_frozen.md](SIRCHMUNK_INTEGRATION_SPEC_frozen.md) — Sirchmunk Agentic 检索整合（S 系列，S0–S1 已收口，G0 未通过、S2/S3 门控未启动）
-> - [ACCEPTANCE_GAPS_frozen.md](ACCEPTANCE_GAPS_frozen.md) — 验收缺口台账（G1–G3 已关闭）
+> - [OBSIDIAN_RAG_SPEC_backlog.md](../backlog/OBSIDIAN_RAG_SPEC_backlog.md) — Obsidian 多格式解析（V 系列增量）
+> - [03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md](03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md) — Sirchmunk Agentic 检索整合（S 系列，S0–S1 已收口，G0 未通过、S2/S3 门控未启动）
+> - [02_ACCEPTANCE_GAPS_frozen.md](02_ACCEPTANCE_GAPS_frozen.md) — 验收缺口台账（G1–G3 已关闭）
 
 ## 目录
 

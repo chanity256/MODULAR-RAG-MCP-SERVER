@@ -2,14 +2,14 @@
 
 > **📌 冻结记录**
 >
-> - 冻结时间：2026-10-15（WC0–WC10 全部交付收口，移入 docs/frozen/，重命名为 WEBUI_CHAT_SPEC_frozen.md）
+> - 冻结时间：2026-10-15（WC0–WC10 全部交付收口，移入 docs/frozen/，重命名为 06_WEBUI_CHAT_SPEC_frozen.md）
 > - 交付范围：FastAPI API 层（`src/api/`）、Next 16 静态导出前端（`frontend/`）、多轮 Chat（`src/core/chat/`，WS 真流式、有据回答、hybrid/agentic 路由）、七页面迁移、Playwright 20 流程。收口时基线：全量离线 2403 passed / 11 skipped（含 8 个门控冒烟）；vitest 246；e2e_web 20/20。
 > - WC10.3 门控冒烟（2026-10-15）：Chat 4/4（DeepSeek）、agentic 4/4（真实 sidecar）。实测观察：①真实流的帧序为 session → status → search_complete → sources → status{generating} → stream×n → result，status 帧穿插在 search_complete/sources 前后，门控测试只校验非 status 帧的相对顺序；②sidecar 未带 token 时，上游 `auth_middleware` 的 401 被 BaseHTTPMiddleware 包成 HTTP 500（INTERNAL_ERROR），表象像 sidecar 内部错误，实为 `SIRCHMUNK_API_TOKEN` 未传给主项目；③DeepSeek 偶发 IncompleteRead / 排队延迟，属上游抖动，重试即过。
-> - 遗留（不阻塞，见 [webui-parity-followups.md](../backlog/webui-parity-followups.md)）：M1 Deep 进度通道、L1 sidecar 托管编排并入 start_api、`api.enabled` 默认值待定；Streamlit 保留为 legacy，删除条件见 USAGE_GUIDE §10.9。
+> - 遗留（不阻塞，见 [webui-parity-followups_backlog.md](../backlog/webui-parity-followups_backlog.md)）：M1 Deep 进度通道、L1 sidecar 托管编排并入 start_api、`api.enabled` 默认值待定；Streamlit 保留为 legacy，删除条件见 USAGE_GUIDE §10.9。
 
-> 状态：**已冻结**（WC0–WC10 全部交付收口，2026-10-15）｜立项日期：2026-10-14｜上游参考基线：sirchmunk `b314e11`（与 [SIRCHMUNK_EXTENSION_SPEC_frozen](SIRCHMUNK_EXTENSION_SPEC_frozen.md) 一致，本文 file:line 均相对 `sirchmunk/src/sirchmunk/` 与 `sirchmunk/web/`）
+> 状态：**已冻结**（WC0–WC10 全部交付收口，2026-10-15）｜立项日期：2026-10-14｜上游参考基线：sirchmunk `b314e11`（与 [SIRCHMUNK_EXTENSION_SPEC_frozen](05_SIRCHMUNK_EXTENSION_SPEC_frozen.md) 一致，本文 file:line 均相对 `sirchmunk/src/sirchmunk/` 与 `sirchmunk/web/`）
 >
-> 决策依据：[backlog/dashboard-api-migration.md](../backlog/dashboard-api-migration.md)（Dashboard 迁移提案 P1–P6）、[analysis/SIRCHMUNK_WEBUI_CHAT_REUSE_ANALYSIS.md](../analysis/SIRCHMUNK_WEBUI_CHAT_REUSE_ANALYSIS.md)（WebUI/Chat 复用分析）。本规格对前者有一处选型推翻（第 3 章 D1），对后者有五处勘误（§1.2）。
+> 决策依据：[frozen/dashboard-api-migration_backlog_frozen.md](dashboard-api-migration_backlog_frozen.md)（Dashboard 迁移提案 P1–P6）、[analysis/SIRCHMUNK_WEBUI_CHAT_REUSE_ANALYSIS.md](../analysis/SIRCHMUNK_WEBUI_CHAT_REUSE_ANALYSIS.md)（WebUI/Chat 复用分析）。本规格对前者有一处选型推翻（第 3 章 D1），对后者有五处勘误（§1.2）。
 >
 > 红线不变：主 venv 永不 `import sirchmunk`（sidecar 只经 HTTP 访问）；MCP server 的 stdout 只输出合法 JSON-RPC；MCP tools 契约不动。
 
@@ -34,7 +34,7 @@
 
 本项目 Web 层现状是 Streamlit Dashboard（`src/observability/dashboard/`，七个页面，Python 约 1.7k 行）：单用户、与核心管线同进程直调、无认证、长任务绑定 rerun。两条已知演进线合并立项：
 
-1. **前后端分离迁移**（backlog `dashboard-api-migration.md` 的 P1–P6 实施包）；
+1. **前后端分离迁移**（`dashboard-api-migration_backlog_frozen.md` 的 P1–P6 实施包，原 backlog 提案已随本规格收口移入 frozen/）；
 2. **Chat 功能**（多轮对话 + RAG 有据回答），backlog 提案未覆盖的新能力。
 
 上游 sirchmunk 自带完整的 WebUI + Chat 实现（FastAPI + WebSocket 后端、Next.js 静态导出前端、单端口托管），可移植其**模式与前端代码**（Apache-2.0）；其**后端不可照抄**——API 层与搜索引擎同进程直连，本项目对应通道是 `src/libs/agentic_search/http_backend.py`。
@@ -265,7 +265,7 @@ Query Traces 页面现状不支持按来源过滤（只有关键字搜索，`src
 5. **上游 WS 鉴权**支持查询参数与 header 两种（`security.py:52-61`）；chat WS 在 `GlobalContext.tsx:654-656` 用 `?token=`（`:371-373` 是 question WS 的同款写法）。本项目同款，但 token 恒经环境变量 `RAG_API_TOKEN` 解析、不落盘（对齐 `agentic_search.api_token` 既有语义），且未解析占位符按空处理（§4.2）。
 6. **静态导出 SPA 回退**：Next 静态导出为路由生成目录但目录内无 index.html，Starlette `StaticFiles(html=True)` 会 404，需中间件按路由表回退到对应 `.html`（上游 `main.py:210-228` 已踩平此坑）。
 7. **FastAPI 对未知字段静默丢弃**（SX 规格 §4.7 既有教训）：本规格 WS 上行帧用 Pydantic 模型校验，未知键拒绝而非忽略；`include_patterns`/`exclude_patterns` 字段名陷阱继续适用。
-8. **流式线程泄漏**（SX5.3 证实）：`agentic_progress_stream` 默认 false 的直接原因（§4.6）；上游修复方向见 `docs/backlog/sirchmunk-extension-followups.md`。
+8. **流式线程泄漏**（SX5.3 证实）：`agentic_progress_stream` 默认 false 的直接原因（§4.6）；上游修复方向见 `docs/backlog/sirchmunk-extension-followups_backlog.md`。
 9. **上游 chat 历史读取有内存缓存**（模块级 `chat_sessions` dict，`chat.py:268`；`_build_chat_history` 先读缓存、未命中再 `history_storage.get_recent_messages` 兜底，`chat.py:121-147`）；本项目 SessionStore 每轮直接读 SQLite（单机本地、延迟可忽略），不引入第二层缓存状态。
 10. **上游 `sources.rag` 与 `references` 分离**：前者是假评分卡片，后者才是真实 evidence（`_run_rag_search`，`chat.py:820-841`）。本项目只保留 citations 一种（§4.9）。
 
@@ -397,9 +397,9 @@ WC5（chat_stream + AnswerGenerator）──► WC6（Chat 核心）──► WC
 | WC9.3 | 评估面板页迁移 | [x] | 2026-10-14 | Evaluation 页（提交/进度/指标/逐 query 表/历史） |
 | WC9.4 | Query Playground 页迁移（三模式对比 + telemetry 展示，REST 复用 `SearchService`；决定 normal 模式是否委托 `QueryService`） | [x] | 2026-10-14 | D8；backlog 提案早于 S4.1，未列此页；后端部分已交付：POST /api/v1/search + GET /api/v1/search/capabilities（封装 SearchService），页面待做；页面完成（按模式保留最近结果切换对比）；Query Traces 页改用服务端 routes 过滤；normal 模式仍保持 SearchService 链路（未委托 QueryService） |
 | WC9.5 | Playwright 关键用户流程 | [x] | 2026-10-14 | ；frontend/e2e 20 流程（chat/dashboard/data-browser/ingestion/evaluation/playground/auth）对 tests/e2e_web/fake_api_server.py 离线运行，`cd frontend && npm run build && npm run e2e`；默认 pytest/vitest 不触发 |
-| WC10.1 | P6 双轨功能等价核验（七页面逐项对照） | [x] | 2026-10-15 | backlog P6 退役门槛（原文「六页」按七页执行）；七页逐项对照见 docs/analysis/WEBUI_PARITY_AUDIT.md；遗留差异入 docs/backlog/webui-parity-followups.md（均不阻塞）；顺带修 Query Traces chat 阶段面板 |
+| WC10.1 | P6 双轨功能等价核验（七页面逐项对照） | [x] | 2026-10-15 | backlog P6 退役门槛（原文「六页」按七页执行）；七页逐项对照见 docs/analysis/WEBUI_PARITY_AUDIT.md；遗留差异入 docs/backlog/webui-parity-followups_backlog.md（均不阻塞）；顺带修 Query Traces chat 阶段面板 |
 | WC10.2 | Streamlit 退役：启动脚本/README/部署说明更新，确认 MCP stdio 不受影响 | [x] | 2026-10-15 | 非物理删除：start_dashboard 弃用提示（stderr）+ README/USAGE_GUIDE 以 Web UI 为主、Streamlit 标 legacy（删除条件见 USAGE_GUIDE §10.9）；MCP stdio 子集 16 passed |
 | WC10.3 | 门控冒烟：`RAG_CHAT_INTEGRATION=1` 多轮 + `RAG_AGENTIC_INTEGRATION=1` agentic 路由 | [x] | 2026-10-15 | tests/e2e/test_chat_real_integration.py 4/4（DeepSeek deepseek-chat，经 `RAG_CHAT_LLM_PROVIDER/_MODEL/_BASE_URL/_API_KEY` 覆盖）+ test_chat_agentic_real_integration.py 4/4（真实 sidecar，需 `SIRCHMUNK_API_TOKEN`）；默认全 skip。实测观察见冻结记录 |
-| WC10.4 | 文档收口：USAGE_GUIDE / README 使用说明、规格任务表收口、冻结流程启动 | [x] | 2026-10-15 | USAGE_GUIDE §10 / README / MOC / AGENTS 更新；任务表收口；规格冻结移入 docs/frozen/WEBUI_CHAT_SPEC_frozen.md；Streamlit 保留为 legacy（不物理删除） |
+| WC10.4 | 文档收口：USAGE_GUIDE / README 使用说明、规格任务表收口、冻结流程启动 | [x] | 2026-10-15 | USAGE_GUIDE §10 / README / MOC / AGENTS 更新；任务表收口；规格冻结移入 docs/frozen/06_WEBUI_CHAT_SPEC_frozen.md；Streamlit 保留为 legacy（不物理删除） |
 
 > 纪律：任务全收口后本规格冻结入 `docs/frozen/`（已于 2026-10-15 完成）；执行中发现的新需求另走 backlog 提案，不在本表新增后改前缀编号。

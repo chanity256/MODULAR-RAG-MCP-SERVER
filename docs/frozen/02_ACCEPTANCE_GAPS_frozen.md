@@ -2,10 +2,10 @@
 
 > **📌 冻结记录**
 >
-> - 冻结时间：2026-10-06（移入 docs/frozen/，重命名为 ACCEPTANCE_GAPS_frozen.md）
+> - 冻结时间：2026-10-06（移入 docs/frozen/，重命名为 02_ACCEPTANCE_GAPS_frozen.md）
 > - 完成概要：验收缺口台账 G1–G3 已全部关闭——PDF fixtures 恢复与摄取、非空库查询命中、golden set 回填与评估非零。
 
-> 对照 `DEV_SPEC_frozen.md` 第 6 章排期：A1–I5 共 68/68 已完成。  
+> 对照 `01_DEV_SPEC_frozen.md` 第 6 章排期：A1–I5 共 68/68 已完成。  
 > 本文件只记录「主工程已落地，但验收/文档/真实数据仍不完整」的后续事项。  
 > 更新时间：2026-08-18
 

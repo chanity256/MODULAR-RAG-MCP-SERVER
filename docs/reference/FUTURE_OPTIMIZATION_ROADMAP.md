@@ -4,7 +4,7 @@
 
 本文记录项目后续候选的优化方向与决策纪律，覆盖 RAG 检索质量、MCP 能力、安全、部署、可观测性、测试工程与 embedding 模型选型。所有条目均为候选路线，而不是必须一次完成的需求。
 
-> **拆分说明**：原第 1–5 章「Dashboard 前后端分离迁移」（Streamlit 现状限制、目标架构、页面/接口映射、P1–P6 实施包）已于 2026-10-07 拆分为独立 backlog 提案：[dashboard-api-migration.md](../backlog/dashboard-api-migration.md)。本文章节编号（6–10）保持不变，以对齐既有规格中的交叉引用（如 6.2、6.3、6.8 与第 10 章）。
+> **拆分说明**：原第 1–5 章「Dashboard 前后端分离迁移」（Streamlit 现状限制、目标架构、页面/接口映射、P1–P6 实施包）已于 2026-10-07 拆分为独立 backlog 提案（已随 WC 系列收口冻结入 frozen/）：[dashboard-api-migration_backlog_frozen.md](../frozen/dashboard-api-migration_backlog_frozen.md)。本文章节编号（6–10）保持不变，以对齐既有规格中的交叉引用（如 6.2、6.3、6.8 与第 10 章）。
 
 ## 6. 其他可选优化方向
 
@@ -27,13 +27,13 @@
 - 保存解析器版本、Chunk 策略版本和 Embedding 模型版本；
 - 对失败文档提供可诊断的阶段信息。
 
-> **已完成（IR 系列）**：本节方向已由 [INGESTION_ROBUSTNESS_SPEC.md](../frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md) 落地（2026-10-07）：历史表 v2（含版本三列与 `failed_stage`）、版本替换与删除修复、`--sync` / `--prune` / `--dry-run`、可重试错误退避与 `--retry-failed`、store 回滚、DOCX/PPTX/XLSX/HTML Loader（markitdown 可选依赖）。Markdown 摄取已由同规格 v1.1 承接并交付（M6 / 阶段 IR7：MarkdownLoader + `.md` 路由 + source_filters，原 OBSIDIAN V 系列 M1/M2）；chunk_id 不含 collection 的遗留问题见该规格 7.1。
+> **已完成（IR 系列）**：本节方向已由 [04_INGESTION_ROBUSTNESS_SPEC_frozen.md](../frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md) 落地（2026-10-07）：历史表 v2（含版本三列与 `failed_stage`）、版本替换与删除修复、`--sync` / `--prune` / `--dry-run`、可重试错误退避与 `--retry-failed`、store 回滚、DOCX/PPTX/XLSX/HTML Loader（markitdown 可选依赖）。Markdown 摄取已由同规格 v1.1 承接并交付（M6 / 阶段 IR7：MarkdownLoader + `.md` 路由 + source_filters，原 OBSIDIAN V 系列 M1/M2）；chunk_id 不含 collection 的遗留问题见该规格 7.1。
 
 ### 6.3 MCP 能力
 
 - 评估迁移至官方 MCP SDK，减少自维护协议细节；
 - 在保留 stdio 的基础上按需求增加 Streamable HTTP transport；
-- 增加更细粒度的 Agentic RAG tools，例如文档预览、关键词检索和事实核查（**部分落地**：Sirchmunk 整合 S2/S3 已交付 agentic 第三路——AgenticTrigger 三策略触发 + RRF N 路融合 + source 级 A/B 评估与 Dashboard 展示，见 `SIRCHMUNK_INTEGRATION_SPEC_frozen.md`；G0 终裁裸 rg 严格优于 sidecar，该能力默认关闭（`enabled: false`），是否启用由真实语料决定）；
+- 增加更细粒度的 Agentic RAG tools，例如文档预览、关键词检索和事实核查（**部分落地**：Sirchmunk 整合 S2/S3 已交付 agentic 第三路——AgenticTrigger 三策略触发 + RRF N 路融合 + source 级 A/B 评估与 Dashboard 展示，见 `03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md`；G0 终裁裸 rg 严格优于 sidecar，该能力默认关闭（`enabled: false`），是否启用由真实语料决定）；
 - 为 Tool schema、错误响应和多模态内容增加契约测试；
 - 保持 MCP 接口与 Dashboard REST API 职责分离。
 
@@ -79,7 +79,7 @@
 
 **实验设计**（前置条件满足后执行）：
 
-1. 前置：Markdown 摄取落地——**已交付**（[INGESTION_ROBUSTNESS_SPEC.md](../frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md) 阶段 IR7，2026-10-07：MarkdownLoader + `.md` 路由 + source_filters，承接 OBSIDIAN_RAG_SPEC M1/M2）；`.py` 等代码文件的 Code Loader 仍待评估；
+1. 前置：Markdown 摄取落地——**已交付**（[04_INGESTION_ROBUSTNESS_SPEC_frozen.md](../frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md) 阶段 IR7，2026-10-07：MarkdownLoader + `.md` 路由 + source_filters，承接 OBSIDIAN_RAG_SPEC M1/M2）；`.py` 等代码文件的 Code Loader 仍待评估；
 2. 将仓库源码与文档摄取进独立 collection（现成链路：`ingest.py` + 智谱 embedding 端点已验证可用）；
 3. 用同一份 `tests/fixtures/agentic/golden_questions.json`（必要时扩充每类题量）跑 `evaluate.py`，三方对比 source 级命中 / MRR / 延迟 / Token 成本；
 4. **裸 rg 基线（`scripts/sirchmunk/rg_baseline.py`）必须列为对照项**——G0 的教训即是：任何 LLM 检索路径的优势主张，都要先过免费的词法下界这一关。
@@ -108,13 +108,13 @@ README 的「运行手册 → 配置 API Key」里给了两种示例：
 
 ### 6.10 Dashboard 前后端分离迁移（已拆分为独立提案）
 
-将 Streamlit Dashboard 迁移为 **Vue 3 + Vite + FastAPI** 前后端分离架构，是本路线图中当前优先级最高的候选方向（见第 7 章近期建议）。完整方案——Streamlit 现状限制、三层目标架构、六页面/接口映射与 P1–P6 六个可独立验收的实施包——已拆分至 [docs/backlog/dashboard-api-migration.md](../backlog/dashboard-api-migration.md)，此处不再重复。
+将 Streamlit Dashboard 迁移为 **Vue 3 + Vite + FastAPI** 前后端分离架构，是本路线图中当前优先级最高的候选方向（见第 7 章近期建议）。完整方案——Streamlit 现状限制、三层目标架构、六页面/接口映射与 P1–P6 六个可独立验收的实施包——已拆分至 [docs/frozen/dashboard-api-migration_backlog_frozen.md](../frozen/dashboard-api-migration_backlog_frozen.md)，此处不再重复。
 
 ## 7. 优先级建议
 
 ### 近期：低风险、高收益
 
-以下前三项属于前后端分离迁移的实施包 P1–P3，完整任务拆解与验收标准见 [dashboard-api-migration.md](../backlog/dashboard-api-migration.md)：
+以下前三项属于前后端分离迁移的实施包 P1–P3，完整任务拆解与验收标准见 [dashboard-api-migration_backlog_frozen.md](../frozen/dashboard-api-migration_backlog_frozen.md)：
 
 1. 固化 Dashboard 应用服务边界；
 2. 增加只读 FastAPI API；

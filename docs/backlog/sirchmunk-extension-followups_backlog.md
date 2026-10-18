@@ -1,10 +1,10 @@
 # Sirchmunk SX 规格遗留事项（followups）
 
-> 起源：[SIRCHMUNK_EXTENSION_SPEC_frozen](../frozen/SIRCHMUNK_EXTENSION_SPEC_frozen.md)（SX0–SX5）任务全部收口冻结后，规格执行过程中沉淀的遗留事项汇总，分三类：**明确不做**、**实现但裁决保持关闭/不推荐**、**已知缺陷与 gap**。
+> 起源：[SIRCHMUNK_EXTENSION_SPEC_frozen](../frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md)（SX0–SX5）任务全部收口冻结后，规格执行过程中沉淀的遗留事项汇总，分三类：**明确不做**、**实现但裁决保持关闭/不推荐**、**已知缺陷与 gap**。
 >
 > 性质：第 1 类是决议记录（非候选）；第 2 类是实验负结果的存档（重开需新证据）；第 3 类中可行动的项是**候选方向池**，推进任何一项按 [README 约定](README.md)另立提案。
 >
-> 关联：[sirchmunk-capability-completion.md](sirchmunk-capability-completion.md)（前序提案）、[SIRCHMUNK_CAPABILITY_GAP_ANALYSIS](../analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md)（能力对照）、[SIRCHMUNK_INTEGRATION_SPEC_frozen](../frozen/SIRCHMUNK_INTEGRATION_SPEC_frozen.md)（S 系列前置规格）。
+> 关联：[sirchmunk-capability-completion_backlog_frozen.md](../frozen/sirchmunk-capability-completion_backlog_frozen.md)（前序提案）、[SIRCHMUNK_CAPABILITY_GAP_ANALYSIS](../analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md)（能力对照）、[SIRCHMUNK_INTEGRATION_SPEC_frozen](../frozen/03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md)（S 系列前置规格）。
 
 <!-- Note: 为何冻结入 frozen、遗留为何建台账而非写回规格 — 见 .agents/notes/implemented/process/2026-10-14-sx-spec-freeze-followups-ledger.md -->
 

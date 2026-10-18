@@ -1,8 +1,8 @@
 # Sirchmunk 能力补齐规格 (SIRCHMUNK_EXTENSION_SPEC)
 
-> 状态：**已冻结**（SX 系列，SX0–SX5 全部收口于 2026-10-14；遗留事项见 [backlog/sirchmunk-extension-followups.md](../backlog/sirchmunk-extension-followups.md)）｜上游基线：`b314e11`｜决策依据：[backlog/sirchmunk-capability-completion.md](../backlog/sirchmunk-capability-completion.md)
+> 状态：**已冻结**（SX 系列，SX0–SX5 全部收口于 2026-10-14；遗留事项见 [backlog/sirchmunk-extension-followups_backlog.md](../backlog/sirchmunk-extension-followups_backlog.md)）｜上游基线：`b314e11`｜决策依据：[sirchmunk-capability-completion_backlog_frozen.md](sirchmunk-capability-completion_backlog_frozen.md)
 >
-> 前置规格：[SIRCHMUNK_INTEGRATION_SPEC_frozen](SIRCHMUNK_INTEGRATION_SPEC_frozen.md)（S 系列，已收口）。本规格只做**增量**，不改 S 系列任何契约；进程隔离红线不变：主 venv 永不 `import sirchmunk`，不改上游源码。
+> 前置规格：[SIRCHMUNK_INTEGRATION_SPEC_frozen](03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md)（S 系列，已收口）。本规格只做**增量**，不改 S 系列任何契约；进程隔离红线不变：主 venv 永不 `import sirchmunk`，不改上游源码。
 
 ---
 

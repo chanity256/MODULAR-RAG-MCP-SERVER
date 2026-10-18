@@ -2,14 +2,15 @@
 
 ## 开发文档参考（开始编码任务前必读）
 
-**编写代码之前，先阅读 [docs/frozen/](docs/frozen/) 下的已冻结规格**：DEV_SPEC_frozen.md 是主规格（架构设计、模块契约、测试方案的权威来源）；SIRCHMUNK_INTEGRATION_SPEC_frozen.md 是 sidecar 整合的完整设计与收口记录。改动某模块前先查对应 spec 中该模块的契约、验收标准与既有测试语义。规格中标注的链接路径均相对仓库根。
+**编写代码之前，先阅读 [docs/frozen/](docs/frozen/) 下的已冻结规格**：01_DEV_SPEC_frozen.md 是主规格（架构设计、模块契约、测试方案的权威来源）；03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md 是 sidecar 整合的完整设计与收口记录。改动某模块前先查对应 spec 中该模块的契约、验收标准与既有测试语义。规格中标注的链接路径均相对仓库根。
 
 其余文档**按需选读**，不必预先通读：
 
-- `docs/frozen/SIRCHMUNK_EXTENSION_SPEC_frozen.md` — SX 系列 Sirchmunk 能力补齐（已收口冻结：telemetry 消费、参数透传、compile/复用实验裁决、SSE 流式；改动 agentic_search / sidecar 脚本前先读，遗留事项见 `docs/backlog/sirchmunk-extension-followups.md`）。
-- `docs/frozen/INGESTION_ROBUSTNESS_SPEC_frozen.md` — IR 系列摄取健壮性 + Markdown 摄取（IR0–IR7 已收口；改动摄取链路前先读其 7.1 实现偏差）。
-- `docs/frozen/WEBUI_CHAT_SPEC_frozen.md` — WC 系列 WebUI 前后端迁移 + Chat（WC0–WC10 已收口冻结：FastAPI + Next 静态导出、多轮对话 + RAG 有据回答、真流式；Web UI 是主界面，Streamlit 已弃用 legacy、保留可用；改动 `src/api/` / `src/core/chat/` / `frontend/` / Dashboard 服务层前先读，注意 D1 前端选型与 §1.2 对分析文档的勘误；Web UI 使用、配置与 Streamlit 删除条件见 `docs/reference/USAGE_GUIDE.md` 第 10 章，七页等价核验见 `docs/analysis/WEBUI_PARITY_AUDIT.md`）。
-- `docs/frozen/LOGGING_SPEC_frozen.md` — LG 系列日志分层与按日切分（LG0–LG7 已收口冻结：Trace 按日落盘 `logs/traces/`、应用运行日志 `logs/app/`、保留期清理、测试经 `RAG_LOG_ROOT` 隔离；改动 `core/trace/persist.py` / `observability/logger.py` / TraceService / 进程入口日志前先读，注意其 7.1 实现偏差）。
+- `docs/specs/WEBUI_PARITY_SPEC.md` — WP 系列 WebUI 双轨遗留差异收口（进行中：追踪列表 offset 翻页、评估历史 SVG 趋势图、评估提交路径 422 预检；改动 `frontend/` 的 Ingestion / Query Traces、Evaluation 页面或 `POST /evaluations` / `EvaluationService` 前先读）。
+- `docs/frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md` — SX 系列 Sirchmunk 能力补齐（已收口冻结：telemetry 消费、参数透传、compile/复用实验裁决、SSE 流式；改动 agentic_search / sidecar 脚本前先读，遗留事项见 `docs/backlog/sirchmunk-extension-followups_backlog.md`）。
+- `docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md` — IR 系列摄取健壮性 + Markdown 摄取（IR0–IR7 已收口；改动摄取链路前先读其 7.1 实现偏差）。
+- `docs/frozen/06_WEBUI_CHAT_SPEC_frozen.md` — WC 系列 WebUI 前后端迁移 + Chat（WC0–WC10 已收口冻结：FastAPI + Next 静态导出、多轮对话 + RAG 有据回答、真流式；Web UI 是主界面，Streamlit 已弃用 legacy、保留可用；改动 `src/api/` / `src/core/chat/` / `frontend/` / Dashboard 服务层前先读，注意 D1 前端选型与 §1.2 对分析文档的勘误；Web UI 使用、配置与 Streamlit 删除条件见 `docs/reference/USAGE_GUIDE.md` 第 10 章，七页等价核验见 `docs/analysis/WEBUI_PARITY_AUDIT.md`）。
+- `docs/frozen/07_LOGGING_SPEC_frozen.md` — LG 系列日志分层与按日切分（LG0–LG7 已收口冻结：Trace 按日落盘 `logs/traces/`、应用运行日志 `logs/app/`、保留期清理、测试经 `RAG_LOG_ROOT` 隔离；改动 `core/trace/persist.py` / `observability/logger.py` / TraceService / 进程入口日志前先读，注意其 7.1 实现偏差）。
 - `docs/analysis/` — 架构分析与演进方向（微服务分析、优化路线图）。
 - `docs/reference/USAGE_GUIDE.md` — 使用速查（启动、配置、sidecar 用法）。
 - `docs/backlog/` — 候选功能与待开发规格（OBSIDIAN V 系列的 M3/M4 可选增强在此待排期，其 M1/M2 已由 IR7 交付；新提案约定见其 README）。
@@ -22,7 +23,7 @@
 source .venv/bin/activate            # 主项目 venv
 
 # 测试（全量离线，零网络，默认必须全绿）
-pytest tests -q                      # 看计数用 pytest tests -o addopts="" -q；当前 2451 passed / 11 skipped
+pytest tests -q                      # 看计数用 pytest tests -o addopts="" -q；当前 2464 passed / 11 skipped
 pytest tests/unit/test_xxx.py -q     # 单文件
 pytest tests/unit/test_xxx.py::test_name   # 单用例
 pytest tests/e2e_web -q              # Web UI 假后端启动冒烟（frontend/out 未构建则 skip）
@@ -68,4 +69,6 @@ PYTHONPATH=src python -m mcp_server.server
 - **Sirchmunk sidecar 进程隔离红线**：主 venv 永不 `import sirchmunk`，只经 `src/libs/agentic_search/http_backend.py` HTTP 调用独立进程（默认 `enabled: false`）。设计原因与源码实证见 SIRCHMUNK_INTEGRATION_SPEC 第 4 章。
 - **双登记约束**：pipeline 支持的扩展名在 `src/ingestion/pipeline.py` 与 `scripts/ingest.py` 两处登记，由 drift guard 单测锁死，新增格式必须同步。
 - **stdout 纪律**：MCP server 的 stdout 只输出合法 JSON-RPC，日志一律走 stderr；e2e 有逐行断言。
+
+- **docs/ 自动守卫**：Droid 会话由项目级 hook（`.factory/hooks.json`）在每轮结束时检查 docs/ 改动：结构漂移（坏链、MOC 漏登记，规则见 `tests/unit/test_docs_links.py`）必须修，语义同步按映射表提醒；修复流程见 [docs/MOC.md](docs/MOC.md)「命名与流转规范」。
 - **规格与排期**：已收口规格（DEV_SPEC 的 A–I、SIRCHMUNK 的 S 系列、IR 的 IR0–IR7、WC 的 WC0–WC10、LG 的 LG0–LG7）任务表不在其中新增任务；全新功能走 `docs/backlog/` 提案 → 立项后在 `docs/specs/` 建独立规格或经明确指令重开既有规格（格式对齐 SIRCHMUNK/OBSIDIAN 先例，任务编号避免冲突）。
