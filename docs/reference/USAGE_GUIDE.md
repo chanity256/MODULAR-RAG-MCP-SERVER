@@ -305,7 +305,7 @@ agentic_search:
 
 ## 5. 日常启动与关闭
 
-**Web UI 路径**：`start_api.py` **不托管** sidecar；启用 agentic 时先手动起 sidecar（下方分步第 1 步），再 `python scripts/start_api.py --serve-ui`。
+**Web UI 路径**：`start_api.py` 默认**不托管** sidecar；启用 agentic 时先手动起 sidecar（下方分步第 1 步），再 `python scripts/start_api.py --serve-ui`。要一条命令全搞定，加 `--manage-sidecar`（WS0）：`agentic_search.enabled=true` 时自动拉起 sidecar → 等健康 → 启动 API，退出时回收由它拉起的 sidecar（已在外部运行的只复用、不接管；agentic 关闭时只打提示不报错）。
 
 **Streamlit legacy 路径：一条命令全搞定**（Dashboard 启动器自动托管 sidecar；启动时 stderr 会打印弃用提示）：
 
@@ -444,7 +444,7 @@ python scripts/start_api.py --serve-ui
 - **`api.enabled` 默认 `false`**，此时 `start_api.py` 以退出码 2 拒绝启动。二选一：在 `config/settings.yaml` 设 `api.enabled: true`，或命令行追加 `--force`。
 - `--serve-ui` 覆盖 `api.serve_ui`；`frontend/out/index.html` 不存在时启动即 fail-fast（提示先构建）。
 - 其它覆盖：`--host` / `--port` / `--config`。
-- `start_api.py` **不托管 sidecar**；用 Fast/Deep（Playground）或 `agentic_fast` / `agentic_deep`（Chat）需先手动起 sidecar（第 5 节）。
+- `start_api.py` 默认**不托管 sidecar**；用 Fast/Deep（Playground）或 `agentic_fast` / `agentic_deep`（Chat）需先手动起 sidecar（第 5 节），或加 `--manage-sidecar` 让启动器自动托管（拉起 / 等健康 / 退出回收）。
 - Chat 复用 `settings.yaml` 的 `llm:` 配置，hybrid 检索要求已摄取数据（第 2.2 节或 Ingestion Manager 页）。
 
 **前端开发模式**（热更新，前后端分开启动）：
@@ -483,6 +483,7 @@ api:
   static_dir: ./frontend/out
   tasks_db: ./data/db/tasks.db   # 后台任务（摄取/评估）状态持久化；重启时遗留的 running 任务标为 failed/interrupted
   max_upload_mb: 100             # 单个上传文件上限，超出 413
+  deep_progress_stream: false    # WS /search/ws（Playground Deep 进度日志）开关；有线程泄漏风险（10.6）
 
 chat:
   enabled: true                  # false 时 WS 握手后以 error{UNAVAILABLE} 拒绝
@@ -545,7 +546,7 @@ chat:
 | 只读 | `GET /overview`；`GET /collections`、`GET /collections/{name}`；`GET /documents`（`collection` / `keyword` / `limit<=500` / `offset`）、`GET /documents/{source_path}?collection=`；`GET /images`、`GET /images/{image_id}`（图片字节）；`GET /traces`（`trace_type` / `keyword` / `routes` / `limit<=500` / `offset`）、`GET /traces/{trace_id}` |
 | 写（后台任务，202 + `task_id`） | `POST /uploads`（multipart 字段 `files`，201）；`POST /ingestions`（`{files, collection, force}`，只接受已上传文件名；同文件同集合重复提交 409）；`POST /evaluations`（`{backend, test_set_path?, top_k?, filters?}`；同时只允许一个，409）；`DELETE /documents/{source_path}?collection=`（同步，Chroma + BM25 + 图片 + 摄取历史） |
 | 任务 | `GET /tasks`（`kind` / `status` / `limit<=200` / `offset`）、`GET /tasks/{task_id}`（断线恢复轮询）；**`WS /tasks/{task_id}/events`**：先回放当前快照再推送 `{type:"task_event", task_id, status, detail, timestamp, version}`，终态后服务端关闭 |
-| 检索（Query Playground） | `POST /search`（`{mode: normal\|fast\|deep, query, top_k?, collection?}`，被门控拒绝 403 `AGENTIC_DISABLED` / `DEEP_DISABLED`；检索自身失败 200 + `is_error`）；`GET /search/capabilities` |
+| 检索（Query Playground） | `POST /search`（`{mode: normal\|fast\|deep, query, top_k?, collection?}`，被门控拒绝 403 `AGENTIC_DISABLED` / `DEEP_DISABLED`；检索自身失败 200 + `is_error`）；`GET /search/capabilities`（含 `progress_stream`，反映 `api.deep_progress_stream`）；**`WS /search/ws`**（仅 `api.deep_progress_stream: true` 时可用，见 10.6） |
 | Chat | `WS /chat`；`GET /chat/capabilities`；`GET /chat/sessions`、`GET /chat/sessions/{session_id}`、`DELETE /chat/sessions/{session_id}` |
 
 任务状态机 `pending → running → succeeded / failed`，状态持久化在 `api.tasks_db`；进程重启时遗留的 `running` 任务标为 `failed`（`interrupted`）。
@@ -556,7 +557,7 @@ sirchmunk sidecar 的**流式端点**每次请求新建 `KnowledgeStorage` 且�
 
 - `chat.agentic_progress_stream` **默认 `false`**：Chat 的 agentic 模式走同步 `search()`，不受影响，代价是没有 `search_log` 进度帧。
 - 设为 `true` 才改走流式并把 sidecar 日志转 `search_log` 帧；**大量使用后需重启 sidecar**。
-- Web 的 Query Playground Deep 同样走同步检索（无进度日志）；Streamlit legacy 的 Deep 走流式，受同一泄漏影响。
+- Web 的 Query Playground Deep 默认同样走同步检索（无进度日志）；`api.deep_progress_stream: true` 时改走 **`WS /api/v1/search/ws`**（WEBUI_SIDECAR_SPEC WS2/WS3）：上行 `{mode, query, top_k?, collection?}` 或 `{"type":"cancel"}`，下行 `search_log` 进度帧（与 Chat 同一 0.5s 去重）→ `search_result`（形态同 `POST /search`）后关闭；被门控拒绝（agentic 关闭 / Deep 未放行）发 `error{AGENTIC_DISABLED|DEEP_DISABLED}`，握手阶段拒绝发 `error{UNAVAILABLE|AUTH|BAD_REQUEST}`。**同一泄漏**：Deep 流式命中上表缺陷，默认关闭，上游修复并验证回落后再开启；Streamlit legacy 的 Deep 走流式，受同一泄漏影响。
 
 ### 10.7 测试与 Playwright e2e
 
@@ -590,7 +591,7 @@ Playwright 流程跑在 `tests/e2e_web/fake_api_server.py` 上：真实 FastAPI 
 
 **删除条件**（须全部满足，且由使用者显式下令；对应 `dashboard-api-migration_backlog_frozen.md` P6 退役门槛）：
 
-1. [WEBUI_PARITY_AUDIT.md](../analysis/WEBUI_PARITY_AUDIT.md) 的缺口已补齐或明确放弃，遗留项见 [webui-parity-followups_backlog.md](../backlog/webui-parity-followups_backlog.md)（尤其 Deep 进度日志与 sidecar 托管编排——后者目前是「Streamlit 独有逻辑」）；
+1. [WEBUI_PARITY_AUDIT.md](../analysis/WEBUI_PARITY_AUDIT.md) 的缺口已补齐或明确放弃：#5 翻页/#2 趋势图/#3 预检已由 WP 规格交付，Deep 进度日志与 sidecar 托管编排（原「Streamlit 独有逻辑」）已由 [WEBUI_SIDECAR_SPEC](../specs/WEBUI_SIDECAR_SPEC.md)（WS 系列）补齐；其余遗留见 [webui-parity-followups_backlog.md](../backlog/webui-parity-followups_backlog.md)；
 2. WC10.3 门控冒烟通过（已于 2026-10-15 通过），WEBUI_CHAT_SPEC 已冻结；
 3. Python、API、前端与 Playwright 测试全部通过；
 4. Web UI 已稳定使用一段时间，使用者确认不再依赖 Streamlit。

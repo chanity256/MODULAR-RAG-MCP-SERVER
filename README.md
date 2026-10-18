@@ -299,7 +299,7 @@ python scripts/start_api.py --serve-ui     # http://127.0.0.1:8600
 | Evaluation | 选择后端运行评估（后台任务）、指标卡片、持久化历史对比 |
 
 - 非 loopback 访问须设环境变量 `RAG_API_TOKEN`（独立于 `SIRCHMUNK_API_TOKEN`）；前端开发模式、`api:`/`chat:` 配置、WS 帧协议、REST 路由索引、Playwright e2e 命令见 [docs/reference/USAGE_GUIDE.md 第 10 章](docs/reference/USAGE_GUIDE.md#10-web-ui-与-chat)。
-- `start_api.py` 不托管 sidecar；用 agentic 检索时需先手动 `bash scripts/sirchmunk/start_sidecar.sh`。
+- `start_api.py` 默认不托管 sidecar：用 agentic 检索时先手动 `bash scripts/sirchmunk/start_sidecar.sh`，或加 `--manage-sidecar` 由启动器自动托管（拉起 / 等健康 / 退出回收）。
 
 #### Streamlit Dashboard（已弃用 legacy）
 
