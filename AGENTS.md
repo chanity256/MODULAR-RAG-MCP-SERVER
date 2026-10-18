@@ -6,7 +6,7 @@
 
 其余文档**按需选读**，不必预先通读：
 
-- `docs/specs/WEBUI_PARITY_SPEC.md` — WP 系列 WebUI 双轨遗留差异收口（进行中：追踪列表 offset 翻页、评估历史 SVG 趋势图、评估提交路径 422 预检；改动 `frontend/` 的 Ingestion / Query Traces、Evaluation 页面或 `POST /evaluations` / `EvaluationService` 前先读）。
+- `docs/frozen/08_WEBUI_PARITY_SPEC_frozen.md` — WP 系列 WebUI 双轨遗留差异收口（WP0–WP2 已收口冻结：Ingestion / Query 追踪列表服务端 offset 翻页、评估历史内联 SVG 趋势图、评估提交路径 422 预检；改动 `frontend/` 的 Ingestion / Query Traces、Evaluation 页面或 `POST /evaluations` / `EvaluationService` 前先读，遗留事项见 `docs/backlog/webui-parity-followups_backlog.md`）。
 - `docs/frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md` — SX 系列 Sirchmunk 能力补齐（已收口冻结：telemetry 消费、参数透传、compile/复用实验裁决、SSE 流式；改动 agentic_search / sidecar 脚本前先读，遗留事项见 `docs/backlog/sirchmunk-extension-followups_backlog.md`）。
 - `docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md` — IR 系列摄取健壮性 + Markdown 摄取（IR0–IR7 已收口；改动摄取链路前先读其 7.1 实现偏差）。
 - `docs/frozen/06_WEBUI_CHAT_SPEC_frozen.md` — WC 系列 WebUI 前后端迁移 + Chat（WC0–WC10 已收口冻结：FastAPI + Next 静态导出、多轮对话 + RAG 有据回答、真流式；Web UI 是主界面，Streamlit 已弃用 legacy、保留可用；改动 `src/api/` / `src/core/chat/` / `frontend/` / Dashboard 服务层前先读，注意 D1 前端选型与 §1.2 对分析文档的勘误；Web UI 使用、配置与 Streamlit 删除条件见 `docs/reference/USAGE_GUIDE.md` 第 10 章，七页等价核验见 `docs/analysis/WEBUI_PARITY_AUDIT.md`）。

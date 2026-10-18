@@ -24,5 +24,5 @@
 | 文档 | 一句话说明 |
 |------|-----------|
 | [OBSIDIAN_RAG_SPEC_backlog.md](OBSIDIAN_RAG_SPEC_backlog.md) | Obsidian Vault RAG 扩展规格（V 系列；M1/M2 Markdown 摄取已移交 INGESTION_ROBUSTNESS_SPEC 阶段 IR7，剩余 M3/M4 待排期） |
-| [webui-parity-followups_backlog.md](webui-parity-followups_backlog.md) | WebUI 双轨核验遗留差异（WC10.1）：#5 翻页/#2 趋势图/#3 预检已移交 [specs/WEBUI_PARITY_SPEC.md](../specs/WEBUI_PARITY_SPEC.md)（WP 系列）；剩 Deep 进度日志（依赖上游线程泄漏修复）、sidecar 托管编排二选一、展示细节接受项 |
+| [webui-parity-followups_backlog.md](webui-parity-followups_backlog.md) | WebUI 双轨核验遗留差异（WC10.1）：#5 翻页/#2 趋势图/#3 预检已移交并随 [frozen/08_WEBUI_PARITY_SPEC_frozen.md](../frozen/08_WEBUI_PARITY_SPEC_frozen.md) 收口（WP 系列）；剩 Deep 进度日志（依赖上游线程泄漏修复）、sidecar 托管编排二选一、展示细节接受项 |
 | [sirchmunk-extension-followups_backlog.md](sirchmunk-extension-followups_backlog.md) | Sirchmunk SX 规格遗留事项台账：明确不做（evolver 等 6 项）、实验负结果存档（编译 GX 不通过、复用保持关闭）、已知缺陷与候选池（流式线程泄漏等 7 项） |

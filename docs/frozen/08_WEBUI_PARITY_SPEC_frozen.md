@@ -2,11 +2,17 @@
 
 # WebUI 双轨遗留差异收口 规格 (WEBUI_PARITY)
 
+> **📌 冻结记录**
+>
+> - 冻结时间：2026-10-18
+> - 完成概要：WP0–WP2 三项全部收口（追踪列表服务端 offset 翻页、评估历史内联 SVG 趋势图、评估提交路径 422 预检）；审计 L3 关闭、L4 仅剩已接受的「默认路径回显」。实测 pytest 2470 passed / 11 skipped、vitest 250 passed、Playwright 24 passed。实现偏差见 5 章进度备注（翻页复用 `Pagination`/`pageInfo`/`clampOffset`，钳制走渲染期调整模式）。
+> - 遗留：见 [backlog/webui-parity-followups_backlog.md](../backlog/webui-parity-followups_backlog.md)（#1 Deep 进度日志、#4 sidecar 托管编排）
+
 > 版本：0.2 — 由 [backlog/webui-parity-followups_backlog.md](../backlog/webui-parity-followups_backlog.md) 拆分移交晋升（#5、#2、#3 的 422 预检三项承接为本规格；#1、#4 及 #3 其余部分留在 backlog）。v0.2 为立项审核修订：纠正审计编号（L3/L4）、WP0 覆盖两个追踪页、WP2 预检经服务层注入并对齐既有路径解析与错误信封、补齐测试落点
 >
 > 起源与决策依据：[analysis/WEBUI_PARITY_AUDIT.md](../analysis/WEBUI_PARITY_AUDIT.md)（WC10.1 缺口清单 L3：追踪列表 500 条上限；L4：评估页三处小差异中的趋势图与路径提交前校验）+ 上述 backlog 台账的决策三问（原文见 git 历史）
 >
-> 基线：WC0–WC10 已收口冻结（[06_WEBUI_CHAT_SPEC_frozen.md](../frozen/06_WEBUI_CHAT_SPEC_frozen.md)）；Web UI 已是主界面，Streamlit 为 legacy；任务表数据已持久化于 `tasks.db`
+> 基线：WC0–WC10 已收口冻结（[06_WEBUI_CHAT_SPEC_frozen.md](06_WEBUI_CHAT_SPEC_frozen.md)）；Web UI 已是主界面，Streamlit 为 legacy；任务表数据已持久化于 `tasks.db`
 >
 > 日期：2026-10-18
 
@@ -112,4 +118,4 @@ WP2  EvaluationForm ──▶ POST /api/v1/evaluations ──▶ EvaluationServi
 | WP1 | 评估历史内联 SVG 趋势折线图 | History 表格下方展示最近 10 次成功运行（时间正序）前 3 个指标的 SVG 折线，无新依赖、无新请求；不足 2 次显示说明文字；vitest 覆盖抽点纯函数；Playwright 断言 2 次运行时点数为 2 | 已完成（2026-10-18） |
 | WP2 | 评估提交 `test_set_path` 预检 | `EvaluationService.test_set_exists` 沿用 `run()` 的路径解析；显式且不存在 → 422（`validation_error`，`details` 为 loc 列表形状），不产生任务；留空行为不变；422 优先于 409；两个 `FakeEvaluation` 同步补方法；pytest 覆盖四个分支；Playwright 断言表单报错；e2e_web 冒烟不回归 | 已完成（2026-10-18） |
 
-> 进度备注（2026-10-18）：WP0–WP2 全部交付。实测：pytest 2470 passed / 11 skipped（基线 2464 + 新增 6：`TestTestSetExists` 2 条、集成 4 分支 4 条）；前端 typecheck / lint / vitest 250 passed；Playwright 24 passed（WP0 翻页 ×2、WP1 图表、WP2 表单 422 各有专项）。实现偏差：越界钳制未用 effect 而走 React 渲染期调整模式（`react-hooks/set-state-in-effect` 禁止 effect 内 setState，渲染期守卫模式语义等价）；翻页控件复用 `components/documents/Pagination` 与 `lib/data.ts` 的 `pageInfo` / `clampOffset`，未新建 `lib/pagination.ts`。WP0 收口关闭审计 L3；L4 仅剩「默认路径回显」（已接受）。全部收口，本规格待冻结入 `docs/frozen/`。backlog 台账退役门槛中 #2/#5 视为「已补齐」。
+> 进度备注（2026-10-18）：WP0–WP2 全部交付。实测：pytest 2470 passed / 11 skipped（基线 2464 + 新增 6：`TestTestSetExists` 2 条、集成 4 分支 4 条）；前端 typecheck / lint / vitest 250 passed；Playwright 24 passed（WP0 翻页 ×2、WP1 图表、WP2 表单 422 各有专项）。实现偏差：越界钳制未用 effect 而走 React 渲染期调整模式（`react-hooks/set-state-in-effect` 禁止 effect 内 setState，渲染期守卫模式语义等价）；翻页控件复用 `components/documents/Pagination` 与 `lib/data.ts` 的 `pageInfo` / `clampOffset`，未新建 `lib/pagination.ts`。WP0 收口关闭审计 L3；L4 仅剩「默认路径回显」（已接受）。本规格已冻结（同日）；backlog 台账退役门槛中 #2/#5 视为「已补齐」。

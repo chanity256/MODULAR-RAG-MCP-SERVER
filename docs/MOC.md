@@ -54,7 +54,7 @@ docs/ 文档分两类：
 | 日志分层（LG） | 会话内 `logs/traces.jsonl` 体量审计（无独立文件） | — | [07_LOGGING_SPEC_frozen.md](frozen/07_LOGGING_SPEC_frozen.md) | 遗留见规格 2.2（未建台账） | 跳过提案 |
 | 存储扩容 | [STORAGE_SCALING_ANALYSIS.md](analysis/STORAGE_SCALING_ANALYSIS.md) | — | — | — | 止于分析（阶段 0 保持文件型存储不动） |
 | 微服务演进 | [MICROSERVICES_ANALYSIS.md](analysis/MICROSERVICES_ANALYSIS.md) | — | — | — | 止于分析（保持模块化单体） |
-| WebUI 双轨差异收口（WP） | [WEBUI_PARITY_AUDIT.md](analysis/WEBUI_PARITY_AUDIT.md)（WC10.1 缺口清单 L3/L4） | [webui-parity-followups_backlog.md](backlog/webui-parity-followups_backlog.md) | [WEBUI_PARITY_SPEC.md](specs/WEBUI_PARITY_SPEC.md) | 台账保留 #1（Deep 进度日志）/ #4（sidecar 托管编排） | 拆分移交 |
+| WebUI 双轨差异收口（WP） | [WEBUI_PARITY_AUDIT.md](analysis/WEBUI_PARITY_AUDIT.md)（WC10.1 缺口清单 L3/L4） | [webui-parity-followups_backlog.md](backlog/webui-parity-followups_backlog.md) | [08_WEBUI_PARITY_SPEC_frozen.md](frozen/08_WEBUI_PARITY_SPEC_frozen.md) | 台账保留 #1（Deep 进度日志）/ #4（sidecar 托管编排） | 拆分移交 |
 ## specs/ — 开发规格（落点）
 
 **立项后新规格的存放处**（从 [backlog/](backlog/) 晋升）。任务全收口后冻结入 frozen/（SX 系列先例见 [frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md](frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md)）。
@@ -63,7 +63,7 @@ docs/ 文档分两类：
 
 | 文档 | 说明 |
 |------|------|
-| [WEBUI_PARITY_SPEC.md](specs/WEBUI_PARITY_SPEC.md) | WebUI 双轨遗留差异收口规格（WP 系列，进行中）：Ingestion / Query 追踪列表 offset 翻页（WP0）、评估历史内联 SVG 趋势图（WP1）、评估提交路径 422 预检（WP2）；承接自 [backlog/webui-parity-followups_backlog.md](backlog/webui-parity-followups_backlog.md) 的 #5/#2/#3 预检 |
+| _（暂无进行中的规格）_ | 新规格从 [backlog/](backlog/) 晋升后列于此 |
 
 ## frozen/ — 已冻结文档
 
@@ -78,6 +78,7 @@ docs/ 文档分两类：
 | [05_SIRCHMUNK_EXTENSION_SPEC_frozen.md](frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md) | Sirchmunk 能力补齐规格（SX 系列，SX0–SX5 已收口冻结：telemetry 消费、参数透传、compile 实验负结果 GX、复用评估保持关闭、SSE 流式；遗留事项见 [backlog/sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md)） |
 | [06_WEBUI_CHAT_SPEC_frozen.md](frozen/06_WEBUI_CHAT_SPEC_frozen.md) | WebUI 前后端迁移与 Chat 规格（WC 系列，WC0–WC10 已收口冻结：FastAPI + Next 静态导出迁移 P1–P6、Chat 多轮对话 + RAG 有据回答、真流式；D1 推翻 backlog 的 Vue 选型，§1.2 含分析文档五处勘误；WC10.3 门控冒烟记录见冻结记录；Streamlit 保留为 legacy） |
 | [07_LOGGING_SPEC_frozen.md](frozen/07_LOGGING_SPEC_frozen.md) | 日志分层与按日切分规格（LG 系列，LG0–LG7 已收口冻结）：Trace 日志按日落盘 `logs/traces/`、应用运行日志落盘 `logs/app/`、保留期 30 天、测试隔离（`RAG_LOG_ROOT`）、历史 `traces.jsonl` 迁移（真实迁移结果与实现偏差见 7.1） |
+| [08_WEBUI_PARITY_SPEC_frozen.md](frozen/08_WEBUI_PARITY_SPEC_frozen.md) | WebUI 双轨遗留差异收口规格（WP 系列，WP0–WP2 已收口冻结）：Ingestion / Query 追踪列表服务端 offset 翻页、评估历史内联 SVG 趋势图、评估提交路径 422 预检；承接自 [backlog/webui-parity-followups_backlog.md](backlog/webui-parity-followups_backlog.md) 的 #5/#2/#3 预检 |
 | [dashboard-api-migration_backlog_frozen.md](frozen/dashboard-api-migration_backlog_frozen.md) | Dashboard 前后端分离迁移提案（**已立项并入** [frozen/06_WEBUI_CHAT_SPEC_frozen.md](frozen/06_WEBUI_CHAT_SPEC_frozen.md) WC 系列并收口冻结；原 Vue 3 选型被其 D1 推翻，保留作决策依据与 P1 拆解；backlog 提案冻结后保留 `_backlog` 后缀追加 `_frozen`） |
 | [sirchmunk-capability-completion_backlog_frozen.md](frozen/sirchmunk-capability-completion_backlog_frozen.md) | Sirchmunk 剩余能力补齐提案（已立项并收口冻结为 SX 系列，保留作决策依据：telemetry/compile/复用/SSE/参数透传，源码复核证据） |
 
@@ -100,7 +101,7 @@ docs/ 文档分两类：
 | 文档 | 说明 |
 |------|------|
 | [OBSIDIAN_RAG_SPEC_backlog.md](backlog/OBSIDIAN_RAG_SPEC_backlog.md) | Obsidian Vault RAG 扩展规格（V 系列；v0.2 起 M1/M2 Markdown 摄取已移交 IR 规格 IR7，本规格保留 M3 sentence-transformers / M4 Semantic Walk 待排期） |
-| [webui-parity-followups_backlog.md](backlog/webui-parity-followups_backlog.md) | WebUI 双轨核验遗留差异（候选池）：#5 翻页/#2 趋势图/#3 预检已拆分移交 [specs/WEBUI_PARITY_SPEC.md](specs/WEBUI_PARITY_SPEC.md)（WP 系列）；剩 Deep 进度日志（依赖上游线程泄漏修复）、sidecar 托管编排二选一、展示细节接受项；物理删除 Streamlit 前应再评估 |
+| [webui-parity-followups_backlog.md](backlog/webui-parity-followups_backlog.md) | WebUI 双轨核验遗留差异（候选池）：#5 翻页/#2 趋势图/#3 预检已拆分移交并随 [frozen/08_WEBUI_PARITY_SPEC_frozen.md](frozen/08_WEBUI_PARITY_SPEC_frozen.md) 收口（WP 系列）；剩 Deep 进度日志（依赖上游线程泄漏修复）、sidecar 托管编排二选一、展示细节接受项；物理删除 Streamlit 前应再评估 |
 | [sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md) | Sirchmunk SX 规格遗留事项台账：明确不做（evolver 等 6 项）、实验负结果存档（编译 GX 不通过、复用保持关闭）、已知缺陷与候选池（流式线程泄漏等 7 项） |
 
 ## reference/ — 使用参考
