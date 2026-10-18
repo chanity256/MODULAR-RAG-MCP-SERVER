@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page, type Route } from "@playwright/test";
 import { resetBackend } from "./helpers";
 
 test.describe("Overview and traces", () => {
@@ -84,5 +84,90 @@ test.describe("Overview and traces", () => {
     await expect(page.getByRole("heading", { name: "Dense" })).toBeVisible();
     await expect(page.getByRole("list", { name: "Stage timing" })).not.toContainText("chat_generation");
     await expect(page.getByRole("heading", { name: "Chat stages" })).toHaveCount(0);
+  });
+});
+
+test.describe("Trace list pagination (WP0, stubbed pages)", () => {
+  // The fake backend seeds only a handful of traces — not enough to page through — so both tests
+  // stub `/api/v1/traces` with a 3-page dataset (120 rows, 50/page) via `page.route`.
+  const PAGE_SIZE = 50;
+  const TOTAL = 120;
+
+  function stubSummary(kind: "query" | "ingestion", pageIndex: number) {
+    return {
+      trace_id: `stub-${kind}-p${pageIndex}`,
+      trace_type: kind,
+      started_at: "2026-10-18T00:00:00Z",
+      total_elapsed_ms: 12,
+      stage_count: 1,
+      // `query` / `source_path` are top-level fields on TraceSummary; `metadata` is pass-through.
+      query: kind === "query" ? `Stub query page ${pageIndex}` : null,
+      source_path: kind === "ingestion" ? `/tmp/stub-ingestion-${pageIndex}.md` : null,
+      metadata: kind === "query" ? { query: `Stub query page ${pageIndex}`, collection: null } : {},
+    };
+  }
+
+  async function stubTraceList(page: Page, kind: "query" | "ingestion") {
+    await page.route("**/api/v1/traces**", async (route: Route) => {
+      const url = new URL(route.request().url());
+      if (!url.pathname.endsWith("/api/v1/traces")) {
+        // Trace detail fetch for the selected row; the list assertions don't depend on it.
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ ...stubSummary(kind, 1), stages: [], timings: [] }),
+        });
+        return;
+      }
+      const offset = Number(url.searchParams.get("offset") ?? "0");
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [stubSummary(kind, Math.floor(offset / PAGE_SIZE) + 1)],
+          total: TOTAL,
+          limit: PAGE_SIZE,
+          offset,
+        }),
+      });
+    });
+  }
+
+  test("query traces page forward and back with server offset", async ({ page }) => {
+    await stubTraceList(page, "query");
+    await page.goto("/query-traces");
+
+    await expect(page.getByRole("row", { name: /Stub query page 1/ })).toBeVisible();
+    await expect(page.getByText("1-50 of 120")).toBeVisible();
+
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect(page.getByRole("row", { name: /Stub query page 2/ })).toBeVisible();
+    await expect(page.getByText("51-100 of 120")).toBeVisible();
+
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect(page.getByText("101-120 of 120")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Next" })).toBeDisabled();
+
+    await page.getByRole("button", { name: "Previous" }).click();
+    await expect(page.getByRole("row", { name: /Stub query page 2/ })).toBeVisible();
+
+    // A filter change resets to the first page.
+    await page.getByRole("searchbox", { name: "Search query traces" }).fill("stub");
+    await expect(page.getByRole("row", { name: /Stub query page 1/ })).toBeVisible();
+  });
+
+  test("ingestion traces page forward and back with server offset", async ({ page }) => {
+    await stubTraceList(page, "ingestion");
+    await page.goto("/ingestion-traces");
+
+    await expect(page.getByRole("row", { name: /stub-ingestion-1\.md/ })).toBeVisible();
+    await expect(page.getByText("1-50 of 120")).toBeVisible();
+
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect(page.getByRole("row", { name: /stub-ingestion-2\.md/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Previous" })).toBeEnabled();
+
+    await page.getByRole("button", { name: "Previous" }).click();
+    await expect(page.getByRole("row", { name: /stub-ingestion-1\.md/ })).toBeVisible();
   });
 });

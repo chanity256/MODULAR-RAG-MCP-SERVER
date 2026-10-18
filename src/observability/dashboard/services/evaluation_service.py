@@ -91,6 +91,17 @@ class EvaluationService:
     def default_test_set_path(self) -> Path:
         return default_test_set_path(self._settings)
 
+    def test_set_exists(self, test_set_path: str | Path) -> bool:
+        """提交预检（WP2）：``run()`` 同款解析规则下路径是否存在。
+
+        相对路径先按 CWD、再按仓库根解析，与 :meth:`run` 完全一致，避免预检与执行
+        判定不一致；只用于显式路径——默认 golden set 缺失属服务端配置问题，不在此拦截。
+        """
+        path = Path(test_set_path)
+        if not path.is_absolute() and not path.exists():
+            path = resolve_test_set_path(path)
+        return path.exists()
+
     def build_evaluator(self, backend: str) -> BaseEvaluator:
         return evaluator_for_backend(backend, self._settings)
 

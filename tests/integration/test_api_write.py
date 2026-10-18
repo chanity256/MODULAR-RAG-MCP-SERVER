@@ -80,9 +80,14 @@ class FakeEvaluation:
         self.calls: list[dict] = []
         self.gate: threading.Event | None = None
         self.error: Exception | None = None
+        # WP2 precheck toggle: True mirrors the real service on an existing path.
+        self.path_exists = True
 
     def default_test_set_path(self):
         return Path("/golden/default.json")
+
+    def test_set_exists(self, test_set_path):
+        return self.path_exists
 
     def run(self, test_set_path, *, backend="composite", top_k=None, filters=None):
         self.calls.append(
@@ -354,6 +359,45 @@ class TestEvaluationTasks:
     @pytest.mark.parametrize("body", [{"backend": "nope"}, {"top_k": 0}, {"bogus": 1}])
     def test_validation(self, env, body):
         assert env.client.post("/api/v1/evaluations", json=body, headers=AUTH).status_code == 422
+
+    def test_missing_test_set_path_422_no_task(self, env):
+        env.evaluation.path_exists = False  # fake stands in for "resolved path not on disk"
+        response = env.client.post(
+            "/api/v1/evaluations",
+            json={"test_set_path": "tests/fixtures/missing.json"},
+            headers=AUTH,
+        )
+        assert response.status_code == 422
+        body = response.json()
+        assert body["error"]["code"] == "validation_error"
+        assert body["error"]["details"] == [
+            {"loc": ["body", "test_set_path"], "msg": "test set not found: tests/fixtures/missing.json", "type": "path_not_found"}
+        ]
+        assert env.evaluation.calls == []  # no task record was created
+
+    def test_existing_test_set_path_202(self, env):
+        response = env.client.post("/api/v1/evaluations", json={"test_set_path": "g.json"}, headers=AUTH)
+        assert response.status_code == 202
+        assert _poll(env.client, response.json()["task_id"])["status"] == "succeeded"
+
+    def test_default_path_skips_precheck(self, env):
+        env.evaluation.path_exists = False  # a precheck on the default path would 422 here
+        response = env.client.post("/api/v1/evaluations", json={}, headers=AUTH)
+        assert response.status_code == 202
+        assert _poll(env.client, response.json()["task_id"])["status"] == "succeeded"
+
+    def test_422_precedes_409(self, env):
+        env.evaluation.gate = threading.Event()
+        first = env.client.post("/api/v1/evaluations", json={}, headers=AUTH).json()["task_id"]
+        try:
+            env.evaluation.path_exists = False
+            response = env.client.post(
+                "/api/v1/evaluations", json={"test_set_path": "missing.json"}, headers=AUTH
+            )
+            assert response.status_code == 422
+        finally:
+            env.evaluation.gate.set()
+        assert _poll(env.client, first)["status"] == "succeeded"
 
     def test_concurrent_evaluation_conflicts(self, env):
         env.evaluation.gate = threading.Event()

@@ -7,6 +7,7 @@ import {
   normalizeEvalReport,
   submitEvaluation,
   toEvaluationRun,
+  trendSeries,
   validateEvaluationForm,
   type EvaluationFormValues,
 } from "./evaluation";
@@ -144,5 +145,53 @@ describe("evaluation history", () => {
   it("collects the union of metric keys in first-seen order", () => {
     const reports = [toEvaluationRun(failed).report, toEvaluationRun(succeeded).report, normalizeEvalReport({ metrics: { faithfulness: 0.9, mrr: 1 } })];
     expect(collectMetricKeys(reports)).toEqual(["hit_rate", "mrr", "faithfulness"]);
+  });
+
+  describe("trendSeries", () => {
+    const runWith = (taskId: string, createdAt: string, status: "succeeded" | "failed", metrics: Record<string, unknown>) =>
+      toEvaluationRun(
+        normalizeTask({
+          task_id: taskId,
+          kind: "evaluation",
+          status,
+          version: 0,
+          created_at: createdAt,
+          detail: { params: { backend: "custom", test_set_path: "g.json" }, result: { metrics } },
+        }),
+      );
+
+    it("plots the last 10 succeeded runs time-ascending, first 3 metrics", () => {
+      const runs = [
+        runWith("e3", "2026-01-03T00:00:00Z", "succeeded", { hit_rate: 0.6, mrr: 0.3, extra: 1 }),
+        runWith("e1", "2026-01-01T00:00:00Z", "succeeded", { hit_rate: 0.4, mrr: 0.2 }),
+        runWith("e2", "2026-01-02T00:00:00Z", "failed", { hit_rate: 9 }),
+        runWith("e4", "2026-01-04T00:00:00Z", "succeeded", { hit_rate: 0.8, mrr: 0.5, extra: 2 }),
+      ];
+      const trend = trendSeries(runs)!;
+      expect(trend).not.toBeNull();
+      expect(trend.runs).toBe(3); // the failed run is excluded
+      expect(trend.series.map((s) => s.key)).toEqual(["hit_rate", "mrr", "extra"]);
+      expect(trend.series[0].points).toEqual([
+        { run: 1, value: 0.4 },
+        { run: 2, value: 0.6 },
+        { run: 3, value: 0.8 },
+      ]);
+    });
+
+    it("caps the window at 10 runs and nulls missing metrics", () => {
+      const runs = Array.from({ length: 12 }, (_, i) =>
+        runWith(`e${i}`, `2026-01-01T00:00:${String(i).padStart(2, "0")}Z`, "succeeded", { hit_rate: i / 12 }),
+      );
+      const trend = trendSeries(runs)!;
+      expect(trend.runs).toBe(10);
+      expect(trend.series[0].points[0]).toEqual({ run: 1, value: 2 / 12 }); // runs 3..12 remain
+    });
+
+    it("returns null with fewer than two succeeded runs", () => {
+      const one = [runWith("e1", "2026-01-01T00:00:00Z", "succeeded", { hit_rate: 1 })];
+      expect(trendSeries([])).toBeNull();
+      expect(trendSeries(one)).toBeNull();
+      expect(trendSeries([...one, runWith("e2", "2026-01-02T00:00:00Z", "failed", { hit_rate: 1 })])).toBeNull();
+    });
   });
 });

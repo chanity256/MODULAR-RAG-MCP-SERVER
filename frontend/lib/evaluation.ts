@@ -166,6 +166,50 @@ export function collectMetricKeys(reports: readonly (EvalReportView | null)[]): 
   return keys;
 }
 
+export interface TrendPoint {
+  /** Run position (1-based) in the plotted window. */
+  run: number;
+  value: number | null;
+}
+
+export interface TrendSeries {
+  key: string;
+  points: TrendPoint[];
+}
+
+export interface EvaluationTrend {
+  runs: number;
+  series: TrendSeries[];
+}
+
+const TREND_MAX_RUNS = 10;
+const TREND_MAX_METRICS = 3;
+
+/** Point sequences for the history trend chart: the last `maxRuns` succeeded runs in time-ascending
+ *  order, first `maxMetrics` keys (`collectMetricKeys` order, matching Streamlit's "前 3 个指标").
+ *  `value` is null when a run lacks that metric. Returns null with fewer than 2 runs — a line
+ *  needs two points. */
+export function trendSeries(
+  runs: readonly EvaluationRun[],
+  maxRuns: number = TREND_MAX_RUNS,
+  maxMetrics: number = TREND_MAX_METRICS,
+): EvaluationTrend | null {
+  const window = runs
+    .filter((run) => run.status === "succeeded" && run.report)
+    .sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""))
+    .slice(-maxRuns);
+  if (window.length < 2) return null;
+  const keys = collectMetricKeys(window.map((run) => run.report)).slice(0, maxMetrics);
+  if (keys.length === 0) return null;
+  return {
+    runs: window.length,
+    series: keys.map((key) => ({
+      key,
+      points: window.map((run, index) => ({ run: index + 1, value: run.report?.metrics[key] ?? null })),
+    })),
+  };
+}
+
 export function runFromRaw(raw: unknown): EvaluationRun {
   return toEvaluationRun(normalizeTask(raw));
 }

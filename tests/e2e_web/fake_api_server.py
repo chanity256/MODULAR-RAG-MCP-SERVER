@@ -262,6 +262,11 @@ class FakeEvaluation:
     def default_test_set_path(self) -> Path:
         return Path("/golden/e2e-default.json")
 
+    def test_set_exists(self, test_set_path) -> bool:
+        # Real filesystem check: the WP2 e2e submits a bogus explicit path and expects the 422
+        # precheck; default-path submissions never reach this (route skips the precheck).
+        return Path(test_set_path).exists()
+
     def run(self, test_set_path, *, backend="composite", top_k=None, filters=None):
         time.sleep(0.8)
         return _Report()

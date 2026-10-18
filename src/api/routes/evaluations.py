@@ -31,7 +31,7 @@ def get_evaluation_service(container: ServiceContainer = Depends(get_container))
     "/evaluations",
     status_code=202,
     response_model=TaskSubmitted,
-    responses={409: {"model": ErrorResponse}},
+    responses={409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
     summary="Submit an evaluation task",
 )
 def submit_evaluation(
@@ -40,6 +40,20 @@ def submit_evaluation(
     manager: TaskManager = Depends(get_task_manager),
 ) -> TaskSubmitted:
     test_set = body.test_set_path or str(evaluation.default_test_set_path())
+    # WP2：只预检显式路径——默认 golden set 缺失是服务端配置问题，留给任务失败时报错。
+    # 预检先于 409 活跃任务检查（422 优先），且不产生任务记录。
+    if body.test_set_path and not evaluation.test_set_exists(body.test_set_path):
+        raise ApiError(
+            422,
+            f"Test set path does not exist: {body.test_set_path}",
+            details=[
+                {
+                    "loc": ["body", "test_set_path"],
+                    "msg": f"test set not found: {body.test_set_path}",
+                    "type": "path_not_found",
+                }
+            ],
+        )
     params = {
         "test_set_path": test_set,
         "backend": body.backend,

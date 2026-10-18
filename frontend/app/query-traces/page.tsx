@@ -14,8 +14,10 @@ import {
   StageWaterfall,
 } from "@/components/dashboard/StageViews";
 import TraceDetailLoader from "@/components/dashboard/TraceDetailLoader";
+import Pagination from "@/components/documents/Pagination";
 import { useAsyncData } from "@/hooks/useAsyncData";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { clampOffset } from "@/lib/data";
 import { fetchTraces } from "@/lib/queries";
 import {
   ALL_SOURCES,
@@ -24,7 +26,6 @@ import {
   agenticRoutes,
   buildWaterfall,
   chatSummary,
-  filterBySource,
   findStage,
   formatMs,
   formatTime,
@@ -39,8 +40,7 @@ import {
 } from "@/lib/traces";
 import type { TraceDetail, TraceSummary } from "@/lib/types";
 
-const PAGE_SIZE = 500;
-const VISIBLE_STEP = 50;
+const PAGE_SIZE = 50;
 
 const COLUMNS: Column<TraceSummary>[] = [
   {
@@ -187,25 +187,35 @@ export default function QueryTracesPage() {
   const [keyword, setKeyword] = useState("");
   const [source, setSource] = useState(ALL_SOURCES);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [visible, setVisible] = useState(VISIBLE_STEP);
+  const [offset, setOffset] = useState(0);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const debounced = useDebouncedValue(keyword);
 
   const { data, error, loading, reload } = useAsyncData(
     (signal) =>
-      fetchTraces({ traceType: "query", keyword: debounced, routes: routesParam(source), limit: PAGE_SIZE }, signal),
-    `query:${debounced}:${source}`,
+      fetchTraces(
+        { traceType: "query", keyword: debounced, routes: routesParam(source), limit: PAGE_SIZE, offset },
+        signal,
+      ),
+    `query:${debounced}:${source}:${offset}`,
     autoRefresh ? 10_000 : 0,
   );
 
-  const allItems = data?.items ?? [];
-  const sources = [...new Set([...KNOWN_SOURCES, ...sourceOptions(allItems), source])].filter(
+  const items = data?.items ?? [];
+  // Newest-first list: after auto-refresh shrinks `total` (e.g. trace rotation), pull offset back
+  // in range. Adjusting state during render (guarded by the last seen value) re-renders before
+  // committing, which refetches the clamped page via the cache key.
+  const clamped = data ? clampOffset(data.total, PAGE_SIZE, offset) : offset;
+  const [lastClamped, setLastClamped] = useState(clamped);
+  if (lastClamped !== clamped) {
+    setLastClamped(clamped);
+    setOffset(clamped);
+  }
+
+  const sources = [...new Set([...KNOWN_SOURCES, ...sourceOptions(items), source])].filter(
     (name) => name !== ALL_SOURCES,
   );
   const activeSource = source;
-  // The server already filtered by `routes`; the client filter covers servers that ignore the param.
-  const items = filterBySource(allItems, activeSource);
-  const shown = items.slice(0, visible);
   const selected = items.find((i) => i.trace_id === selectedId) ?? items[0];
 
   return (
@@ -222,7 +232,7 @@ export default function QueryTracesPage() {
           value={keyword}
           onChange={(e) => {
             setKeyword(e.target.value);
-            setVisible(VISIBLE_STEP);
+            setOffset(0);
           }}
           placeholder="Search by query text or trace id"
           aria-label="Search query traces"
@@ -234,7 +244,7 @@ export default function QueryTracesPage() {
             value={activeSource}
             onChange={(e) => {
               setSource(e.target.value);
-              setVisible(VISIBLE_STEP);
+              setOffset(0);
             }}
             aria-label="Filter by source"
             className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
@@ -256,7 +266,7 @@ export default function QueryTracesPage() {
         <>
           <DataTable
             columns={COLUMNS}
-            rows={shown}
+            rows={items}
             rowKey={(r) => r.trace_id}
             selectedKey={selected?.trace_id}
             onRowClick={(r) => setSelectedId(r.trace_id)}
@@ -266,21 +276,7 @@ export default function QueryTracesPage() {
                 : "No query traces yet. Run a query and come back."
             }
           />
-          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span>
-              Showing {shown.length} of {items.length}
-              {items.length !== data.total && ` (${data.total} total)`}
-            </span>
-            {shown.length < items.length && (
-              <button
-                type="button"
-                onClick={() => setVisible((v) => v + VISIBLE_STEP)}
-                className="rounded border border-slate-300 px-2.5 py-1 hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-700"
-              >
-                Show more
-              </button>
-            )}
-          </div>
+          <Pagination total={data.total} limit={PAGE_SIZE} offset={offset} onOffsetChange={setOffset} />
           {selected && (
             <TraceDetailLoader traceId={selected.trace_id}>
               {(trace) => <QueryDetail trace={trace} />}

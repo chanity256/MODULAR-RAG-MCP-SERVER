@@ -7,8 +7,10 @@ import MetricCard from "@/components/dashboard/MetricCard";
 import { Badge, PageHeader, RefreshControls, Section } from "@/components/dashboard/Section";
 import { StageList, StageWaterfall } from "@/components/dashboard/StageViews";
 import TraceDetailLoader from "@/components/dashboard/TraceDetailLoader";
+import Pagination from "@/components/documents/Pagination";
 import { useAsyncData } from "@/hooks/useAsyncData";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { clampOffset } from "@/lib/data";
 import { fetchTraces } from "@/lib/queries";
 import {
   INGEST_STAGES,
@@ -19,8 +21,7 @@ import {
 } from "@/lib/traces";
 import type { TraceDetail, TraceSummary } from "@/lib/types";
 
-const PAGE_SIZE = 500;
-const VISIBLE_STEP = 50;
+const PAGE_SIZE = 50;
 
 function fileName(path: string | null): string {
   if (!path) return "-";
@@ -80,18 +81,27 @@ function IngestionDetail({ trace }: { trace: TraceDetail }) {
 export default function IngestionTracesPage() {
   const [keyword, setKeyword] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [visible, setVisible] = useState(VISIBLE_STEP);
+  const [offset, setOffset] = useState(0);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const debounced = useDebouncedValue(keyword);
 
   const { data, error, loading, reload } = useAsyncData(
-    (signal) => fetchTraces({ traceType: "ingestion", keyword: debounced, limit: PAGE_SIZE }, signal),
-    `ingestion:${debounced}`,
+    (signal) => fetchTraces({ traceType: "ingestion", keyword: debounced, limit: PAGE_SIZE, offset }, signal),
+    `ingestion:${debounced}:${offset}`,
     autoRefresh ? 10_000 : 0,
   );
 
   const items = data?.items ?? [];
-  const shown = items.slice(0, visible);
+  // Newest-first list: after auto-refresh shrinks `total` (e.g. trace rotation), pull offset back
+  // in range. Adjusting state during render (guarded by the last seen value) re-renders before
+  // committing, which refetches the clamped page via the cache key.
+  const clamped = data ? clampOffset(data.total, PAGE_SIZE, offset) : offset;
+  const [lastClamped, setLastClamped] = useState(clamped);
+  if (lastClamped !== clamped) {
+    setLastClamped(clamped);
+    setOffset(clamped);
+  }
+
   const selected = items.find((i) => i.trace_id === selectedId) ?? items[0];
 
   return (
@@ -107,7 +117,7 @@ export default function IngestionTracesPage() {
         value={keyword}
         onChange={(e) => {
           setKeyword(e.target.value);
-          setVisible(VISIBLE_STEP);
+          setOffset(0);
         }}
         placeholder="Search by trace id or source path"
         aria-label="Search ingestion traces"
@@ -121,7 +131,7 @@ export default function IngestionTracesPage() {
         <>
           <DataTable
             columns={COLUMNS}
-            rows={shown}
+            rows={items}
             rowKey={(r) => r.trace_id}
             selectedKey={selected?.trace_id}
             onRowClick={(r) => setSelectedId(r.trace_id)}
@@ -131,20 +141,7 @@ export default function IngestionTracesPage() {
                 : "No ingestion traces yet. Run an ingestion and come back."
             }
           />
-          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span>
-              Showing {shown.length} of {data.total}
-            </span>
-            {shown.length < items.length && (
-              <button
-                type="button"
-                onClick={() => setVisible((v) => v + VISIBLE_STEP)}
-                className="rounded border border-slate-300 px-2.5 py-1 hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-700"
-              >
-                Show more
-              </button>
-            )}
-          </div>
+          <Pagination total={data.total} limit={PAGE_SIZE} offset={offset} onOffsetChange={setOffset} />
           {selected && (
             <TraceDetailLoader traceId={selected.trace_id}>
               {(trace) => <IngestionDetail trace={trace} />}

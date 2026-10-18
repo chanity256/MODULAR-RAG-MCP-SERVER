@@ -119,6 +119,30 @@ class TestTestSetPath:
         assert runner.calls[0]["path"] == target
 
 
+class TestTestSetExists:
+    """WP2 提交预检：与 run() 同款解析语义，供路由 422 前置校验。"""
+
+    def test_absolute_path(self, settings, tmp_path):
+        service = EvaluationService(settings)
+        existing = tmp_path / "g.json"
+        existing.write_text("[]", encoding="utf-8")
+        assert service.test_set_exists(existing) is True
+        assert service.test_set_exists(tmp_path / "missing.json") is False
+
+    def test_relative_resolved_like_run(self, settings, tmp_path, monkeypatch):
+        # settings fixture 已 chdir 到 tmp_path；再把仓库根也指到 tmp_path。
+        (tmp_path / "g.json").write_text("[]", encoding="utf-8")
+        monkeypatch.setattr(svc, "_REPO_ROOT", tmp_path)
+        service = EvaluationService(settings)
+        assert service.test_set_exists("g.json") is True  # CWD 相对路径
+
+        nested = tmp_path / "nested"
+        nested.mkdir()
+        monkeypatch.chdir(nested)
+        assert service.test_set_exists("g.json") is True  # 仓库根回退
+        assert service.test_set_exists("nope.json") is False
+
+
 class TestRun:
     def test_returns_report_and_passes_top_k_and_filters(self, settings, tmp_path):
         runner = FakeRunner()
