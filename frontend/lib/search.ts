@@ -31,6 +31,8 @@ export interface SearchCapabilities {
   agentic_enabled: boolean;
   allow_deep: boolean;
   availability: Record<SearchMode, ModeStatus>;
+  /** WS /api/v1/search/ws availability (api.deep_progress_stream); default false server-side. */
+  progress_stream: boolean;
 }
 
 export interface SearchCitation {
@@ -127,6 +129,7 @@ export function normalizeCapabilities(raw: unknown): SearchCapabilities {
     agentic_enabled: r.agentic_enabled === true,
     allow_deep: r.allow_deep === true,
     availability,
+    progress_stream: r.progress_stream === true,
   };
 }
 

@@ -4,11 +4,14 @@ import { useState } from "react";
 import { ErrorNotice, LoadingState } from "@/components/dashboard/AsyncState";
 import { PageHeader } from "@/components/dashboard/Section";
 import { BUTTON_PRIMARY, CARD_CLASS, INPUT_CLASS } from "@/components/shared/styles";
+import SearchLogPanel from "@/components/chat/SearchLogPanel";
 import { useAsyncData } from "@/hooks/useAsyncData";
-import { toApiError, type ApiError } from "@/lib/errors";
+import type { SearchLogEntry } from "@/lib/chat/types";
+import { ApiError, toApiError } from "@/lib/errors";
 import {
   MODE_LABELS,
   SEARCH_MODES,
+  buildSearchRequest,
   fetchSearchCapabilities,
   initialMode,
   isModeAvailable,
@@ -17,6 +20,7 @@ import {
   type SearchMode,
   type SearchResult,
 } from "@/lib/search";
+import { openSearchStream } from "@/lib/searchClient";
 import ResultView from "./ResultView";
 
 export default function PlaygroundView() {
@@ -32,6 +36,9 @@ export default function PlaygroundView() {
   // Last outcome per mode so switching modes compares runs instead of discarding them.
   const [results, setResults] = useState<Partial<Record<SearchMode, SearchResult>>>({});
   const [errors, setErrors] = useState<Partial<Record<SearchMode, ApiError>>>({});
+  // WS3: live progress for the gated deep stream; cleared on each submit.
+  const [logs, setLogs] = useState<SearchLogEntry[]>([]);
+  const [streamNotice, setStreamNotice] = useState<string | null>(null);
 
   const mode: SearchMode =
     pickedMode && isModeAvailable(caps, pickedMode) ? pickedMode : caps ? initialMode(caps) : "normal";
@@ -39,13 +46,7 @@ export default function PlaygroundView() {
   const error = errors[mode];
   const busy = running !== null;
 
-  const submit = async () => {
-    const problem = validateSearchForm({ mode, query, topK, collection });
-    setValidation(problem);
-    if (problem) return;
-    const target = mode;
-    setRunning(target);
-    setErrors((current) => ({ ...current, [target]: undefined }));
+  const runSync = async (target: SearchMode) => {
     try {
       const next = await runSearch({ mode: target, query, topK, collection });
       setResults((current) => ({ ...current, [target]: next }));
@@ -54,6 +55,50 @@ export default function PlaygroundView() {
     } finally {
       setRunning(null);
     }
+  };
+
+  /** WS2 端点流式（仅 caps.progress_stream 开启时的 Deep）：逐条渲染进度日志。 */
+  const startDeepStream = (target: SearchMode) => {
+    let sawError = false;
+    openSearchStream(
+      buildSearchRequest({ mode: target, query, topK, collection }),
+      {
+        onLog: (entry) => setLogs((current) => [...current, entry]),
+        onResult: (next) => {
+          // 结果帧即终态：立即收尾（服务端随后关闭连接；close 事件只兜底降级）。
+          setRunning(null);
+          setResults((current) => ({ ...current, [target]: next }));
+        },
+        onError: (code, message) => {
+          sawError = true;
+          setErrors((current) => ({ ...current, [target]: new ApiError(0, code, message) }));
+        },
+        onClosed: ({ gotResult }) => {
+          setRunning(null);
+          if (!gotResult && !sawError) {
+            // 服务端不支持 WS（旧版本/代理剥离）时降级为同步 POST（spec 2.4）。
+            setStreamNotice("Live progress unavailable; ran a synchronous search instead.");
+            void runSync(target);
+          }
+        },
+      },
+    );
+  };
+
+  const submit = async () => {
+    const problem = validateSearchForm({ mode, query, topK, collection });
+    setValidation(problem);
+    if (problem) return;
+    const target = mode;
+    setRunning(target);
+    setErrors((current) => ({ ...current, [target]: undefined }));
+    setLogs([]);
+    setStreamNotice(null);
+    if (target === "deep" && caps?.progress_stream) {
+      startDeepStream(target);
+      return;
+    }
+    await runSync(target);
   };
 
   const label = "flex flex-col gap-1 text-xs font-medium text-slate-600 dark:text-slate-300";
@@ -148,6 +193,7 @@ export default function PlaygroundView() {
             {validation}
           </p>
         )}
+        {streamNotice && <p className="text-xs text-amber-600 dark:text-amber-300">{streamNotice}</p>}
         <div className="flex items-center gap-3">
           <button type="submit" disabled={busy || (caps !== undefined && !isModeAvailable(caps, mode))} className={BUTTON_PRIMARY}>
             {busy ? "Searching..." : "Search"}
@@ -156,6 +202,7 @@ export default function PlaygroundView() {
         </div>
       </form>
 
+      {mode === "deep" && logs.length > 0 && <SearchLogPanel logs={logs} defaultOpen />}
       {running === mode && <LoadingState label={`Running ${MODE_LABELS[mode]} search...`} />}
       {error && <SearchError error={error} onRetry={() => void submit()} />}
       {result && !error && running !== mode && <ResultView result={result} />}

@@ -15,12 +15,15 @@ export default function SearchLogPanel({
   logs,
   searchComplete,
   searchError,
+  defaultOpen = false,
 }: {
   logs: readonly SearchLogEntry[];
   searchComplete?: string;
   searchError?: string;
+  /** Open the list on first render (Playground Deep streaming keeps progress visible). */
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   if (logs.length === 0 && !searchError) return null;
 
   return (

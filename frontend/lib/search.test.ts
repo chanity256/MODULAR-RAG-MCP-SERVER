@@ -60,6 +60,11 @@ describe("capabilities", () => {
     expect(isModeAvailable(caps, "deep")).toBe(false);
     expect(initialMode(caps)).toBe("normal");
   });
+  it("normalizes progress_stream strictly to a boolean (WS3 gate)", () => {
+    expect(normalizeCapabilities({ ...raw, progress_stream: true }).progress_stream).toBe(true);
+    expect(normalizeCapabilities({ ...raw, progress_stream: "yes" }).progress_stream).toBe(false);
+    expect(normalizeCapabilities({}).progress_stream).toBe(false);
+  });
   it("fetches via GET", async () => {
     const fetchMock = vi.fn().mockResolvedValue(json(raw));
     vi.stubGlobal("fetch", fetchMock);
