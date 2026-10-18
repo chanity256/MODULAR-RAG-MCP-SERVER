@@ -54,7 +54,8 @@ docs/ 文档分两类：
 | 日志分层（LG） | 会话内 `logs/traces.jsonl` 体量审计（无独立文件） | — | [07_LOGGING_SPEC_frozen.md](frozen/07_LOGGING_SPEC_frozen.md) | 遗留见规格 2.2（未建台账） | 跳过提案 |
 | 存储扩容 | [STORAGE_SCALING_ANALYSIS.md](analysis/STORAGE_SCALING_ANALYSIS.md) | — | — | — | 止于分析（阶段 0 保持文件型存储不动） |
 | 微服务演进 | [MICROSERVICES_ANALYSIS.md](analysis/MICROSERVICES_ANALYSIS.md) | — | — | — | 止于分析（保持模块化单体） |
-| WebUI 双轨差异收口（WP） | [WEBUI_PARITY_AUDIT.md](analysis/WEBUI_PARITY_AUDIT.md)（WC10.1 缺口清单 L3/L4） | [webui-parity-followups_backlog.md](backlog/webui-parity-followups_backlog.md) | [08_WEBUI_PARITY_SPEC_frozen.md](frozen/08_WEBUI_PARITY_SPEC_frozen.md) | 台账保留 #1（Deep 进度日志）/ #4（sidecar 托管编排） | 拆分移交 |
+| WebUI 双轨差异收口（WP） | [WEBUI_PARITY_AUDIT.md](analysis/WEBUI_PARITY_AUDIT.md)（WC10.1 缺口清单 L3/L4） | [webui-parity-followups_backlog.md](backlog/webui-parity-followups_backlog.md) | [08_WEBUI_PARITY_SPEC_frozen.md](frozen/08_WEBUI_PARITY_SPEC_frozen.md) | 台账剩余项二次移交 WS 规格（见下行） | 拆分移交 |
+| WebUI sidecar 补齐（WS） | 同上台账（#4 sidecar 托管编排、#1 Deep 进度日志） | [webui-parity-followups_backlog.md](backlog/webui-parity-followups_backlog.md)（第二次拆分移交） | [WEBUI_SIDECAR_SPEC.md](specs/WEBUI_SIDECAR_SPEC.md) | 上游依赖见 [sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md) #1（SX5.3 线程泄漏，门控默认关闭的依据） | 拆分移交 |
 ## specs/ — 开发规格（落点）
 
 **立项后新规格的存放处**（从 [backlog/](backlog/) 晋升）。任务全收口后冻结入 frozen/（SX 系列先例见 [frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md](frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md)）。
@@ -63,7 +64,7 @@ docs/ 文档分两类：
 
 | 文档 | 说明 |
 |------|------|
-| _（暂无进行中的规格）_ | 新规格从 [backlog/](backlog/) 晋升后列于此 |
+| [WEBUI_SIDECAR_SPEC.md](specs/WEBUI_SIDECAR_SPEC.md) | WebUI sidecar 补齐规格（WS 系列，进行中）：`start_api.py --manage-sidecar` 共享托管编排、Playground Deep 实时进度日志（`api.deep_progress_stream` 门控默认关闭，因 SX5.3 上游线程泄漏）；承接自 [backlog/webui-parity-followups_backlog.md](backlog/webui-parity-followups_backlog.md) 的 #4/#1 |
 
 ## frozen/ — 已冻结文档
 
@@ -101,7 +102,7 @@ docs/ 文档分两类：
 | 文档 | 说明 |
 |------|------|
 | [OBSIDIAN_RAG_SPEC_backlog.md](backlog/OBSIDIAN_RAG_SPEC_backlog.md) | Obsidian Vault RAG 扩展规格（V 系列；v0.2 起 M1/M2 Markdown 摄取已移交 IR 规格 IR7，本规格保留 M3 sentence-transformers / M4 Semantic Walk 待排期） |
-| [webui-parity-followups_backlog.md](backlog/webui-parity-followups_backlog.md) | WebUI 双轨核验遗留差异（候选池）：#5 翻页/#2 趋势图/#3 预检已拆分移交并随 [frozen/08_WEBUI_PARITY_SPEC_frozen.md](frozen/08_WEBUI_PARITY_SPEC_frozen.md) 收口（WP 系列）；剩 Deep 进度日志（依赖上游线程泄漏修复）、sidecar 托管编排二选一、展示细节接受项；物理删除 Streamlit 前应再评估 |
+| [webui-parity-followups_backlog.md](backlog/webui-parity-followups_backlog.md) | WebUI 双轨核验遗留差异（候选池）：#5 翻页/#2 趋势图/#3 预检随 [frozen/08_WEBUI_PARITY_SPEC_frozen.md](frozen/08_WEBUI_PARITY_SPEC_frozen.md) 收口（WP 系列），#4 托管编排/#1 Deep 进度日志移交 [specs/WEBUI_SIDECAR_SPEC.md](specs/WEBUI_SIDECAR_SPEC.md)（WS 系列）；仅剩 #3 展示细节接受项 |
 | [sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md) | Sirchmunk SX 规格遗留事项台账：明确不做（evolver 等 6 项）、实验负结果存档（编译 GX 不通过、复用保持关闭）、已知缺陷与候选池（流式线程泄漏等 7 项） |
 
 ## reference/ — 使用参考

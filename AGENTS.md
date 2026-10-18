@@ -11,6 +11,7 @@
 - `docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md` — IR 系列摄取健壮性 + Markdown 摄取（IR0–IR7 已收口；改动摄取链路前先读其 7.1 实现偏差）。
 - `docs/frozen/06_WEBUI_CHAT_SPEC_frozen.md` — WC 系列 WebUI 前后端迁移 + Chat（WC0–WC10 已收口冻结：FastAPI + Next 静态导出、多轮对话 + RAG 有据回答、真流式；Web UI 是主界面，Streamlit 已弃用 legacy、保留可用；改动 `src/api/` / `src/core/chat/` / `frontend/` / Dashboard 服务层前先读，注意 D1 前端选型与 §1.2 对分析文档的勘误；Web UI 使用、配置与 Streamlit 删除条件见 `docs/reference/USAGE_GUIDE.md` 第 10 章，七页等价核验见 `docs/analysis/WEBUI_PARITY_AUDIT.md`）。
 - `docs/frozen/07_LOGGING_SPEC_frozen.md` — LG 系列日志分层与按日切分（LG0–LG7 已收口冻结：Trace 按日落盘 `logs/traces/`、应用运行日志 `logs/app/`、保留期清理、测试经 `RAG_LOG_ROOT` 隔离；改动 `core/trace/persist.py` / `observability/logger.py` / TraceService / 进程入口日志前先读，注意其 7.1 实现偏差）。
+- `docs/specs/WEBUI_SIDECAR_SPEC.md` — WS 系列 WebUI sidecar 补齐（**进行中**：sidecar 托管编排抽共享模块 + `start_api.py --manage-sidecar`、Playground Deep 实时进度日志，`api.deep_progress_stream` 门控默认关闭——因 SX5.3 上游线程泄漏；改动 `scripts/start_api.py` / `scripts/start_dashboard.py` / 搜索流式端点 / Playground Deep 前端前先读，承接自 `docs/backlog/webui-parity-followups_backlog.md` 的 #4/#1）。
 - `docs/analysis/` — 架构分析与演进方向（微服务分析、优化路线图）。
 - `docs/reference/USAGE_GUIDE.md` — 使用速查（启动、配置、sidecar 用法）。
 - `docs/backlog/` — 候选功能与待开发规格（OBSIDIAN V 系列的 M3/M4 可选增强在此待排期，其 M1/M2 已由 IR7 交付；新提案约定见其 README）。
