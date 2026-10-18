@@ -591,7 +591,7 @@ Playwright 流程跑在 `tests/e2e_web/fake_api_server.py` 上：真实 FastAPI 
 
 **删除条件**（须全部满足，且由使用者显式下令；对应 `dashboard-api-migration_backlog_frozen.md` P6 退役门槛）：
 
-1. [WEBUI_PARITY_AUDIT.md](../analysis/WEBUI_PARITY_AUDIT.md) 的缺口已补齐或明确放弃：#5 翻页/#2 趋势图/#3 预检已由 WP 规格交付，Deep 进度日志与 sidecar 托管编排（原「Streamlit 独有逻辑」）已由 [WEBUI_SIDECAR_SPEC](../specs/WEBUI_SIDECAR_SPEC.md)（WS 系列）补齐；其余遗留见 [webui-parity-followups_backlog.md](../backlog/webui-parity-followups_backlog.md)；
+1. [WEBUI_PARITY_AUDIT.md](../analysis/WEBUI_PARITY_AUDIT.md) 的缺口已补齐或明确放弃：#5 翻页/#2 趋势图/#3 预检已由 WP 规格交付，Deep 进度日志与 sidecar 托管编排（原「Streamlit 独有逻辑」）已由 [09_WEBUI_SIDECAR_SPEC_frozen.md](../frozen/09_WEBUI_SIDECAR_SPEC_frozen.md)（WS 系列）补齐；其余遗留见 [webui-parity-followups_backlog.md](../backlog/webui-parity-followups_backlog.md)；
 2. WC10.3 门控冒烟通过（已于 2026-10-15 通过），WEBUI_CHAT_SPEC 已冻结；
 3. Python、API、前端与 Playwright 测试全部通过；
 4. Web UI 已稳定使用一段时间，使用者确认不再依赖 Streamlit。

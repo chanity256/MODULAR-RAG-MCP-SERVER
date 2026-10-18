@@ -1,6 +1,12 @@
-# WEBUI_SIDECAR_SPEC — sidecar 托管编排 + Playground Deep 进度日志（WS 系列）
+# WebUI sidecar 补齐 规格（WEBUI_SIDECAR / WS 系列）
 
-> **定位**：收口 [backlog/webui-parity-followups_backlog.md](../backlog/webui-parity-followups_backlog.md) 剩余的两项实现型差异（台账 #4 sidecar 托管编排、#1 Deep 实时进度日志），二者均为「物理删除 Streamlit 前」的退役门槛项。台账 #3（展示细节差异）为接受决议，不在本规格范围内。基线：`feat/sirchmunk-agentic-search` @ 051f903（WP0–WP2 已随 [frozen/08_WEBUI_PARITY_SPEC_frozen.md](../frozen/08_WEBUI_PARITY_SPEC_frozen.md) 收口）。
+> **📌 冻结记录**
+>
+> - 冻结时间：2026-10-18
+> - 完成概要：WS0–WS4 五项全部收口（`scripts/sidecar_manager.py` 共享托管编排 + `start_api.py --manage-sidecar`、`core/chat/progress.py` 共享「sidecar 日志 → search_log 帧」转换、门控 `WS /api/v1/search/ws`（`api.deep_progress_stream` 默认 false，SX5.3 上游线程泄漏规避）、Playground Deep 前端流式接入与降级、USAGE_GUIDE/README 文档同步）。实测 pytest 2108 passed（unit）/ 105 passed（相关集成）、vitest 262 passed、Playwright 26 passed、typecheck/lint 干净。实现偏差见 5 章进度备注。
+> - 遗留：SX5.3 上游线程泄漏（唯一根治路径为向上游提 PR，见 [backlog/sirchmunk-extension-followups_backlog.md](../backlog/sirchmunk-extension-followups_backlog.md) #1；本规格以默认关闭门控规避）
+
+> **定位**：收口 [backlog/webui-parity-followups_backlog.md](../backlog/webui-parity-followups_backlog.md) 剩余的两项实现型差异（台账 #4 sidecar 托管编排、#1 Deep 实时进度日志），二者均为「物理删除 Streamlit 前」的退役门槛项。台账 #3（展示细节差异）为接受决议，不在本规格范围内。基线：`feat/sirchmunk-agentic-search` @ 051f903（WP0–WP2 已随 [frozen/08_WEBUI_PARITY_SPEC_frozen.md](08_WEBUI_PARITY_SPEC_frozen.md) 收口）。
 
 **版本**：v0.1（2026-10-18）
 **起源**：由 [backlog/webui-parity-followups_backlog.md](../backlog/webui-parity-followups_backlog.md) 第二次拆分移交（第一次移交 #5/#2/#3 预检 → WP 系列），原文细节见 git 历史；上游依赖背景见 [backlog/sirchmunk-extension-followups_backlog.md](../backlog/sirchmunk-extension-followups_backlog.md) #1（SX5.3）。
