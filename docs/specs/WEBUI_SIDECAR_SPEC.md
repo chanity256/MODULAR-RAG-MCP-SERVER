@@ -83,7 +83,7 @@ Chat 已有完整实现：`ChatRetriever.retrieve(..., on_log=...)` 把 sidecar 
 | 编号 | 任务 | 验收标准 | 状态 |
 |------|------|---------|------|
 | WS0 | `scripts/sidecar_manager.py` 共享模块 + `start_api.py --manage-sidecar` + `start_dashboard.py` 改复用 | `test_start_dashboard.py` 全绿零断言改动；新增 `test_start_api_sidecar.py` 全绿；typecheck/lint 干净 | 已完成（2026-10-18） |
-| WS1 | 抽共享「sidecar 日志 → search_log 帧」helper，ChatEngine 复用 | 新增纯逻辑单测全绿；Chat 既有测试语义不变全绿 | 未开始 |
+| WS1 | 抽共享「sidecar 日志 → search_log 帧」helper，ChatEngine 复用 | 新增纯逻辑单测全绿；Chat 既有测试语义不变全绿 | 已完成（2026-10-18） |
 | WS2 | `WS /api/v1/search/ws` + `api.deep_progress_stream`（默认 false）+ capabilities 暴露 | 集成测试全绿（门控拒绝握手、帧序列、cancel、capabilities） | 未开始 |
 | WS3 | Playground Deep 前端接入（门控分支） | vitest + Playwright 全绿（开启逐条日志 / 默认回归现状） | 未开始 |
 | WS4 | USAGE_GUIDE 第 10 章（WS 协议、`--manage-sidecar`、SX5.3 风险注记）+ README 启动说明更新 | 文档与实现一致；drift guard 绿 | 未开始 |
@@ -94,3 +94,4 @@ Chat 已有完整实现：`ChatRetriever.retrieve(..., on_log=...)` 把 sidecar 
 
 - v0.1（2026-10-18）：立项。承接台账 #4（决策：抽共享模块实现）与 #1（决策：默认关闭门控，随上游修复再开启）；二选一与「现在立项 vs 暂缓」由用户拍板。
 - WS0（2026-10-18）已完成：`scripts/sidecar_manager.py` 迁入编排（探活/拉起/等健康/回收）；`start_api.py --manage-sidecar`（默认不传不托管，agentic 关闭时只打提示不报错，SIGTERM 转 SystemExit 走 finally 回收，uvicorn 启动后由其自身信号处理优雅关闭）；`start_dashboard.py` 改为委托共享模块。测试：`test_start_dashboard.py` 9 用例零断言改动全绿、`test_start_api_entry.py` 9 用例全绿、新增 `test_start_api_sidecar.py` 6 用例（flag 默认关、默认路径不碰 sidecar、agentic 关闭跳过、ensure→uvicorn→stop 顺序、失败不致命、agentic 注入）；`pytest tests/unit` 2102 passed。实现偏差：① 既有单测经 `cli.` 属性打补丁（`cli.sidecar_healthy` / `cli.SIDECAR_STARTUP_TIMEOUT_S`），故 `ensure_sidecar` 共享实现增加 `probe` / `startup_timeout_s` 注入参数，`start_dashboard.py` 以薄适配器传入本模块全局量，测试文件零改动；② 编排日志前缀 `[dashboard]` → `[sidecar]`（无测试断言依赖）。Python 侧无 lint/typecheck 工具链配置（pyproject 无 ruff/mypy），以 pytest 全绿代之。
+- WS1（2026-10-18）已完成：新增 `src/core/chat/progress.py`（`SearchLogFramer.to_frame`：事件 → `search_log` 帧，`(level, message)` 0.5s 去重窗口，窗口常量随迁为 `LOG_DEDUP_WINDOW_S`）；`ChatEngine._call_retriever` 改用 framer（工作线程编排、取消检查、`_LOG_POLL_S` 轮询留在引擎）。测试：新增 `tests/unit/test_chat_progress.py` 5 用例（帧形态、窗口内去重、窗口过期、窗口可配、非字符串矫正）；`test_chat_engine.py` + `test_api_chat.py` 131 passed 语义零改动；`pytest tests/unit` 2108 passed。实现偏差：无（纯抽取，帧协议与去重语义不变）。

@@ -30,6 +30,7 @@ import httpx
 from core.chat.answer_generator import AnswerGenerator
 from core.chat.context import ContextProcessor
 from core.chat.history import build_history
+from core.chat.progress import SearchLogFramer
 from core.chat.retriever import (
     RETRIEVAL_HYBRID,
     RETRIEVAL_MODES,
@@ -74,8 +75,7 @@ METHOD_SIDECAR_PASSTHROUGH = "sidecar_passthrough"
 METHOD_PURE_CHAT = "pure_chat"
 
 _TITLE_CHARS = 40
-# search_log 去重窗口与取消轮询间隔（对齐上游 chat.py:424-456 的 0.5s 去重）。
-_LOG_DEDUP_WINDOW_S = 0.5
+# 取消轮询间隔；日志去重窗口抽到 core.chat.progress（WS1，ChatEngine 与搜索流式端点共用）。
 _LOG_POLL_S = 0.05
 _PURE_CHAT_SYSTEM = (
     "You are a helpful assistant. Answer the user's question using the conversation so far. "
@@ -480,7 +480,7 @@ class ChatEngine:
                 events.put(("done",))
 
         threading.Thread(target=work, name="chat-retrieve", daemon=True).start()
-        last_seen: dict[tuple[str, str], float] = {}
+        framer = SearchLogFramer(state.trace.trace_id)
         while True:
             if cancel_event is not None and cancel_event.is_set():
                 return ChatRetrievalResult()
@@ -491,21 +491,9 @@ class ChatEngine:
             if item[0] == "done":
                 break
             _, level, message, timestamp = item
-            now = time.monotonic()
-            key = (str(level), str(message))
-            previous = last_seen.get(key)
-            last_seen[key] = now
-            if previous is not None and now - previous < _LOG_DEDUP_WINDOW_S:
-                continue
-            frame: dict[str, Any] = {
-                "type": "search_log",
-                "task_id": state.trace.trace_id,
-                "level": str(level),
-                "message": str(message),
-            }
-            if timestamp is not None:
-                frame["timestamp"] = timestamp
-            yield frame
+            frame = framer.to_frame(level, message, timestamp)
+            if frame is not None:
+                yield frame
         if "error" in outcome:
             raise outcome["error"]
         return outcome["value"]
