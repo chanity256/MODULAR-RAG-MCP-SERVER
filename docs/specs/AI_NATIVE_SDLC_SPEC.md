@@ -362,6 +362,15 @@ QA 计划测的是**产品行为**，改了 skill 文本，`ingest.py` 的输出
 
 **关键纪律**：机器起草的提案与人的提案同格式、同入口，不跳过三问；台账推进仍走单文件晋升。连续两周无产出或产出全被否决，就暂停该 automation 并复盘 prompt。
 
+**SD4 落地记录（2026-11-13）**：
+
+- **SD4.1 核实结论**：scheduled automation 三种运行位置均支持——本机（需 Factory 桌面 App 或 `droid daemon` 运行中）、Factory 托管 Droid Computer、Environment（每次 run 新机器）；GitHub 事件 automation 跑在 GitHub Actions。本机桌面 App 常驻运行，经使用者拍板选**本机执行**：automation ① 保留 `logs/app/` 输入（外发仍限脱敏摘要，fork 为公开仓库），automation ② 复用现成 `.venv` 免装依赖。代价：机器休眠时错过运行，Factory 记录并告警、恢复后补跑一次，连续 10 天错过自动暂停（可一键恢复）。
+- **两个 automation 已建并 active**（触发 cron `0 1 * * 1`，即每周一 09:00 北京时间 = UTC 周一 01:00；运行位置 local，由桌面 App 托管；prompt 完全自包含，不依赖仓库内 skill 加载）：
+  - ① **「SD4.2 每周 followups 扫描」**（id `0b05417b-2de2-42cc-a4f1-e7505db0cf62`）：读 `docs/backlog/` 全部 followups 台账 → 扫最近 7 天 `logs/app/` 异常 → 台账候选与日志异常相互印证才从 main 开 `chore/sd4-followups-<日期>` 分支起草三问提案（同步登记 backlog/README「当前候选」、MOC、README 导航，跑 `test_docs_links.py` 自检）→ push fork → **draft PR** 待 triage；无可推进项不开 PR（连续多周空产出属正常，不硬凑）。硬边界：不碰 `src/`、`tests/`、`scripts/`、`.github/`、specs/、frozen/；隐私红线写入 prompt——外发内容只允许「异常类名 + 来源 + 次数」级摘要。
+  - ② **「SD4.3 每周 QA 离线回归」**（id `bc210885-7510-4c0e-bc85-cc7bfe895239`）：跑与 CI 逐字同源的禁网 pytest + `check_redlines.py`；全绿只报告计数并与上周对比（计数存 automation memory/），失败才对照 `QA_PYTEST_MAP.md` 定位用例、开分支把失败项写回 `QA_TEST_PROGRESS.md` 标 🔧（汇总行各数之和须等于 Total）并开 PR；不修失败、不动任何断言。
+- **运行前提与局限**：automation 在共享工作树上执行 `git checkout main`，周一 09:00 若工作树有未提交改动会 checkout 失败、该 run 记为失败（git 安全拒绝，不会丢改动）；兜底：连续 5 次 run 失败 Factory 自动暂停并邮件告警。首两次运行（2026-11-16 / 11-23）即 SD4.2「连续两周无人干预」验收的观察窗口。
+- **SD4.4 后置确认**：CI 上线日为 2026-11-13（PR #1 首次 run），4 周数据最早约 2026-12-11 齐备；`bands.yaml` 收口时若仍未满足门控，按 §10 治理约束移入派生台账，不阻塞冻结。
+
 ### 3.5 SD5 — 过程度量
 
 **目标**：为每个优化项配可计算的领先/滞后指标（§0 总表最后一列即对应关系）。
@@ -471,7 +480,7 @@ D1 落地后，auto-coder 的 Persist 步骤不能再假设「提交即完成」
 | Droid hooks（`.factory/hooks.json`） | SD3.7 test-file 保护 hook | 机制已验证（docs-guard 在用），仅本地生效 |
 | `install-code-review` skill | SD2 | 环境已具备，未接入仓库；需先核实 REVIEW.md 读取与 fork 安装 |
 | `droid exec`（1.10.0） | SD3b 执行器 | 本机可用；CI 中需安装并配 `FACTORY_API_KEY` |
-| Factory Automations | SD4 | 环境已具备；运行位置待核实 |
+| Factory Automations | SD4 | 已核实并落地：本机执行，两个周度 automation active（§3.4 落地记录） |
 | 现有测试资产（pytest、drift guard、QA_TEST_PLAN、`test_mcp_client.py`） | SD1、SD3a | 直接复用 |
 | frozen 规格契约与验收标准 | SD2 合规遍扫 | 直接复用 |
 
@@ -587,10 +596,10 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 | SD3.5 | evals 用例 / fixture / 判据（3b） | 5–8 条用例；`evals/check.py` 实现判据①–⑤；`test_eval_judges.py` 离线通过 | [ ] |
 | SD3.6 | `agent-evals.yml` + 基线校准（3b） | 改一处 skill 文本触发 evals；故意删掉 auto-coder「先读规格」规则后判据①失败；门槛按基线校准后回填 §3.3 | [ ] |
 | SD3.7 | test-file 保护 hook（3b，可选） | 标记文件存在时拦截 `tests/` 下已有文件的 Edit/Write，新建测试文件不拦截 | [ ] |
-| SD4.1 | 核实 Automations 运行位置（门控入口） | 本机 / 云端结论回填 §3.4，并据此确定 automation ① 的日志输入方式 | [ ] |
-| SD4.2 | automation ① followups 扫描 | 连续两周无人干预，backlog 出现至少一条机器起草、经人 triage 的提案草案 PR | [ ] |
-| SD4.3 | automation ② QA 回归 | 每周运行可离线回归段，失败项写回 QA 进度文件并标 🔧 | [ ] |
-| SD4.4 | `bands.yaml` 阈值（后置） | SD1 运行满约 4 周后，基于 Actions 记录与 junit 设定阈值，超阈值才触发 ①/② | [ ] |
+| SD4.1 | 核实 Automations 运行位置（门控入口） | 本机 / 云端结论回填 §3.4，并据此确定 automation ① 的日志输入方式 | [x] 2026-11-13：终裁本机执行（桌面 App 常驻），① 保留日志输入、外发限脱敏摘要，② 复用 `.venv`（§3.4 落地记录） |
+| SD4.2 | automation ① followups 扫描 | 连续两周无人干预，backlog 出现至少一条机器起草、经人 triage 的提案草案 PR | [~] automation 已建并 active（2026-11-13，id `0b05417b`）；「连续两周」验收观察窗口为 2026-11-16 / 11-23 两次运行 |
+| SD4.3 | automation ② QA 回归 | 每周运行可离线回归段，失败项写回 QA 进度文件并标 🔧 | [~] automation 已建并 active（2026-11-13，id `bc210885`）；禁网回归 + 失败写回路径待 2026-11-16 首 run 验证 |
+| SD4.4 | `bands.yaml` 阈值（后置） | SD1 运行满约 4 周后，基于 Actions 记录与 junit 设定阈值，超阈值才触发 ①/② | [ ] 后置：CI 4 周数据最早 2026-12-11 齐备；收口时未满足则移派生台账 |
 | SD5.1 | `measure_process.py` + 单测 | 对当前仓库输出 5 项「✅ 能」指标基线，覆盖 SR、WS、WP、WC、LG 五个系列；`test_measure_process.py` 通过 | [x] 2026-11-13：5 项 = 立项→首任务、立项→冻结、修复轮数（SD5.2 埋点后可算）、QA 周转、revert/hotfix/fix；8 个规格中除 IR（提交无方括号前缀）外均有首任务样本；`test_measure_process.py` 8 条（§3.5 落地记录） |
 | SD5.2 | `Fix-Rounds` trailer 埋点（随 SD6） | auto-coder SKILL.md 含 trailer 规则；此后 auto-coder 提交带 `Fix-Rounds: N` | [~] 规则已写入 auto-coder（Test & Auto-Fix 计数口径 + Persist trailer）；待后续 auto-coder 提交验证 |
 | SD5.3 | `process-metrics.md` 基线文档 | `docs/analysis/process-metrics.md` 含口径与第一份基线；登记 MOC 与 README；`test_docs_links.py` 通过 | [x] 2026-11-13：1.0 版基线统计到 `d2a4e61`，目标值按 §3.5 从 1.1 版起设 |
@@ -658,9 +667,9 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 - **外发边界**：
   - SD2 自动 review：PR diff 与上下文发送至 Factory code review 服务；仅限 D2 选定的仓库，不覆盖上游 `origin`。
   - SD3b agent evals：fixture 仓库快照与 prompt 经 `droid exec` 发送至固定模型；fixture 只取固定 commit 的仓库代码，不含 `data/`、`logs/` 与任何用户文档。
-  - SD4 automation：若在云端执行，**不得**上传原始 `logs/app/`（可能含查询文本与文档片段），只允许脱敏后的异常摘要；若无法保证脱敏，automation ① 去掉日志输入、只扫 backlog。
+  - SD4 automation：若在云端执行，**不得**上传原始 `logs/app/`（可能含查询文本与文档片段），只允许脱敏后的异常摘要；若无法保证脱敏，automation ① 去掉日志输入、只扫 backlog。**已落地（2026-11-13）**：终裁本机执行，① 读本机日志但 prompt 硬边界限定外发内容只含「异常类名 + 来源 + 次数」级脱敏摘要（fork 为公开仓库，该约束对本机执行同样生效）。
 - **密钥**：`FACTORY_API_KEY` 只存于 GitHub Secrets，不写入仓库、日志或 workflow 输出；`check_redlines.py` 与 evals 产出不得回显密钥。
-- **开关策略**：evals 默认不运行，只在 skill / hook / AGENTS.md 路径变更或手动触发时运行；automation 在 SD4.1 核实运行位置前不创建；门控真实集成测试在 CI 中保持关闭。
+- **开关策略**：evals 默认不运行，只在 skill / hook / AGENTS.md 路径变更或手动触发时运行；automation 须在 SD4.1 核实运行位置后才创建（已核实，两个 automation 于 2026-11-13 创建并 active）；门控真实集成测试在 CI 中保持关闭。
 
 ---
 
