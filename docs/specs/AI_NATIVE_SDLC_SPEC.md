@@ -369,7 +369,7 @@ QA 计划测的是**产品行为**，改了 skill 文本，`ingest.py` 的输出
 |------|------|----------|-----------|
 | 立项 → 首个任务提交时长 | 领先 | git 文件路径 + 系列前缀（见上） | ✅ 能 |
 | 立项 → 冻结周期 | 领先 | git 文件路径（specs/ 出现 → 移入 frozen/） | ✅ 能 |
-| auto-coder 修复轮数分布 | 领先 | 需埋点：auto-coder Persist 步骤在提交信息加 trailer `Fix-Rounds: N` | ❌ 先加埋点（SD5.2）。会话记录在本机 `~/.factory/sessions`，不在仓库，git 推不出 |
+| auto-coder 修复轮数分布 | 领先 | 需埋点：auto-coder Persist 步骤在提交信息加 trailer `Fix-Rounds: N` | ❌ 先加埋点（SD5.2）。会话记录在本机 `~/.factory/sessions`，不在仓库，git 推不出。SD5.2 埋点后 ✅ 能（见落地记录） |
 | QA ⬜→✅ 周转 | 领先 | `QA_TEST_PROGRESS.md` 的 git 历史 | ✅ 能 |
 | revert / hotfix 提交数 | 滞后 | git 提交信息（`revert`、`hotfix`、`fix(` 前缀） | ✅ 能 |
 | 冻结后发现的缺陷数 | 滞后 | `*-followups_backlog.md` 中标为 bug 的条目 | ⚠️ 需给条目加类型标签 |
@@ -383,6 +383,13 @@ QA 计划测的是**产品行为**，改了 skill 文本，`ingest.py` 的输出
 - `docs/analysis/process-metrics.md`：常驻分析文档，含指标口径、第一份基线数字、每次更新的版本号与依据，按 docs-governance 登记进 MOC 与 README 导航表。
 
 **目标值**：第一份报告只建立基线；process-metrics 1.1 版起为每个指标设目标值或告警阈值，否则只是一堆数字。
+
+**SD5 落地记录（2026-11-13）**：
+- 「5 项」= 上表 4 项 ✅ 加 SD5.2 埋点后可算的修复轮数；冻结后缺陷数仍需先给台账条目加类型标签，不计入。
+- 系列前缀取规格**最新版本**任务表中最多的 2–3 位大写编号前缀：立项版本可能还没有任务表（SR 由台账晋升），WP 立项版本中 `P` 与 `WP` 并列；冻结文件之后又被统一加序号重命名的（4682305），沿重命名链找最新路径。
+- IR 系列提交主题写作 `IR7.1/IR7.2 ...`，无方括号，按口径不计首任务；口径不放宽，避免正文提及被误认作任务提交。
+- 修复轮数按行匹配 `^Fix-Rounds: N$`：SD 早期提交在它与 `Co-authored-by` 之间留了空行，`git interpret-trailers` 不认；此后提交把它紧贴在 trailer 块内。
+- 基线数字、解读与局限见 [process-metrics.md](../analysis/process-metrics.md) 1.0。
 
 ### 3.6 SD6 — skill 单一来源 + per-task plan + PR 化
 
@@ -571,9 +578,9 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 | SD4.2 | automation ① followups 扫描 | 连续两周无人干预，backlog 出现至少一条机器起草、经人 triage 的提案草案 PR | [ ] |
 | SD4.3 | automation ② QA 回归 | 每周运行可离线回归段，失败项写回 QA 进度文件并标 🔧 | [ ] |
 | SD4.4 | `bands.yaml` 阈值（后置） | SD1 运行满约 4 周后，基于 Actions 记录与 junit 设定阈值，超阈值才触发 ①/② | [ ] |
-| SD5.1 | `measure_process.py` + 单测 | 对当前仓库输出 5 项「✅ 能」指标基线，覆盖 SR、WS、WP、WC、LG 五个系列；`test_measure_process.py` 通过 | [ ] |
+| SD5.1 | `measure_process.py` + 单测 | 对当前仓库输出 5 项「✅ 能」指标基线，覆盖 SR、WS、WP、WC、LG 五个系列；`test_measure_process.py` 通过 | [x] 2026-11-13：5 项 = 立项→首任务、立项→冻结、修复轮数（SD5.2 埋点后可算）、QA 周转、revert/hotfix/fix；8 个规格中除 IR（提交无方括号前缀）外均有首任务样本；`test_measure_process.py` 8 条（§3.5 落地记录） |
 | SD5.2 | `Fix-Rounds` trailer 埋点（随 SD6） | auto-coder SKILL.md 含 trailer 规则；此后 auto-coder 提交带 `Fix-Rounds: N` | [~] 规则已写入 auto-coder（Test & Auto-Fix 计数口径 + Persist trailer）；待后续 auto-coder 提交验证 |
-| SD5.3 | `process-metrics.md` 基线文档 | `docs/analysis/process-metrics.md` 含口径与第一份基线；登记 MOC 与 README；`test_docs_links.py` 通过 | [ ] |
+| SD5.3 | `process-metrics.md` 基线文档 | `docs/analysis/process-metrics.md` 含口径与第一份基线；登记 MOC 与 README；`test_docs_links.py` 通过 | [x] 2026-11-13：1.0 版基线统计到 `d2a4e61`，目标值按 §3.5 从 1.1 版起设 |
 | SD6.1 | 镜像合并与来源目录确定 | auto-coder、qa-tester 合并为权威版本；来源目录与 `.spec_hash.*` / 生成 references 是否入库的决定记录在 §3.6 | [x] 2026-11-13：来源 `.factory/skills/`，生成物不入库（§3.6 落地记录） |
 | SD6.2 | `sync_skills.py` + `test_skill_mirrors.py` | 脚本可生成 / 校验镜像；drift guard 在 CI 中通过 | [x] 脚本 + 7 条单测通过，镜像零漂移，手改镜像演练被拦；2026-11-13 PR #1 真实 run 中随 `pytest tests` 通过 |
 | SD6.3 | docs-governance 入仓或获取说明 | 入仓到来源目录随同步分发，或 AGENTS.md 写明用户级 skill 及获取方式 | [x] 2026-11-13：入仓 `.factory/skills/docs-governance/`，随同步分发 |
@@ -594,7 +601,7 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 - [ ] 每个 PR 自动获得按 `REVIEW.md` 的结构化 review。
 - [ ] QA 计划无失效的 Dashboard 步骤；QA ↔ pytest 对照表完整，可离线缺口均已补测试。
 - [ ] skill 镜像由单一来源同步，`test_skill_mirrors.py` 在 CI 中通过；auto-coder 含 plan 规则、PR 化 Persist 与 `Fix-Rounds` trailer。
-- [ ] `process-metrics.md` 含 5 项指标基线并登记 MOC。
+- [x] `process-metrics.md` 含 5 项指标基线并登记 MOC。
 - [ ] 门控项（SD3b、SD4）已交付，或门控未满足的原因已记录并移入派生台账。
 - [ ] `pytest tests -q`、`test_docs_links.py`、前端 typecheck / lint / test 全绿，计数变化已在 SD8 记录。
 - [ ] §8 回写完成；收口后按治理流程冻结入 `frozen/`（编号 = 冻结时 frozen/ 最大编号 +1），有遗留事项则建派生台账。
@@ -622,7 +629,7 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 - [ ] `AGENTS.md`：常用命令增补 CI 说明与 workflow 名（SD1.8）；「开发文档参考」登记本规格（立项时如尚未登记）；docs-governance 获取方式（SD6.3，若不入仓）；离线基线计数按 SD8 实测更新；「规格与排期」已收口列表在冻结时加入 SD 系列。
 - [ ] `README.md`：开发文档导航表（specs/ 行登记本规格，冻结时移到 frozen/ 行）；视需要加 CI status badge；D3 依赖说明（若选 README 注明方案）。
 - [ ] `requirements.txt`：补齐测试依赖，或保持不动并以 README 注明（D3，二选一）。
-- [ ] `docs/analysis/process-metrics.md`：新建并登记 MOC 分区索引与 README 导航表（SD5.3）。
+- [x] `docs/analysis/process-metrics.md`：新建并登记 MOC 分区索引与 README 导航表（SD5.3）。
 - [ ] `docs/MOC.md`：specs/ 分区登记本规格；谱系表「AI-Native SDLC 流程升级（SD）」行（立项时已同步）；冻结时规格列改为 frozen 路径、分区描述改为「已收口冻结」。
 - [ ] `docs/backlog/README.md`：「当前候选」表移除 ci-pipeline（立项时已同步）；有派生台账时登记。
 - [ ] skill 镜像：SD6 单一来源完成后，qa-tester 正文与描述一致，QA 计划 / 进度 / 对照表位于来源目录。
