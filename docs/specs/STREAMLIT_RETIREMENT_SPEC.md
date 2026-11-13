@@ -118,6 +118,7 @@ frontend/ (Next 静态导出) ──▶ start_api.py --serve-ui ──▶ src/ap
 
 - **离线确定性**：SR 完成后 `pytest tests -q` 必须全绿；零网络纪律不变，外部依赖一律注入 fake。
 - **预期计数**（SR6 记录实测值并与之核对）：待删三个文件共收集 38 项（`--collect-only`，均非 skip）；迁移 6 项、新增 1 项兼容用例，预期 **2464 − 38 + 6 + 1 = 2433 passed / 11 skipped**。如基线在执行前已变化，按同一公式重算。
+  - **SR6 实测与差异说明（2026-11-13）**：执行前真实基线为 **2502 collected（2491 passed / 11 skipped）**，立项时记录的「2464 passed」已过期（其间有新增测试未回写 AGENTS.md 计数）。按同一公式重算：2491 − 38 + 6 + 1 = **2460 passed / 11 skipped**，与 `pytest tests -o addopts="" -q` 实测完全一致。
 - **既有测试语义变更清单**（本规格唯一一处，随 SR3 落地）：
   - `tests/unit/test_dashboard_services.py`：移除 `_VALID_YAML` 中的 `dashboard:` 节，以及 `test_config_service_loads_from_explicit_path` 中的 `settings.dashboard.port == 8502` 断言；该用例改为断言另一个仅在该 fixture 中出现的自定义值（如 `observability.log_file == "./logs/custom-traces.jsonl"`），保持「从显式路径加载」的验证语义。ConfigService / DataService / TraceService 其余契约断言全部保留。
   - `tests/unit/test_config_loading.py`：从主 fixture 中移除 `dashboard:` YAML 节（该文件原本没有针对 dashboard 的断言）；**新增** `test_legacy_dashboard_section_is_ignored`：含旧 `dashboard:` 节的配置仍可加载，且 `Settings` 不再有 `dashboard` 属性。
@@ -137,28 +138,28 @@ frontend/ (Next 静态导出) ──▶ start_api.py --serve-ui ──▶ src/ap
 | SR3 | 删 `DashboardConfig` 及 §3.1 所列 settings 关联代码、`settings.yaml` 的 `dashboard:` 节；按 §4 改两个测试文件并新增兼容用例；按 §3.4 清理注释 | `load_settings` 正常加载仓库配置与含旧 `dashboard:` 节的配置；两个测试文件改动后通过 | [ ] |
 | SR4 | 文档同步（§7 回写清单全部条目） | `pytest tests/unit/test_docs_links.py` 全绿；README / AGENTS / USAGE_GUIDE 无残留的 `start_dashboard` 启动指引；`#109-streamlit-dashboardlegacy` 锚点仍可达 | [ ] |
 | SR5 | 技能镜像同步（§3.5 清单） | 镜像内无会误导的 Streamlit 启动 / AppTest 指引；auto-coder 生成产物未被手改；未覆盖既有未提交改动 | [x]（2026-11-13，qa-tester 三镜像 + QA_TEST_PLAN + setup + project-learner + resume-writer/project-review/interview-prep 均已标注失效或改写，auto-coder 产物未动） |
-| SR6 | 全量回归并记录计数变化 | `pytest tests -q` 全绿；记录实测计数并与 §4 预期（2433 passed / 11 skipped）核对，差异需说明 | [ ] |
+| SR6 | 全量回归并记录计数变化 | `pytest tests -q` 全绿；记录实测计数并与 §4 预期（2433 passed / 11 skipped）核对，差异需说明 | [x]（2026-11-13，实测 **2460 passed / 11 skipped**） |
 
 依赖顺序：SR0 → SR1 → SR2 → SR3 →（SR4、SR5 可并行）→ SR6。SR0 删除启动器后、SR1 完成前，`test_start_dashboard.py` 与两个 AppTest 文件会失败，建议 SR0 与 SR1 在同一提交内完成，避免出现红色中间提交。
 
 ## 6. 验收清单
 
-- [ ] 全仓不再存在 Streamlit 页面层、`start_dashboard.py`、页面级 AppTest 测试。
-- [ ] `requirements.txt` 与 `pyproject.toml` 均不再含 `streamlit`；主 venv 无 streamlit 安装需求（已安装的旧环境可自行 `pip uninstall streamlit`，非验收项）。
-- [ ] `sidecar_manager.py` 的探活 / 复用 / 拉起 / 脚本退出逻辑仍有单测覆盖（`tests/unit/test_sidecar_manager.py`）。
-- [ ] `observability/dashboard/services/` 及其测试完整保留，`src/api/` 行为零变化。
-- [ ] 旧配置中残留的 `dashboard:` 节被静默忽略，有用例锁定。
-- [ ] `pytest tests -q` 离线全量全绿，计数变化已在 SR6 记录。
-- [ ] `pytest tests/unit/test_docs_links.py` 全绿；MOC 谱系表含本规格的「单文件晋升」记录。
-- [ ] README / AGENTS.md / USAGE_GUIDE / 技能镜像中不再有 Streamlit 启动指引；USAGE_GUIDE 10.9 改为退役记录且标题不变。
+- [x] 全仓不再存在 Streamlit 页面层、`start_dashboard.py`、页面级 AppTest 测试。
+- [x] `requirements.txt` 与 `pyproject.toml` 均不再含 `streamlit`；主 venv 无 streamlit 安装需求（已安装的旧环境可自行 `pip uninstall streamlit`，非验收项）。
+- [x] `sidecar_manager.py` 的探活 / 复用 / 拉起 / 脚本退出逻辑仍有单测覆盖（`tests/unit/test_sidecar_manager.py`）。
+- [x] `observability/dashboard/services/` 及其测试完整保留，`src/api/` 行为零变化。
+- [x] 旧配置中残留的 `dashboard:` 节被静默忽略，有用例锁定。
+- [x] `pytest tests -q` 离线全量全绿，计数变化已在 SR6 记录。
+- [x] `pytest tests/unit/test_docs_links.py` 全绿；MOC 谱系表含本规格的「单文件晋升」记录。
+- [x] README / AGENTS.md / USAGE_GUIDE / 技能镜像中不再有 Streamlit 启动指引；USAGE_GUIDE 10.9 改为退役记录且标题不变。
 - [ ] 本规格收口后按治理流程冻结入 `frozen/`（编号 = 冻结时 frozen/ 最大编号 +1），如无遗留事项则不建派生台账。
 
 ## 7. 回写清单（收口时同步）
 
 - [x] README「开发文档」导航表：移除台账、登记本规格（立项会话已在工作区同步）。
-- [ ] README 其余：「运行手册」第 6 节删除「Streamlit Dashboard（已弃用 legacy）」小节（第 304 行起，含 `streamlit run` 命令、sidecar 托管说明与七页面 legacy 列表）；「核心能力一览」删除「Dashboard（legacy）」行；「技术亮点」第 72 行删去「Streamlit Dashboard 已降为 legacy」；「简历参考」三个示例（第 549 / 565 / 571 / 593 行）中的 Streamlit 改为 Web UI（FastAPI + Next）表述，与 resume-writer 技能素材一致。
-- [ ] AGENTS.md：常用命令删除 `start_dashboard.py` 行；第 12 行 WC 规格引用中「Streamlit 已弃用 legacy、保留可用」与「Streamlit 删除条件见 USAGE_GUIDE 第 10 章」改为「Streamlit 已退役（见本规格）」；第 14 行 WS 规格引用中台账描述保持，`scripts/start_dashboard.py` 相关描述改为唯一入口 `--manage-sidecar`；第 63 行架构节 `src/observability/` 条目中「Streamlit Dashboard（`pages/` 七页面 + `services/` 业务封装；页面层禁止直接 import…）」改为「`dashboard/services/`（`src/api/` 共享服务层）」，「Dashboard 动态渲染」改为「Web UI 动态渲染」；文首「开发文档参考」登记本规格（如尚未登记）。
-- [ ] USAGE_GUIDE：
+- [x] README 其余：「运行手册」第 6 节删除「Streamlit Dashboard（已弃用 legacy）」小节（第 304 行起，含 `streamlit run` 命令、sidecar 托管说明与七页面 legacy 列表）；「核心能力一览」删除「Dashboard（legacy）」行；「技术亮点」第 72 行删去「Streamlit Dashboard 已降为 legacy」；「简历参考」三个示例（第 549 / 565 / 571 / 593 行）中的 Streamlit 改为 Web UI（FastAPI + Next）表述，与 resume-writer 技能素材一致。
+- [x] AGENTS.md：常用命令删除 `start_dashboard.py` 行；第 12 行 WC 规格引用中「Streamlit 已弃用 legacy、保留可用」与「Streamlit 删除条件见 USAGE_GUIDE 第 10 章」改为「Streamlit 已退役（见本规格）」；第 14 行 WS 规格引用中台账描述保持，`scripts/start_dashboard.py` 相关描述改为唯一入口 `--manage-sidecar`；第 63 行架构节 `src/observability/` 条目中「Streamlit Dashboard（`pages/` 七页面 + `services/` 业务封装；页面层禁止直接 import…）」改为「`dashboard/services/`（`src/api/` 共享服务层）」，「Dashboard 动态渲染」改为「Web UI 动态渲染」；文首「开发文档参考」登记本规格（如尚未登记）。
+- [x] USAGE_GUIDE：
   - 文首第 3 行「Streamlit 已降为 legacy」改为「Streamlit 已退役」；
   - 2.1 目录树：删 `start_dashboard.py` 行（第 83 行），第 74 行 observability 注释删去「+ Streamlit 页面（legacy）」；
   - 2.6 节：删除第 170–173 行 Streamlit 启动段；
@@ -166,9 +167,9 @@ frontend/ (Next 静态导出) ──▶ start_api.py --serve-ui ──▶ src/ap
   - 第 5 章：删除「Streamlit legacy 路径」段，日常启动以 `start_api.py --serve-ui --manage-sidecar` 与手动启动 sidecar 两条路径为准；
   - 10 章引言：「与旧 Streamlit 七页逐项对照」保留为历史链接，补一句已退役；10.3 节第 477 行 `api.enabled` 注释去掉「Streamlit」；10.6 节第 560 行删去「Streamlit legacy 的 Deep 走流式…」一句；
   - 10.9 节：**标题保持 `### 10.9 Streamlit Dashboard（legacy）` 不变**（`README.md:311`、`USAGE_GUIDE.md:170`、`WEBUI_PARITY_AUDIT.md:155` 三处以锚点 `#109-streamlit-dashboardlegacy` 指向此处；前两处随所在段落删除或改写时可一并去掉，AUDIT 正文不可改写，标题一改该锚点即失效且 `test_docs_links.py` 查不出），正文改写为退役记录：删除条件表逐条核销（含 pandas 核销）、退役日期与本规格链接。
-- [ ] `docs/frozen/03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md:161`：仅把指向 `start_dashboard.py` 的 Markdown 链接改为行内代码（§2.2 例外条款），不改其他内容。
-- [ ] `docs/analysis/WEBUI_PARITY_AUDIT.md` 文件头加一行「退役执行见规格链接」（不改写正文）。
-- [ ] `docs/backlog/OBSIDIAN_RAG_SPEC_backlog.md`：文件头加一行注记——第 48 / 74 / 133 / 141 行按 Streamlit 页面形态与 AppTest 冒烟设计的 M3/M4 交互方案在 Streamlit 退役后失效，立项时须改为 Web UI（`frontend/` + `src/api/`）形态重写；不改正文。
+- [x] `docs/frozen/03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md:161`：仅把指向 `start_dashboard.py` 的 Markdown 链接改为行内代码（§2.2 例外条款），不改其他内容。
+- [x] `docs/analysis/WEBUI_PARITY_AUDIT.md` 文件头加一行「退役执行见规格链接」（不改写正文）。
+- [x] `docs/backlog/OBSIDIAN_RAG_SPEC_backlog.md`：文件头加一行注记——第 48 / 74 / 133 / 141 行按 Streamlit 页面形态与 AppTest 冒烟设计的 M3/M4 交互方案在 Streamlit 退役后失效，立项时须改为 Web UI（`frontend/` + `src/api/`）形态重写；不改正文。
 - [x] MOC：specs/ 分区索引登记本规格；backlog/ 分区移除台账；谱系表新增「Streamlit 退役（SR）」行（单文件晋升）（立项会话已在工作区同步）。
 - [x] backlog/README「当前候选」移除台账（立项会话已在工作区同步）。
 - [ ] 收口冻结时：MOC 谱系表本规格行的「规格」列更新为 frozen 路径；MOC 文档描述同步改为「已收口冻结」。
