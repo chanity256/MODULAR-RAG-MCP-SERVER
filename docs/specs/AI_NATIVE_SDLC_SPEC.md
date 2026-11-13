@@ -456,6 +456,13 @@ D1 落地后，auto-coder 的 Persist 步骤不能再假设「提交即完成」
 - `docs/frozen/` 中编号 ≥10 的冻结规格必须满足；
 - 编号 01–09 与无编号的谱系存档（含 `ci-pipeline_backlog_frozen.md`）进豁免名单，不回改已冻结文档。
 
+**SD7 落地记录（2026-11-13）**：
+
+- `tests/unit/test_spec_structure.py`：豁免名单不手写，按文件名机器判定——`docs/specs/*.md` 全部受约束；`docs/frozen/` 只有匹配 `<NN>_<NAME>_frozen.md` 且 `NN ≥ 10` 的受约束，其余（01–09、无编号存档）自动豁免，新冻结规格（编号 ≥ 11）自动纳入。随 `pytest tests` 进 SD1 的 CI。
+- 三项判据：表头同时含「任务」与「验收标准」的表格；`##`/`###` 标题含「测试方案」；标题分别含 `In Scope` 与 `Out of Scope`（大小写不敏感）。判定前剥离代码围栏，围栏内的示例不算数。
+- 当前受约束 2 份：本规格与 `10_STREAMLIT_RETIREMENT_SPEC_frozen.md`，结构违规数 0。单测 10 条：2 条真实规格、2 条划界规则、1 条正例、5 条逐项缺失反例（含「只在代码围栏内出现」）。
+- 对豁免存量跑同一判据（只作记录，不回改）：比上文关键词粗查多出 `01_DEV_SPEC`（无验收标准列、无 Scope 标题）、`06_WEBUI_CHAT_SPEC`（无验收标准列）、`07_LOGGING_SPEC`（无 Scope 标题）、`ci-pipeline_backlog_frozen.md`（无任务表、无测试方案）；`03`、`04`、`08`、`09` 三项齐全。
+
 ### 3.8 工具与文件清单
 
 | 功能/工具 | 用在哪 | 现状 |
@@ -592,7 +599,7 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 | SD6.3 | docs-governance 入仓或获取说明 | 入仓到来源目录随同步分发，或 AGENTS.md 写明用户级 skill 及获取方式 | [x] 2026-11-13：入仓 `.factory/skills/docs-governance/`，随同步分发 |
 | SD6.4 | per-task plan 规则 | auto-coder 第 4 步含复杂任务判定与 `.agents/plans/` 规则；下一次复杂任务按规则产出 plan | [~] 规则与 `.agents/plans/README.md` 格式已交付；待下一次复杂任务验证 |
 | SD6.5 | Persist 步骤 PR 化 | auto-coder 提交走「分支 → 推送 → PR → 等 CI 与 review」；下一次复杂任务以 PR 合入 | [~] 规则已写入 auto-coder，按 D1 是否生效分支（未生效时只本地提交、不推送）；PR 合入验证待 D1/D2 |
-| SD7.1 | `test_spec_structure.py` + 豁免名单（可选） | 在途规格与编号 ≥10 的冻结规格通过；01–09 与无编号存档在豁免名单 | [ ] |
+| SD7.1 | `test_spec_structure.py` + 豁免名单（可选） | 在途规格与编号 ≥10 的冻结规格通过；01–09 与无编号存档在豁免名单 | [x] 2026-11-13：豁免按文件名编号机器判定（不手写名单）；受约束 2 份违规数 0，单测 10 条（§3.7 落地记录） |
 | SD8 | 收口回归与回写 | `pytest tests -q` 全绿，实测计数按 §4 公式核对并说明差异；§8 回写清单全部勾选 | [ ] |
 
 依赖顺序：SD0 → SD1.1 →（SD1.2–SD1.6）→ SD1.7 → SD1.8；SD2 在 SD0 后可与 SD1 并行，SD2.3 需 D2 仓库可用；SD6 →（SD3.1–SD3.3、SD5.2）；SD6 + SD3.4 → SD3.5 → SD3.6；SD4.1 → SD4.2 / SD4.3，SD4.4 需 SD1 运行 4 周；SD7 可在 SD1 后任意时间；SD8 最后。门控（SD3.4–SD3.7、SD4）与可选（SD1.4、SD3.7、SD7.1）任务若在收口时仍未满足门控条件，标注原因后移入派生台账，不阻塞冻结。
