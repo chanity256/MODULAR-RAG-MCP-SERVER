@@ -94,12 +94,12 @@
 
 | # | 决策 | 现状事实 | 建议（SD0.1 回填终裁） |
 |---|------|----------|------|
-| D1 | PR 流程与分支保护 | 提交直接落在 feature 分支；没有 required status checks 时 CI 红灯不阻止合并 | 采用「feature 分支 → PR → main」，main 开启 branch protection，`ci.yml` 两个 job 设为 required。若仓库套餐不支持分支保护（私有仓库免费套餐不支持），§0 的「确定性」降级为「可见」，本规格需如实标注。**现状核实（2026-11-13）**：`fork` 为 public 仓库、使用者有 ADMIN 权限，分支保护可用，无需降级。**终裁（2026-11-13）**：采纳——在 `fork` 上走「feature 分支 → PR → main」，D6 baseline PR 合入后开启分支保护（`python`、`frontend` 为 required checks + Code Owners review） |
+| D1 | PR 流程与分支保护 | 提交直接落在 feature 分支；没有 required status checks 时 CI 红灯不阻止合并 | 采用「feature 分支 → PR → main」，main 开启 branch protection，`ci.yml` 两个 job 设为 required。若仓库套餐不支持分支保护（私有仓库免费套餐不支持），§0 的「确定性」降级为「可见」，本规格需如实标注。**现状核实（2026-11-13）**：`fork` 为 public 仓库、使用者有 ADMIN 权限，分支保护可用，无需降级。**终裁（2026-11-13）**：采纳——在 `fork` 上走「feature 分支 → PR → main」，D6 baseline PR 合入后开启分支保护（`python`、`frontend` 为 required checks）。**已开启（2026-11-13）**：`enforce_admins: true`；Code Owners review 不强制（唯一 owner 即作者、agent 同账号推送，无法自审），CODEOWNERS 降级为「可见」，详见 §3.1 真实运行记录 |
 | D2 | Actions 跑在哪个仓库 | 两个 remote：`origin`（jerry-ai-dev，上游）与 `fork`（chanity256） | 在自己有管理权限的仓库（预计 `fork`）启用 Actions、Secrets、分支保护与自动 review；不向上游推 workflow。**终裁（2026-11-13）**：`fork`（chanity256，public，Actions 已启用）；`origin` 只读不推 |
 | D3 | CI 运行环境与依赖安装 | 本地 `.venv` 为 Python 3.13.13；`pyproject.toml` 写 `>=3.10`；`requirements.txt` 缺测试依赖；无 lock 文件 | CI 固定 Python 3.13；安装命令 `pip install -e ".[dev,ingest-formats]"`；pip 缓存以 `pyproject.toml` 哈希为 key。是否引入 lock 文件单独决定（Out of Scope）。`requirements.txt` 要么补齐，要么在 README 注明以 `pyproject.toml` 为准。**终裁（2026-11-13）**：采纳上述 CI 环境与安装命令；`requirements.txt` 补齐测试依赖（pytest / pytest-check / pytest-socket），与 `pyproject.toml` dev extra 同步 |
 | D4 | 处理工作区未提交改动 | ✅ 已解决：`2b04c03` 时工作区干净 | 无需动作。SD6 动 skill 前再确认一次 |
 | D5 | agent eval 执行器与预算 | `droid exec` 1.10.0 可用；**没有预算参数** | 执行器用 `droid exec --auto medium -o stream-json -m <固定模型>`（默认只读，跑 pytest 和改文件需要 `--auto medium`；判据要读工具调用记录，需 `stream-json`）。预算靠三层：用例数 × 重复次数上限、workflow `timeout-minutes`、Factory 账户侧额度。Secret 名为 `FACTORY_API_KEY`。**终裁：待定**（SD3b 门控项，开工 SD3.4 前再定） |
-| D6 | 216 个存量提交如何进入 main | `feat/sirchmunk-agentic-search` 领先 `main` 216 个提交、落后 1 个；`origin/main` 与 `fork/main` 相同。**勘误（2026-11-13）**：两者**无共同祖先**（`git merge-base` 为空），`main` 是单个上游 squash 提交 `f658c5a`，「rebase / merge 那 1 个落后提交」不可直接执行 | 开启分支保护**之前**完成一次性落地：先以 `git merge -s ours --allow-unrelated-histories main` 把 `main` 记为父提交（分支文件内容不变、保留全部提交，不改写 `fork/main`），再以一个「baseline」PR 合入 main（不 squash，保留 `[SERIES-N]` 审计链）。之后才开启 required checks，新工作一律从 main 开新分支。**执行：待定**（同 D1，需推送） |
+| D6 | 216 个存量提交如何进入 main | `feat/sirchmunk-agentic-search` 领先 `main` 216 个提交、落后 1 个；`origin/main` 与 `fork/main` 相同。**勘误（2026-11-13）**：两者**无共同祖先**（`git merge-base` 为空），`main` 是单个上游 squash 提交 `f658c5a`，「rebase / merge 那 1 个落后提交」不可直接执行 | 开启分支保护**之前**完成一次性落地：先以 `git merge -s ours --allow-unrelated-histories main` 把 `main` 记为父提交（分支文件内容不变、保留全部提交，不改写 `fork/main`），再以一个「baseline」PR 合入 main（不 squash，保留 `[SERIES-N]` 审计链）。之后才开启 required checks，新工作一律从 main 开新分支。**已执行（2026-11-13）**：`e2f33c2`（`-s ours`，树不变）→ baseline PR [#1](https://github.com/chanity256/MODULAR-RAG-MCP-SERVER/pull/1) CI 全绿后以 merge commit `dd4ed99` 合入 `fork/main`（228 个提交，未 squash） |
 
 ### 1.4 与 ci-pipeline 提案的承接关系（提案存档）
 
@@ -230,6 +230,18 @@ main ──▶ measure_process.py 读 git 历史 → docs/analysis/process-metri
 | C：改坏一条 vitest 断言 | PASS | FAIL | 拦截 |
 
 演练只证明 workflow 命令能拦下违规；「PR 无法合并」仍需推送后由 required checks 与分支保护实测。
+
+**GitHub 真实运行（2026-11-13，`fork`）**：
+
+| 场景 | python job | frontend job | 合并状态 | 结论 |
+|------|-----------|--------------|----------|------|
+| baseline PR [#1](https://github.com/chanity256/MODULAR-RAG-MCP-SERVER/pull/1)（首次真实 run） | PASS（2481 passed / 14 skipped，与干净 clone 预期一致） | PASS（262 tests） | 以 merge commit `dd4ed99` 合入 | 门全绿；合入后 main 的 push run 同样全绿 |
+| 演练 PR [#2](https://github.com/chanity256/MODULAR-RAG-MCP-SERVER/pull/2)：`src/` 函数体内 `import sirchmunk` | FAIL（`test_check_redlines.py::test_real_repository_has_no_violations` 报 `no-sirchmunk-import`） | PASS | `BLOCKED` | 拦截；PR 已关闭、分支已删 |
+| 演练 PR [#3](https://github.com/chanity256/MODULAR-RAG-MCP-SERVER/pull/3)：单测 `httpx.get("https://example.com")` | FAIL（`SocketConnectBlockedError`，runner 无系统代理） | PASS | `BLOCKED` | 拦截；PR 已关闭、分支已删 |
+
+分支保护（`main`）：必须经 PR；`python`、`frontend` 为 required checks（`strict: false`）；`enforce_admins: true`（管理员同样受限）；禁止 force push 与删除分支；**不强制 Code Owners review**——仓库唯一 code owner 即 PR 作者，agent 也以同一账号推送，GitHub 不允许作者自审，强制该项要么卡死受保护路径的 PR，要么只能靠管理员绕过（等于没有门）。因此 CODEOWNERS 由「确定性」降级为「可见」（自动请求 owner 关注），门自身改动的兜底改为：CI 硬门 + PR diff 人工审视 + `REVIEW.md` 的 Important 规则。若日后引入独立的 bot 账号推送，可重新开启 Code Owners review 恢复确定性。
+
+推送注意：`gh` 的 OAuth token 无 `workflow` scope，HTTPS 推送含 `.github/workflows/` 改动的提交会被拒；改用 SSH（`git@github.com:chanity256/MODULAR-RAG-MCP-SERVER.git`）推送。
 
 **workflow**：沿用提案命名 `.github/workflows/ci.yml`，触发条件 PR + push 默认分支，两个并行 job：
 
@@ -535,19 +547,19 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 
 | 编号 | 任务 | 验收标准 | 状态 |
 |------|------|----------|------|
-| SD0.1 | D1–D3、D5 决策拍板 | §1.3 每行回填终裁；若分支保护不可用，§0 与 SD1.7 标注「确定性」降级为「可见」 | [~] D3 已终裁；D1/D2 待定（暂只做本地工作）；D5 随 SD3b 门控再定 |
-| SD0.2 | D6 baseline PR | 先合入落后的 1 个提交；baseline PR 合入后 main 包含当前分支全部提交且未 squash；此后新工作从 main 开分支 | [ ] 待 D1/D2；D6 已勘误为 `-s ours` 方案（§1.3） |
+| SD0.1 | D1–D3、D5 决策拍板 | §1.3 每行回填终裁；若分支保护不可用，§0 与 SD1.7 标注「确定性」降级为「可见」 | [~] D1/D2/D3 已终裁（2026-11-13）；CODEOWNERS 部分按 D1 标注降级为「可见」（§3.1）；D5 随 SD3b 门控再定 |
+| SD0.2 | D6 baseline PR | 先合入落后的 1 个提交；baseline PR 合入后 main 包含当前分支全部提交且未 squash；此后新工作从 main 开分支 | [x] 2026-11-13：PR #1 以 merge commit `dd4ed99` 合入；此后新工作从 main 开分支（§1.3 D6） |
 | SD1.1 | 干净环境验证（原 CI-0） | 全新 clone + 新 venv 仅装 `.[dev,ingest-formats]`，`pytest tests -q` 复现 2460 passed / 11 skipped，或差异逐项解释并修复（修测试，不改业务语义） | [x] 2026-11-13，差异与修复见 §3.1 |
-| SD1.2 | `ci.yml` Python job（原 CI-1） | PR 与 push 默认分支自动触发；步骤与 AGENTS.md 本地命令逐字同源；首次真实 run 全绿 | [~] `ci.yml` 已写，干净 clone 本地按同命令全绿；首次真实 run 待推送 |
-| SD1.3 | `ci.yml` 前端 job（原 CI-2） | 与 Python job 并行；`npm ci` + typecheck / lint / test 首次真实 run 全绿 | [~] 干净 clone `npm ci` 后本地全绿（262 tests）；首次真实 run 待推送 |
+| SD1.2 | `ci.yml` Python job（原 CI-1） | PR 与 push 默认分支自动触发；步骤与 AGENTS.md 本地命令逐字同源；首次真实 run 全绿 | [x] 2026-11-13：首次真实 run（PR #1）全绿，2481 passed / 14 skipped；main push run 全绿 |
+| SD1.3 | `ci.yml` 前端 job（原 CI-2） | 与 Python job 并行；`npm ci` + typecheck / lint / test 首次真实 run 全绿 | [x] 2026-11-13：首次真实 run（PR #1）全绿，262 tests |
 | SD1.4 | Web UI 冒烟接 CI（原 CI-3，可选） | 前端 job 追加 build 后 `pytest tests/e2e_web -q` 通过；不 build 时维持 skip 语义 | [ ] |
-| SD1.5 | 禁网测试（原 CI-5） | 方案 a/b 定稿并回填 §3.1；一个故意发真实 HTTP 请求的单测在 CI 中失败；loopback 的 e2e_web 不受影响 | [~] 方案 a 定稿；本地探针：外网 connect / httpx 被拦、loopback 放行；本地模拟 CI 演练 B 拦截（§3.1）；GitHub 真实 run 待推送 |
-| SD1.6 | `check_redlines.py` + 单测（原 CI-6） | 三条规则与白名单 / 豁免按 §3.1 实现，`test_check_redlines.py` 通过；对真实仓库零违规；故意 `import sirchmunk` 的 PR 被 CI 拦下 | [~] 脚本 + 14 条单测通过、真实仓库零违规；本地模拟 CI 演练 A 拦截（§3.1）；PR 拦截验证待推送 |
-| SD1.7 | CODEOWNERS + 分支保护（原 CI-7） | `.github/CODEOWNERS` 覆盖 §3.1 所列路径；main 开启 required checks（python、frontend）与 Code Owners review；改白名单的 PR 未经 owner 审批无法合并 | [~] `.github/CODEOWNERS` 已建；分支保护待 D1/D2 |
+| SD1.5 | 禁网测试（原 CI-5） | 方案 a/b 定稿并回填 §3.1；一个故意发真实 HTTP 请求的单测在 CI 中失败；loopback 的 e2e_web 不受影响 | [~] 方案 a 定稿；本地探针：外网 connect / httpx 被拦、loopback 放行；本地模拟 CI 演练 B 拦截；[x] 2026-11-13 GitHub 演练 PR #3 python job 失败（`SocketConnectBlockedError`）且合并状态 `BLOCKED`（§3.1） |
+| SD1.6 | `check_redlines.py` + 单测（原 CI-6） | 三条规则与白名单 / 豁免按 §3.1 实现，`test_check_redlines.py` 通过；对真实仓库零违规；故意 `import sirchmunk` 的 PR 被 CI 拦下 | [x] 脚本 + 14 条单测通过、真实仓库零违规；2026-11-13 GitHub 演练 PR #2 python job 失败且合并状态 `BLOCKED`（§3.1） |
+| SD1.7 | CODEOWNERS + 分支保护（原 CI-7） | `.github/CODEOWNERS` 覆盖 §3.1 所列路径；main 开启 required checks（python、frontend）与 Code Owners review；改白名单的 PR 未经 owner 审批无法合并 | [~] 降级完成（2026-11-13）：CODEOWNERS 已建、分支保护已开（required checks + `enforce_admins`）；Code Owners review 因唯一 owner 无法自审而不强制，「未经 owner 审批无法合并」降级为「可见」，引入独立 bot 账号后可恢复（§3.1） |
 | SD1.8 | 文档同步（原 CI-4） | AGENTS.md 常用命令增补 CI 说明；`requirements.txt` 补齐或 README 注明以 `pyproject.toml` 为准（D3）；README badge 视需要 | [x] 2026-11-13：AGENTS.md 增补 CI 节、`requirements.txt` 补齐测试依赖；badge 待 CI 上线后再加 |
 | SD2.1 | 核实 review 指令读取位置与 fork 安装 | 两项结论回填 §3.2；任一不成立时 §3.2 写明替代方案 | [x] 2026-11-13：指令落点为 `.factory/skills/review-guidelines/SKILL.md`；fork 按文档可行，实装待推送（§3.2） |
 | SD2.2 | `REVIEW.md` | 含三遍扫、Important / Nit 界限、Nit 上限 5、排除路径；若 review 不读该文件，指令落点与其互链 | [x] 2026-11-13：`REVIEW.md` + `.factory/skills/review-guidelines/SKILL.md` 互链，checklist 块由 `test_review_guidelines.py` 锁定一致 |
-| SD2.3 | 接入自动 review | 连续 5 个 PR 自动拿到按 `REVIEW.md` 格式、按严重度排序的 review；至少一条 Important 被修复或书面说明 | [ ] 阻塞：需推送并经 `install-code-review` 开 PR（D1/D2 待定） |
+| SD2.3 | 接入自动 review | 连续 5 个 PR 自动拿到按 `REVIEW.md` 格式、按严重度排序的 review；至少一条 Important 被修复或书面说明 | [ ] 推送已可用（D1/D2 已终裁）；使用者决定暂不接入（需在 fork 配置 `FACTORY_API_KEY` 并安装 Factory Droid GitHub App） |
 | SD3.1 | QA 计划清理（3a，随 SD6.1） | A 段标失效；N-02/N-04/N-06/O-07 无 Dashboard 步骤（改为 CLI / Web UI 等价操作或标失效） | [x] 2026-11-13：计划 v1.1；删除步骤改为 Web UI Data Browser（N-01/N-06 另有 `qa_multistep.py` 自动化），Clear All Data 改为 `qa_bootstrap.py clear`；G–O 其余 Dashboard 页面引用改为 Web UI，M-08/M-09 Trace 路径改为 `logs/traces/` 按日文件 |
 | SD3.2 | QA ↔ pytest 对照表（3a） | `QA_PYTEST_MAP.md` 覆盖 G、H、I、J、M、N、O 全部用例，每条标注对应 pytest 与能否离线 | [ ] |
 | SD3.3 | 补缺口测试（3a） | 「能离线且无对应 pytest」的用例全部有测试，复用现有 fake，随 `pytest tests` 全绿 | [ ] |
@@ -563,7 +575,7 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 | SD5.2 | `Fix-Rounds` trailer 埋点（随 SD6） | auto-coder SKILL.md 含 trailer 规则；此后 auto-coder 提交带 `Fix-Rounds: N` | [~] 规则已写入 auto-coder（Test & Auto-Fix 计数口径 + Persist trailer）；待后续 auto-coder 提交验证 |
 | SD5.3 | `process-metrics.md` 基线文档 | `docs/analysis/process-metrics.md` 含口径与第一份基线；登记 MOC 与 README；`test_docs_links.py` 通过 | [ ] |
 | SD6.1 | 镜像合并与来源目录确定 | auto-coder、qa-tester 合并为权威版本；来源目录与 `.spec_hash.*` / 生成 references 是否入库的决定记录在 §3.6 | [x] 2026-11-13：来源 `.factory/skills/`，生成物不入库（§3.6 落地记录） |
-| SD6.2 | `sync_skills.py` + `test_skill_mirrors.py` | 脚本可生成 / 校验镜像；drift guard 在 CI 中通过 | [~] 脚本 + 7 条单测通过，镜像零漂移，手改镜像演练被拦；GitHub 真实 run 待推送 |
+| SD6.2 | `sync_skills.py` + `test_skill_mirrors.py` | 脚本可生成 / 校验镜像；drift guard 在 CI 中通过 | [x] 脚本 + 7 条单测通过，镜像零漂移，手改镜像演练被拦；2026-11-13 PR #1 真实 run 中随 `pytest tests` 通过 |
 | SD6.3 | docs-governance 入仓或获取说明 | 入仓到来源目录随同步分发，或 AGENTS.md 写明用户级 skill 及获取方式 | [x] 2026-11-13：入仓 `.factory/skills/docs-governance/`，随同步分发 |
 | SD6.4 | per-task plan 规则 | auto-coder 第 4 步含复杂任务判定与 `.agents/plans/` 规则；下一次复杂任务按规则产出 plan | [~] 规则与 `.agents/plans/README.md` 格式已交付；待下一次复杂任务验证 |
 | SD6.5 | Persist 步骤 PR 化 | auto-coder 提交走「分支 → 推送 → PR → 等 CI 与 review」；下一次复杂任务以 PR 合入 | [~] 规则已写入 auto-coder，按 D1 是否生效分支（未生效时只本地提交、不推送）；PR 合入验证待 D1/D2 |
@@ -576,9 +588,9 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 
 ## 6. 验收清单
 
-- [ ] main 受分支保护：`python`、`frontend` 两个 CI job 为 required，Code Owners review 开启（或已按 D1 如实标注降级）。
-- [ ] 干净环境复现离线基线，CI 中 `pytest tests -q` 在禁网条件下全绿。
-- [ ] 故意 `import sirchmunk`、单测发真实 HTTP、未经 owner 审批改红线白名单的 PR 都无法合并。
+- [x] main 受分支保护：`python`、`frontend` 两个 CI job 为 required，Code Owners review 开启（或已按 D1 如实标注降级）。（2026-11-13：required checks + `enforce_admins` 已开；Code Owners review 按 D1 标注降级，§3.1）
+- [x] 干净环境复现离线基线，CI 中 `pytest tests -q` 在禁网条件下全绿。（PR #1：2481 passed / 14 skipped）
+- [ ] 故意 `import sirchmunk`、单测发真实 HTTP、未经 owner 审批改红线白名单的 PR 都无法合并。（前两项已由演练 PR #2 / #3 实证 `BLOCKED`；第三项按 D1 降级为「可见」）
 - [ ] 每个 PR 自动获得按 `REVIEW.md` 的结构化 review。
 - [ ] QA 计划无失效的 Dashboard 步骤；QA ↔ pytest 对照表完整，可离线缺口均已补测试。
 - [ ] skill 镜像由单一来源同步，`test_skill_mirrors.py` 在 CI 中通过；auto-coder 含 plan 规则、PR 化 Persist 与 `Fix-Rounds` trailer。

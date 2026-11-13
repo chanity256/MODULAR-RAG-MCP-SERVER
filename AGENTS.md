@@ -16,7 +16,7 @@
 - `docs/reference/USAGE_GUIDE.md` — 使用速查（启动、配置、sidecar 用法）。
 - `docs/backlog/` — 候选功能与待开发规格（OBSIDIAN V 系列的 M3/M4 可选增强在此待排期，其 M1/M2 已由 IR7 交付；新提案约定见其 README）。
 - `docs/frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md` — SR 系列 Streamlit 退役（已收口冻结）：物理删除 Streamlit 页面层 / `start_dashboard.py` / `streamlit` 依赖 / Streamlit-only 配置与页面级测试，文档与技能镜像同步；`observability/dashboard/services/` 及其测试保留（API 层依赖），sidecar 托管唯一入口为 `start_api.py --manage-sidecar`；改动 `src/core/settings.py` 配置模型或 docs/ 链接前先读。
-- `docs/specs/AI_NATIVE_SDLC_SPEC.md` — SD 系列 AI-Native SDLC 流程升级（**开发中**，SD1 本地部分已交付：`ci.yml` / 禁网 / 红线脚本 / CODEOWNERS；SD2 review 规则已交付：`REVIEW.md` + `.factory/skills/review-guidelines/`；SD6 skill 单一来源已交付：`.factory/skills/` 为来源、`scripts/sync_skills.py` 生成 `.claude/` / `.github/` 镜像，auto-coder 含 plan 规则 / `Fix-Rounds` trailer / D1 门控的 PR 流程，QA 计划已清理（SD3.1）；推送、分支保护、baseline PR 与自动 review 接入待 D1/D2）：前置决策 D1–D6、CI 确定性门（禁网 pytest、`scripts/check_redlines.py`、CODEOWNERS，承接已存档的 ci-pipeline 提案）、AI PR review、QA 对照与 agent evals、定时闭环、过程度量、skill 单一来源 + per-task plan + PR 化；改动 `.github/`、skill 镜像、`.factory/hooks*`、`evals/` 或执行 SD 任务前先读。不改 `src/` 业务行为。
+- `docs/specs/AI_NATIVE_SDLC_SPEC.md` — SD 系列 AI-Native SDLC 流程升级（**开发中**，SD1 已交付（含 `fork` 上真实 CI 与分支保护）：`ci.yml` / 禁网 / 红线脚本 / CODEOWNERS；SD2 review 规则已交付：`REVIEW.md` + `.factory/skills/review-guidelines/`；SD6 skill 单一来源已交付：`.factory/skills/` 为来源、`scripts/sync_skills.py` 生成 `.claude/` / `.github/` 镜像，auto-coder 含 plan 规则 / `Fix-Rounds` trailer / D1 门控的 PR 流程，QA 计划已清理（SD3.1）；D1/D2 已终裁、D6 baseline PR 已合入；自动 review（SD2.3）暂不接入）：前置决策 D1–D6、CI 确定性门（禁网 pytest、`scripts/check_redlines.py`、CODEOWNERS，承接已存档的 ci-pipeline 提案）、AI PR review、QA 对照与 agent evals、定时闭环、过程度量、skill 单一来源 + per-task plan + PR 化；改动 `.github/`、skill 镜像、`.factory/hooks*`、`evals/` 或执行 SD 任务前先读。不改 `src/` 业务行为。
 
 **[docs/MOC.md](docs/MOC.md) 是 docs/ 目录的索引文档（MOC, Map of Content）**：在 docs/ 下增删文档后，必须同步更新 MOC.md 的对应条目；根目录 README 的「开发文档」导航表同步维护。
 
@@ -76,6 +76,7 @@ PYTHONPATH=src python -m mcp_server.server
 - **Sirchmunk sidecar 进程隔离红线**：主 venv 永不 `import sirchmunk`，只经 `src/libs/agentic_search/http_backend.py` HTTP 调用独立进程（默认 `enabled: false`）。设计原因与源码实证见 SIRCHMUNK_INTEGRATION_SPEC 第 4 章。
 - **双登记约束**：pipeline 支持的扩展名在 `src/ingestion/pipeline.py` 与 `scripts/ingest.py` 两处登记，由 drift guard 单测锁死，新增格式必须同步。
 - **stdout 纪律**：MCP server 的 stdout 只输出合法 JSON-RPC，日志一律走 stderr；e2e 有逐行断言。
+- **提交流程（D1）**：`fork`（chanity256）的 `main` 受分支保护：必须经 PR，`python` / `frontend` 两个 CI job 必须通过，管理员同样受限；新工作从 `fork/main` 开 `feat/<series>-<task>` 分支，推送用 SSH（`git@github.com:chanity256/MODULAR-RAG-MCP-SERVER.git`，`gh` token 无 `workflow` scope，HTTPS 推不了 workflow 改动），以 merge commit 合入；`origin`（上游）只读不推。CODEOWNERS 只起提示作用（唯一 owner 无法自审，见 SD 规格 §3.1）。
 - **skill 单一来源**：共享 skill（auto-coder / docs-governance / qa-tester / resume-writer / skill-creator）只改 `.factory/skills/`，再运行 `python scripts/sync_skills.py` 生成 `.claude/skills/` 与 `.github/skills/` 镜像，手改镜像会被 `test_skill_mirrors.py` 拦下；QA 计划与进度只在 `.factory/skills/qa-tester/` 保留一份；`review-guidelines` 只在 `.factory/`。复杂任务的 plan 放 `.agents/plans/`（格式见其 README）。
 
 - **docs/ 自动守卫**：Droid 会话由项目级 hook（`.factory/hooks.json`）在每轮结束时检查 docs/ 改动：结构漂移（坏链、MOC 漏登记，规则见 `tests/unit/test_docs_links.py`）必须修，语义同步按映射表提醒；修复流程见 [docs/MOC.md](docs/MOC.md)「命名与流转规范」。
