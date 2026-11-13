@@ -1,112 +1,159 @@
-# Modular RAG MCP Server - Configuration
-# This is the main configuration file for the MCP Server.
-# Edit this file to configure LLM, Embedding, VectorStore, and other services.
+# Modular RAG MCP Server — 主配置文件
+# 阶段 A：最小可解析配置骨架。后续阶段会逐步补齐各 provider 的真实字段与校验规则。
 
-# =============================================================================
-# LLM Configuration
-# =============================================================================
+# LLM 配置
 llm:
-  provider: "openai"  # Options: openai, azure, ollama, deepseek
-  model: "gpt-4o"
-  deployment_name: "gpt-4o"
-  azure_endpoint: "https://YOUR_ENDPOINT.openai.azure.com/"
-  api_version: "2024-02-15-preview"
-  api_key: "YOUR_API_KEY_HERE"
-  temperature: 0.0
-  max_tokens: 4096
+  provider: azure            # azure | openai | ollama | deepseek
+  model: gpt-4o
+  # provider-specific 字段（azure_endpoint / api_key / base_url 等）在阶段 B 补齐
 
-# =============================================================================
-# Embedding Configuration
-# =============================================================================
+# Embedding 配置
 embedding:
-  provider: "openai"  # Options: openai, azure, ollama
-  model: "text-embedding-ada-002"
-  dimensions: 1536  # text-embedding-ada-002 固定维度 (不传递给API, 仅用于验证)
-  # Azure-compatible settings (azure_endpoint triggers Azure compat mode):
-  azure_endpoint: "https://YOUR_ENDPOINT.openai.azure.com/"
-  deployment_name: "text-embedding-ada-002"
-  api_version: "2024-02-15-preview"
-  api_key: "YOUR_API_KEY_HERE"
-  # OpenAI-specific settings (if provider is openai):
-  # api_key: "YOUR_API_KEY_HERE"
+  provider: openai           # openai | azure | ollama
+  # 智谱 OpenAI 兼容端点（G1/G3 落地：摄取与查询共用，保证向量空间一致）
+  base_url: https://open.bigmodel.cn/api/paas/v4
+  api_key: ${ZAI_API_KEY}
+  model: embedding-3
 
-# =============================================================================
-# Vision LLM Configuration (for Image Captioning)
-# =============================================================================
+# Vision LLM 配置（图片描述）
 vision_llm:
-  enabled: true  # Set to true to enable vision capabilities
-  provider: "openai"  # Options: openai, azure, ollama
-  model: "gpt-4o"  # Options: gpt-4o, gpt-4-vision-preview (OpenAI), llava (Ollama)
-  # Azure-compatible settings (azure_endpoint triggers Azure compat mode):
-  azure_endpoint: "https://YOUR_ENDPOINT.openai.azure.com/"
-  deployment_name: "gpt-4o"
-  api_version: "2024-02-15-preview"
-  api_key: "YOUR_API_KEY_HERE"
-  # Ollama-specific settings (if provider is ollama):
-  # base_url: "http://localhost:11434"
-  max_image_size: 2048  # Max dimension (width/height) for image compression
+  provider: azure            # azure | dashscope
+  model: gpt-4o
 
-# =============================================================================
-# Vector Store Configuration
-# =============================================================================
+# 向量存储配置
 vector_store:
-  provider: "chroma"  # Options: chroma, qdrant, pinecone
-  persist_directory: "./data/db/chroma"
-  collection_name: "knowledge_hub"
+  backend: chroma            # chroma | qdrant | pinecone
+  persist_path: ./data/db/chroma
 
-# =============================================================================
-# Retrieval Configuration
-# =============================================================================
-retrieval:
-  dense_top_k: 20
-  sparse_top_k: 20
-  fusion_top_k: 10
-  rrf_k: 60  # RRF constant
-
-# =============================================================================
-# Rerank Configuration
-# =============================================================================
-rerank:
-  enabled: false
-  provider: "none"  # Options: none, cross_encoder, llm
-  model: "cross-encoder/ms-marco-MiniLM-L-6-v2"
-  top_k: 5
-
-# =============================================================================
-# Evaluation Configuration
-# =============================================================================
-evaluation:
-  enabled: false
-  provider: "custom"  # Options: ragas, deepeval, custom
-  metrics:
-    - "hit_rate"
-    - "mrr"
-    - "faithfulness"
-
-# =============================================================================
-# Observability Configuration
-# =============================================================================
-observability:
-  log_level: "INFO"  # Options: DEBUG, INFO, WARNING, ERROR
-  trace_enabled: true
-  trace_file: "./logs/traces.jsonl"
-  structured_logging: true
-
-# =============================================================================
-# Ingestion Configuration
-# =============================================================================
-ingestion:
+# 文档切分配置
+splitter:
+  provider: recursive        # recursive | semantic | fixed_length
   chunk_size: 1000
   chunk_overlap: 200
-  splitter: "recursive"  # Options: recursive, semantic, fixed_length
-  batch_size: 100
-  
-  # Chunk Refiner Configuration (C5)
+
+# Ingestion Pipeline 配置（阶段 C5 引入，可选节）
+ingestion:
   chunk_refiner:
-    use_llm: true  # Set to true to enable LLM-based refinement (requires LLM config)
-    # When use_llm is false or LLM call fails, falls back to rule-based refinement
-  
-  # Metadata Enricher Configuration (C6)
+    use_llm: false           # true 时经 LLM 智能重写（失败自动降级规则模式）
+    prompt_path: config/prompts/chunk_refinement.txt
   metadata_enricher:
-    use_llm: true  # Set to true to enable LLM-based enrichment (requires LLM config)
-    # When use_llm is false or LLM call fails, falls back to rule-based enrichment
+    use_llm: false           # true 时经 LLM 生成 title/summary/tags（失败降级规则模式）
+  image_captioner:
+    enabled: false           # true 时经 Vision LLM 生成图片 caption（失败保留 image_refs 不阻塞）
+    prompt_path: config/prompts/image_captioning.txt
+  batch_size: 32             # 编码批大小（C10 BatchProcessor：每批一次底层调用）
+  # 以下三个子节可选，整体或单字段缺失均走默认值（见 docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md 第 6 章）。
+  # source_filters:            # 目录扫描 include/exclude（IR7，设计见该规格 3.8；缺省即下方默认值）
+  #   include_patterns: []     # glob 列表；空 = 全部受理
+  #   exclude_patterns:        # glob 列表；优先于 include（对扫描根目录的 POSIX 相对路径匹配）
+  #     - ".obsidian/**"
+  #     - ".trash/**"
+  #     - "templates/**"
+  # retry:                     # 失败重试（缺省 = 不重试，行为与基线一致）
+  #   max_attempts: 1          # 1 = 关闭重试；>1 时仅可重试错误走退避
+  #   initial_backoff_s: 2.0   # 首次退避间隔（秒）
+  #   backoff_multiplier: 2.0  # 倍增系数（必须 > 1）
+  #   backoff_jitter: 0.2      # 抖动比例（±20%，取值 [0, 1)）
+  # version_policy:            # 版本元数据（写入历史表 v2）与不兼容检测
+  #   parser_version: auto     # auto = Loader 类名；可显式覆盖字符串
+  #   chunk_version: auto      # auto = splitter 类型 + chunk_size/overlap + refiner 模式
+  #   embedding_version: auto  # auto = provider + model + 维度
+  #   on_embedding_mismatch: stale   # stale = 告警并跳过 | rebuild = 提示需全量重建（不自动执行）
+
+# 检索配置
+retrieval:
+  sparse_backend: bm25       # bm25 | elasticsearch
+  fusion_algorithm: rrf     # rrf | weighted_sum
+  top_k_dense: 20
+  top_k_sparse: 20
+  top_k_final: 10
+  rrf_k: 60                  # RRF 平滑常数（D4：k 参数，越大越平滑）
+
+# Agentic 检索（Sirchmunk HTTP sidecar，可选；enabled=false 时零加载、
+# tools/list 不出现 agentic_search 工具）。详见 docs/frozen/03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md。
+agentic_search:
+  enabled: true                  # true 需先启动 sidecar（scripts/sirchmunk/）
+  backend: sirchmunk_http        # 唯一生产后端（fake 仅供测试注入）
+  base_url: http://127.0.0.1:8584
+  api_token: ${SIRCHMUNK_API_TOKEN}  # 从环境变量解析，不落盘
+  mode: FAST                     # FAST | DEEP（DEEP 另受 allow_deep 门控）
+  allow_deep: true               # 已开启 Deep（Dashboard 在线检索体验用；单次数十秒）
+  timeout_s: 30                  # httpx 总超时（须低于 MCP 客户端工具超时）
+  top_k_files: 5
+  max_loops: 6
+  max_token_budget: 32000
+  max_depth: null                # 目录扫描深度上限（正整数；null = 不发送，走上游默认）
+  enable_dir_scan: true          # DEEP 目录扫描开关
+  # 第三路触发策略（S2.2，实现见 src/core/query_engine/agentic_trigger.py）：
+  #   tool_only：永不自动触发（默认，只由 MCP 工具显式调用）
+  #   fallback：主路（dense+sparse 融合）信号不足时触发
+  #   always：每次查询都触发（仅实验/评估，生产禁用）
+  trigger: tool_only
+  # fallback 判定的 top 分数下限。cross-encoder 分数是未校准 logits，
+  # 0.5 仅是未校准占位值；阈值必须在独立校准集上标定，
+  # 禁止用评估 golden set 调参（DEV_SPEC 9.5 纪律）。
+  trigger_score_threshold: 0.5
+  # fallback 判定的结果数下限（融合后结果数低于该值视为信号不足）。
+  trigger_min_results: 1
+  # 注意触发时机成本：若用 rerank 后分数触发，fallback 判定发生在 rerank
+  # 之后，而触发第三路后还需把 agentic 结果与主路结果二次融合+重排，
+  # rerank 成本翻倍；S2.3 注入方可改喂 rerank 前信号（如 RRF 名次），
+  # 精度/成本自权衡。
+  allowed_roots:                 # PathGuard 白名单（enabled 时必须非空）
+    - ./data/documents
+  denied_substrings:             # 白名单内仍强制排除（fail-closed）
+    - .env
+    - .git
+    - data/db
+
+# 重排配置
+rerank:
+  backend: cross_encoder    # none | cross_encoder | llm
+  model: cross-encoder/ms-marco-MiniLM-L-6-v2
+  top_m: 30
+
+# 评估配置
+evaluation:
+  backends: [ragas, custom]
+  golden_test_set: ./tests/fixtures/golden_test_set.json
+
+# 可观测性配置
+observability:
+  enabled: true
+  log_file: ./logs/traces   # 目录 = 按本地日期切分 traces-YYYY-MM-DD.jsonl；以 .jsonl 结尾 = 单文件
+  app_log_dir: ./logs/app   # 应用运行日志 <component>-YYYY-MM-DD.log（仅进程入口启用）
+  retention_days: 30        # 按日文件保留天数；0 = 不清理
+  logging:
+    log_level: INFO         # DEBUG | INFO | WARNING | ERROR | CRITICAL
+  detail_level: standard    # minimal | standard | verbose
+
+# Chat 配置（可选节，WEBUI_CHAT_SPEC §7.1；缺失走默认，非法值启动即报错）
+chat:
+  enabled: true
+  history_max_turns: 10
+  history_max_tokens: 32000
+  relevance_filter: true    # 话题漂移过滤开关（省一次 LLM 调用的逃生门）
+  query_rewrite: true
+  default_retrieval: hybrid # hybrid | agentic_fast | agentic_deep
+  max_context_chunks: 8     # 送入 AnswerGenerator 的 chunk 上限
+  session_db: ./data/db/chat_sessions.db
+  max_connections: 100
+  pipeline_max_retries: 1
+  fallback_to_chat_only: false   # D6：默认检索失败即 error 帧，不降级纯聊天
+  agentic_progress_stream: false # D4/SX5.3：默认同步 search()，true 走 search_stream
+
+# Web API 配置（可选节，WEBUI_CHAT_SPEC §7.1；缺失走默认，非法值启动即报错）
+api:
+  enabled: false            # 只影响 scripts/start_api.py
+  host: 127.0.0.1
+  port: 8600
+  # D9：独立于 sidecar token。未解析（占位符原样保留）视同无 token，host 非 loopback 时启动失败
+  api_token: ${RAG_API_TOKEN}
+  allowed_origins: ["http://localhost:3000"]
+  serve_ui: false           # true 时托管 frontend/out/
+  static_dir: ./frontend/out
+  tasks_db: ./data/db/tasks.db   # 后台任务（摄取/评估）状态持久化
+  max_upload_mb: 100             # 单个上传文件大小上限（超出返回 413）
+  # WS2：Playground Deep 进度日志流式（WS /api/v1/search/ws）。默认 false：
+  # 流式命中 SX5.3 上游线程泄漏（每请求约 10 线程不回收），上游修复后再开启
+  deep_progress_stream: false

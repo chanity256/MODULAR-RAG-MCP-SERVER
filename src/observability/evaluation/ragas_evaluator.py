@@ -1,301 +1,166 @@
-"""Ragas-based evaluator for RAG quality assessment.
+"""RagasEvaluator（阶段 H1）。
 
-This evaluator wraps the Ragas framework to compute LLM-as-Judge metrics:
-- Faithfulness: Does the answer stick to the retrieved context?
-- Answer Relevancy: Is the answer relevant to the query?
-- Context Precision: Are the retrieved chunks relevant and well-ordered?
+封装 Ragas 评估框架，实现 ``BaseEvaluator`` 接口，提供
+RAG 生成质量指标：
+- ``faithfulness``：答案对上下文的忠实度。
+- ``answer_relevancy``：答案与问题的相关性。
+- ``context_precision``：上下文排序质量。
 
-Design Principles:
-- Pluggable: Implements BaseEvaluator interface, swappable via factory.
-- Config-Driven: LLM/Embedding backend read from settings.yaml.
-- Graceful Degradation: Clear ImportError if ragas not installed.
+设计要点：
+- **优雅降级**：Ragas 未安装时不阻断导入，仅在真正执行评估时
+  抛出带安装提示的 ``ImportError``。
+- **可注入**：``metrics_fn`` / ``evaluate_fn`` / LLM judge 均可注入，
+  单元测试无需安装 ragas、无需真实网络。
+- Ragas 指标是生成质量指标，需要 ``answer``（生成答案）与
+  ``contexts``（检索上下文），经 ``evaluate()`` 的 kwargs 传入；
+  ``contexts`` 缺省回退为 ``retrieved_ids``（降级语义）。
 """
 
 from __future__ import annotations
 
-import logging
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Callable, Sequence
 
-from src.libs.evaluator.base_evaluator import BaseEvaluator
+from core.trace.trace_context import TraceContext
+from libs.evaluator.base_evaluator import BaseEvaluator
 
-logger = logging.getLogger(__name__)
+__all__ = ["RagasEvaluator", "RAGAS_INSTALL_HINT"]
 
-# Metric name constants
-FAITHFULNESS = "faithfulness"
-ANSWER_RELEVANCY = "answer_relevancy"
-CONTEXT_PRECISION = "context_precision"
+RAGAS_INSTALL_HINT = "pip install ragas"
 
-SUPPORTED_METRICS = {FAITHFULNESS, ANSWER_RELEVANCY, CONTEXT_PRECISION}
+#: 默认启用的 Ragas 指标名。
+DEFAULT_METRICS = ("faithfulness", "answer_relevancy", "context_precision")
 
 
-def _import_ragas() -> None:
-    """Validate that ragas is importable, raising a clear error if not."""
+def _default_metrics_fn() -> list[Any]:
+    """延迟导入 ragas.metrics，返回默认指标列表。"""
     try:
-        import ragas  # noqa: F401
-    except ImportError as exc:
+        from ragas.metrics import answer_relevancy, context_precision, faithfulness
+    except ImportError as exc:  # pragma: no cover - 环境相关
         raise ImportError(
-            "The 'ragas' package is required for RagasEvaluator. "
-            "Install it with: pip install ragas datasets"
+            f"ragas is not installed: {exc}. install it with `{RAGAS_INSTALL_HINT}` "
+            "to use the ragas evaluator backend."
         ) from exc
+    return [faithfulness, answer_relevancy, context_precision]
+
+
+def _default_evaluate_fn(**kwargs: Any) -> dict[str, Any]:
+    """延迟导入 ragas.evaluate 并转发调用。"""
+    try:
+        from ragas import evaluate
+    except ImportError as exc:  # pragma: no cover - 环境相关
+        raise ImportError(
+            f"ragas is not installed: {exc}. install it with `{RAGAS_INSTALL_HINT}` "
+            "to use the ragas evaluator backend."
+        ) from exc
+    return evaluate(**kwargs)
 
 
 class RagasEvaluator(BaseEvaluator):
-    """Evaluator that uses the Ragas framework for LLM-as-Judge metrics.
-
-    Ragas does NOT require ground-truth labels.  It uses an LLM to judge
-    the quality of the generated answer against the retrieved context.
-
-    Supported metrics:
-        - faithfulness: Measures factual consistency with context.
-        - answer_relevancy: Measures how relevant the answer is to the query.
-        - context_precision: Measures relevance/ordering of retrieved chunks.
-
-    Example::
-
-        evaluator = RagasEvaluator(settings=settings)
-        metrics = evaluator.evaluate(
-            query="What is RAG?",
-            retrieved_chunks=[{"id": "c1", "text": "RAG is ..."}],
-            generated_answer="RAG stands for ...",
-        )
-        # metrics == {"faithfulness": 0.95, "answer_relevancy": 0.88, ...}
-    """
+    """Ragas 框架适配器：faithfulness / answer_relevancy / context_precision。"""
 
     def __init__(
         self,
-        settings: Any = None,
-        metrics: Optional[Sequence[str]] = None,
-        **kwargs: Any,
+        *,
+        llm: Any | None = None,
+        embeddings: Any | None = None,
+        metrics_fn: Callable[[], list[Any]] | None = None,
+        evaluate_fn: Callable[..., dict[str, Any]] | None = None,
     ) -> None:
-        """Initialize RagasEvaluator.
-
-        Args:
-            settings: Application settings (used to configure LLM backend).
-            metrics: Metric names to compute. Defaults to all supported.
-            **kwargs: Additional parameters (reserved).
-
-        Raises:
-            ImportError: If ragas is not installed.
-            ValueError: If unsupported metric names are requested.
         """
-        _import_ragas()
+        Args:
+            llm: Ragas 评估用的 LLM judge（可注入 fake/真实 langchain wrapper）。
+            embeddings: 可选 embeddings（answer_relevancy 部分版本需要）。
+            metrics_fn: 返回指标列表的可调用（缺省延迟导入 ragas.metrics）。
+            evaluate_fn: 执行评估的可调用（缺省延迟导入 ragas.evaluate）。
+        """
+        self._llm = llm
+        self._embeddings = embeddings
+        self._metrics_fn = metrics_fn or _default_metrics_fn
+        self._evaluate_fn = evaluate_fn or _default_evaluate_fn
 
-        self.settings = settings
-        self.kwargs = kwargs
-
-        if metrics is None:
-            metrics = self._metrics_from_settings(settings)
-
-        normalised = [m.strip().lower() for m in (metrics or [])]
-        if not normalised:
-            normalised = sorted(SUPPORTED_METRICS)
-
-        unsupported = [m for m in normalised if m not in SUPPORTED_METRICS]
-        if unsupported:
-            raise ValueError(
-                f"Unsupported ragas metrics: {', '.join(unsupported)}. "
-                f"Supported: {', '.join(sorted(SUPPORTED_METRICS))}"
-            )
-
-        self._metric_names = normalised
-
-    # ── public API ────────────────────────────────────────────────
+    @property
+    def name(self) -> str:
+        return "ragas"
 
     def evaluate(
         self,
         query: str,
-        retrieved_chunks: List[Any],
-        generated_answer: Optional[str] = None,
-        ground_truth: Optional[Any] = None,
-        trace: Optional[Any] = None,
+        retrieved_ids: Sequence[str],
+        golden_ids: Sequence[str],
+        *,
+        top_k: int | None = None,
+        trace: TraceContext | None = None,
         **kwargs: Any,
-    ) -> Dict[str, float]:
-        """Evaluate RAG quality using Ragas LLM-as-Judge metrics.
+    ) -> dict[str, float]:
+        """计算单条 query 的 Ragas 生成质量指标。
 
         Args:
-            query: The user query string.
-            retrieved_chunks: Retrieved chunks (dicts with 'text' key or strings).
-            generated_answer: The generated answer text. Required for Ragas.
-            ground_truth: Ignored by Ragas (not needed for LLM-as-Judge).
-            trace: Optional TraceContext for observability.
-            **kwargs: Additional parameters.
+            query: 用户查询。
+            retrieved_ids: 检索返回的候选 id 列表。
+            golden_ids: 标准答案 id 列表（映射为 ground_truth）。
+            top_k: 可选截断（作用于 contexts）。
+            answer: 生成答案（Ragas 指标必需），经 kwargs 传入。
+            contexts: 检索上下文文本列表，缺省回退为 retrieved_ids。
+            trace: 可选 TraceContext，打点 ``evaluation`` 阶段。
 
         Returns:
-            Dictionary mapping metric names to float scores (0.0 – 1.0).
+            形如 ``{"faithfulness": 0.9, "answer_relevancy": 0.8,
+            "context_precision": 1.0}`` 的指标字典。
 
         Raises:
-            ValueError: If query/chunks are invalid or generated_answer is missing.
+            TypeError/ValueError: 参数非法。
+            ImportError: ragas 未安装。
         """
-        self.validate_query(query)
-        self.validate_retrieved_chunks(retrieved_chunks)
+        if not isinstance(query, str) or not query.strip():
+            raise TypeError("query must be a non-empty string")
+        if not isinstance(retrieved_ids, (list, tuple)):
+            raise TypeError("retrieved_ids must be a list of ids")
 
-        if not generated_answer or not generated_answer.strip():
+        answer = kwargs.get("answer")
+        if not isinstance(answer, str) or not answer.strip():
             raise ValueError(
-                "RagasEvaluator requires a non-empty 'generated_answer'. "
-                "Ragas uses LLM-as-Judge and needs the answer text to evaluate."
+                "ragas metrics require a non-empty 'answer' kwarg "
+                "(the generated answer being evaluated)"
             )
 
-        contexts = self._extract_texts(retrieved_chunks)
+        contexts = kwargs.get("contexts")
+        if contexts is None:
+            contexts = list(retrieved_ids)  # 降级：以 id 充当上下文。
+        if not isinstance(contexts, (list, tuple)) or not all(isinstance(c, str) for c in contexts):
+            raise TypeError("contexts must be a list of strings")
 
-        try:
-            result = self._run_ragas(query, contexts, generated_answer)
-        except Exception as exc:
-            logger.error("Ragas evaluation failed: %s", exc, exc_info=True)
-            raise RuntimeError(f"Ragas evaluation failed: {exc}") from exc
+        considered_contexts = list(contexts[:top_k] if top_k is not None else contexts)
 
-        return result
+        dataset = {
+            "question": [query],
+            "answer": [answer],
+            "contexts": [considered_contexts],
+            "ground_truth": [list(golden_ids)],
+        }
 
-    # ── private helpers ───────────────────────────────────────────
+        eval_kwargs: dict[str, Any] = {"dataset": dataset, "metrics": self._metrics_fn()}
+        if self._llm is not None:
+            eval_kwargs["llm"] = self._llm
+        if self._embeddings is not None:
+            eval_kwargs["embeddings"] = self._embeddings
 
-    def _run_ragas(
-        self,
-        query: str,
-        contexts: List[str],
-        answer: str,
-    ) -> Dict[str, float]:
-        """Execute Ragas collections metrics and return normalised scores.
+        raw = self._evaluate_fn(**eval_kwargs) or {}
 
-        Ragas 0.4+ collections metrics use per-metric ``score()`` instead of
-        the legacy ``evaluate()`` pipeline.  Each metric has its own signature:
-        - Faithfulness / ContextPrecision: (user_input, response, retrieved_contexts)
-        - AnswerRelevancy: (user_input, response)
-        """
-        from ragas.metrics.collections import (
-            Faithfulness,
-            AnswerRelevancy,
-            ContextPrecisionWithoutReference,
-        )
+        metrics: dict[str, float] = {}
+        for key, value in dict(raw).items():
+            try:
+                metrics[str(key)] = float(value)
+            except (TypeError, ValueError):
+                continue  # 非数值指标（如报告对象）跳过，保持 float 契约。
 
-        # Build LLM / Embedding wrappers from settings
-        llm, embeddings = self._build_wrappers()
-
-        scores: Dict[str, float] = {}
-
-        for metric_name in self._metric_names:
-            if metric_name == FAITHFULNESS:
-                m = Faithfulness(llm=llm)
-                result = m.score(
-                    user_input=query, response=answer, retrieved_contexts=contexts,
-                )
-            elif metric_name == ANSWER_RELEVANCY:
-                m = AnswerRelevancy(llm=llm, embeddings=embeddings)
-                result = m.score(user_input=query, response=answer)
-            elif metric_name == CONTEXT_PRECISION:
-                m = ContextPrecisionWithoutReference(llm=llm)
-                result = m.score(
-                    user_input=query, response=answer, retrieved_contexts=contexts,
-                )
-            else:
-                continue
-
-            scores[metric_name] = float(result.value) if result.value is not None else 0.0
-
-        return scores
-
-    def _build_wrappers(self) -> tuple:
-        """Build Ragas LLM and Embedding wrappers from project settings.
-
-        Uses Ragas 0.4+ native API (InstructorLLM + OpenAIEmbeddings)
-        instead of deprecated LangchainLLMWrapper.
-
-        Returns:
-            Tuple of (llm_wrapper, embeddings_wrapper).
-        """
-        from openai import AsyncAzureOpenAI, AsyncOpenAI
-        from ragas.llms import llm_factory
-        from ragas.embeddings import OpenAIEmbeddings
-
-        if self.settings is None:
-            raise ValueError("Settings required to create LLM for Ragas evaluation")
-
-        # ── LLM ──
-        llm_cfg = self.settings.llm
-        provider = llm_cfg.provider.lower()
-        llm_azure_endpoint = getattr(llm_cfg, "azure_endpoint", None)
-
-        # Azure-compatible mode: if azure_endpoint is configured, use Azure
-        # client even when provider is "openai" (matches project convention).
-        use_azure_llm = (
-            provider == "azure"
-            or (provider == "openai" and llm_azure_endpoint)
-        )
-
-        if use_azure_llm:
-            llm_client = AsyncAzureOpenAI(
-                api_key=llm_cfg.api_key,
-                azure_endpoint=llm_azure_endpoint or llm_cfg.azure_endpoint,
-                api_version=getattr(llm_cfg, "api_version", None) or "2024-02-15-preview",
+        if trace is not None:
+            trace.record_stage(
+                "evaluation",
+                method="ragas_evaluator",
+                details={
+                    "metrics": sorted(metrics),
+                    "contexts": len(considered_contexts),
+                    "has_llm": self._llm is not None,
+                },
             )
-        elif provider == "openai":
-            llm_client = AsyncOpenAI(api_key=llm_cfg.api_key)
-        else:
-            raise ValueError(
-                f"Unsupported LLM provider for Ragas: '{provider}'. "
-                "Supported: azure, openai"
-            )
-
-        llm = llm_factory(llm_cfg.model, client=llm_client, max_tokens=8192)
-
-        # ── Embeddings ──
-        emb_cfg = self.settings.embedding
-        emb_provider = emb_cfg.provider.lower()
-        emb_azure_endpoint = getattr(emb_cfg, "azure_endpoint", None)
-
-        # Same Azure-compatible mode detection for embeddings
-        use_azure_emb = (
-            emb_provider == "azure"
-            or (emb_provider == "openai" and emb_azure_endpoint)
-        )
-
-        if use_azure_emb:
-            emb_client = AsyncAzureOpenAI(
-                api_key=emb_cfg.api_key,
-                azure_endpoint=emb_azure_endpoint or emb_cfg.azure_endpoint,
-                api_version=getattr(emb_cfg, "api_version", None) or "2024-02-15-preview",
-            )
-        elif emb_provider == "openai":
-            emb_client = AsyncOpenAI(api_key=emb_cfg.api_key)
-        else:
-            raise ValueError(
-                f"Unsupported embedding provider for Ragas: '{emb_provider}'. "
-                "Supported: azure, openai"
-            )
-
-        embeddings = OpenAIEmbeddings(model=emb_cfg.model, client=emb_client)
-
-        return llm, embeddings
-
-    def _extract_texts(self, chunks: List[Any]) -> List[str]:
-        """Extract text strings from various chunk representations.
-
-        Args:
-            chunks: List of chunk dicts, strings, or objects with .text.
-
-        Returns:
-            List of text strings.
-        """
-        texts: List[str] = []
-        for chunk in chunks:
-            if isinstance(chunk, str):
-                texts.append(chunk)
-            elif isinstance(chunk, dict):
-                text = chunk.get("text") or chunk.get("content") or chunk.get("page_content", "")
-                texts.append(str(text))
-            elif hasattr(chunk, "text"):
-                texts.append(str(getattr(chunk, "text")))
-            else:
-                texts.append(str(chunk))
-        return texts
-
-    def _metrics_from_settings(self, settings: Any) -> List[str]:
-        """Extract metrics list from settings if available."""
-        if settings is None:
-            return []
-        evaluation = getattr(settings, "evaluation", None)
-        if evaluation is None:
-            return []
-        raw_metrics = getattr(evaluation, "metrics", None)
-        if raw_metrics is None:
-            return []
-        # Filter to only ragas-supported metrics
-        return [m for m in raw_metrics if m.lower() in SUPPORTED_METRICS]
+        return metrics

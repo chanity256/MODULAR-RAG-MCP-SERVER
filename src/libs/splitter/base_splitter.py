@@ -1,85 +1,44 @@
-"""Abstract base class for text splitters.
+"""Splitter 抽象基类（阶段 B3）。
 
-This module defines the pluggable interface for text splitter providers,
-enabling seamless switching between different splitting strategies
-(Recursive, Semantic, FixedLength, etc.) through configuration-driven instantiation.
+定义全链路共用的 ``BaseSplitter`` 接口，屏蔽不同切分策略
+（Recursive / Semantic / FixedLength）的实现差异。
+
+设计要点：
+- ``split_text(text)`` 为统一入口，返回 ``List[str]``。
+- 预留 ``trace: TraceContext | None`` 参数（阶段 F 打点时使用，当前仅占位）。
+- 不在此处做任何网络/IO 的"业务初始化"，仅定义契约。
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, List, Optional
+from typing import Any
+
+__all__ = ["BaseSplitter"]
 
 
 class BaseSplitter(ABC):
-    """Abstract base class for text splitters.
-    
-    All splitter implementations must inherit from this class and implement
-    the split_text() method. This ensures a consistent interface across
-    different strategies.
-    
-    Design Principles Applied:
-    - Pluggable: Subclasses can be swapped without changing upstream code.
-    - Observable: Accepts optional TraceContext for observability integration.
-    - Config-Driven: Instances are created via factory based on settings.
-    """
-    
+    """Splitter 抽象基类，所有切分策略实现需继承并实现 ``split_text``。"""
+
     @abstractmethod
     def split_text(
         self,
         text: str,
-        trace: Optional[Any] = None,
+        *,
+        trace: Any | None = None,
         **kwargs: Any,
-    ) -> List[str]:
-        """Split input text into a list of chunks.
-        
+    ) -> list[str]:
+        """将文本切分为若干片段。
+
         Args:
-            text: Input text to split. Must be a non-empty string.
-            trace: Optional TraceContext for observability (reserved for Stage F).
-            **kwargs: Strategy-specific parameters (chunk_size, overlap, etc.).
-        
+            text: 待切分的文本（通常是 Loader 产出的规范化 Markdown）。
+            trace: 可选的 ``TraceContext``，用于阶段 F 打点（当前占位）。
+            **kwargs: 策略特定的扩展参数（如临时覆盖 ``chunk_size``）。
+
         Returns:
-            A list of text chunks. Order must preserve the original text sequence.
-        
+            切分后的文本片段列表。
+
         Raises:
-            ValueError: If input text is invalid.
-            RuntimeError: If the splitter fails unexpectedly.
+            ValueError: 输入非字符串或为空时。
         """
-        pass
-    
-    def validate_text(self, text: str) -> None:
-        """Validate input text.
-        
-        Args:
-            text: Input text to validate.
-        
-        Raises:
-            ValueError: If text is not a non-empty string.
-        """
-        if not isinstance(text, str):
-            raise ValueError(f"Input text must be a string, got {type(text).__name__}")
-        if not text.strip():
-            raise ValueError("Input text cannot be empty or whitespace-only")
-    
-    def validate_chunks(self, chunks: List[str]) -> None:
-        """Validate output chunks.
-        
-        Args:
-            chunks: List of chunk strings to validate.
-        
-        Raises:
-            ValueError: If chunks are empty or contain invalid entries.
-        """
-        if not isinstance(chunks, list):
-            raise ValueError("Chunks must be a list of strings")
-        if not chunks:
-            raise ValueError("Chunks list cannot be empty")
-        for i, chunk in enumerate(chunks):
-            if not isinstance(chunk, str):
-                raise ValueError(
-                    f"Chunk at index {i} is not a string (type: {type(chunk).__name__})"
-                )
-            if not chunk.strip():
-                raise ValueError(
-                    f"Chunk at index {i} is empty or whitespace-only"
-                )
+        raise NotImplementedError

@@ -1,884 +1,426 @@
-"""Integration tests for HybridSearch.
+"""``HybridSearch`` 集成测试（阶段 D5）。
 
-This test module validates the HybridSearch orchestration layer:
-- Complete retrieval flow (query → dense+sparse → fusion → results)
-- Graceful degradation when one retriever fails
-- Metadata filtering (pre and post-fusion)
-- Parallel vs sequential retrieval modes
-- Edge cases and error handling
+离线真实组件协作：真 ``ChromaStore``（嵌入式 PersistentClient，tmp 目录）
++ 真 ``BM25Indexer``（tmp 索引路径）+ 确定性哈希 ``BaseEmbedding`` +
+真 ``QueryProcessor`` / ``RRFFusion``，仅免除网络依赖。
 
-Test Strategy:
-- Use mock/fake retrievers for deterministic behavior
-- Test actual component integration (not just mocking)
-- Cover both success and failure scenarios
+覆盖（spec D5 验收标准）：
+- 对 fixtures 数据返回 Top-K（含 chunk 文本与 metadata）。
+- ``filters`` 过滤（Dense 路 Pre-filter + Sparse 路 Post-filter 兜底）。
+- Dense/Sparse 任一路径失败降级到单路结果；两路均失败抛错。
+- trace 阶段链完整（query_processing/dense_retrieval/sparse_retrieval/fusion/hybrid）。
 """
 
+from __future__ import annotations
+
+
+import shutil
+from dataclasses import replace
+from pathlib import Path
+from textwrap import dedent
+
 import pytest
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, patch
 
-from src.core.types import ProcessedQuery, RetrievalResult
-from src.core.query_engine.hybrid_search import (
-    HybridSearch,
-    HybridSearchConfig,
-    HybridSearchResult,
-    create_hybrid_search,
+from core.query_engine.dense_retriever import DenseRetriever
+from core.query_engine.fusion import RRFFusion
+from core.query_engine.hybrid_search import HybridSearch, HybridSearchError
+from core.query_engine.query_processor import QueryProcessor
+from core.query_engine.sparse_retriever import SparseRetriever
+from core.settings import load_settings
+from core.trace.trace_context import TraceContext
+from core.types import RetrievalResult
+from ingestion.embedding import SparseDocStats
+from ingestion.embedding.sparse_encoder import default_tokenize
+from ingestion.storage import BM25Indexer
+from libs.embedding.base_embedding import BaseEmbedding
+from libs.vector_store.base_vector_store import VectorRecord
+from libs.vector_store.chroma_store import ChromaStore
+
+_VALID_YAML = dedent(
+    """\
+    llm:
+      provider: azure
+      model: gpt-4o
+    embedding:
+      provider: openai
+      model: text-embedding-3-small
+    vision_llm:
+      provider: azure
+      model: gpt-4o
+    vector_store:
+      backend: chroma
+      persist_path: ./data/db/chroma
+    retrieval:
+      sparse_backend: bm25
+      fusion_algorithm: rrf
+      top_k_dense: 20
+      top_k_sparse: 20
+      top_k_final: 10
+    rerank:
+      backend: none
+    evaluation:
+      backends: [custom]
+    """
 )
-from src.core.query_engine.query_processor import QueryProcessor
-from src.core.query_engine.fusion import RRFFusion
+
+#: 测试语料：chunk_id -> (text, metadata)。azure 主题跨两个 collection。
+_CORPUS = {
+    "doc_a_0000_h1": ("azure active directory authentication", {"collection": "eng", "doc_type": "pdf", "source_path": "a.pdf", "page": 1}),
+    "doc_a_0001_h2": ("azure deployment endpoint and keys", {"collection": "eng", "doc_type": "pdf", "source_path": "a.pdf", "page": 2}),
+    "doc_b_0000_h3": ("bm25 sparse retrieval scoring", {"collection": "ml", "doc_type": "pdf", "source_path": "b.pdf", "page": 1}),
+    "doc_b_0001_h4": ("azure ad single sign on overview", {"collection": "ml", "doc_type": "pdf", "source_path": "b.pdf", "page": 5}),
+}
+
+#: 词表：语料 + 测试查询的 token 并集（bag-of-words 向量空间）。
+_VOCAB = sorted(
+    {
+        token
+        for text, _ in _CORPUS.values()
+        for token in default_tokenize(text)
+    }
+    | {"inverted"}
+)
+_VOCAB_SET = frozenset(_VOCAB)
 
 
-# =============================================================================
-# Test Fixtures - Mock Components
-# =============================================================================
+class _KeywordEmbedding(BaseEmbedding):
+    """确定性 bag-of-words embedding：token 计数向量（离线、语义可预期）。
 
-class MockDenseRetriever:
-    """Mock Dense Retriever for testing."""
-    
-    def __init__(
-        self,
-        results: Optional[List[RetrievalResult]] = None,
-        should_fail: bool = False,
-        error_message: str = "Dense retrieval failed",
-    ):
-        self.results = results or []
-        self.should_fail = should_fail
-        self.error_message = error_message
-        self.call_count = 0
-        self.last_query = None
-        self.last_top_k = None
-        self.last_filters = None
-    
-    def retrieve(
-        self,
-        query: str,
-        top_k: int = 10,
-        filters: Optional[Dict[str, Any]] = None,
-        trace: Optional[Any] = None,
-    ) -> List[RetrievalResult]:
-        self.call_count += 1
-        self.last_query = query
-        self.last_top_k = top_k
-        self.last_filters = filters
-        
-        if self.should_fail:
-            raise RuntimeError(self.error_message)
-        
-        return self.results[:top_k]
+    Dense 相似度退化为词重合度（cosine），使测试断言确定可复现，
+    同时保持 Dense/Sparse 互补结构真实。
+    """
+
+    @property
+    def dimension(self) -> int | None:
+        return len(_VOCAB)
+
+    def embed(self, texts, *, trace=None, **kwargs):
+        vectors = []
+        for text in texts:
+            counts = {}
+            for token in default_tokenize(text):
+                if token in _VOCAB_SET:
+                    counts[token] = counts.get(token, 0) + 1
+            vectors.append([float(counts.get(token, 0)) for token in _VOCAB])
+        return vectors
 
 
-class MockSparseRetriever:
-    """Mock Sparse Retriever for testing."""
-    
-    def __init__(
-        self,
-        results: Optional[List[RetrievalResult]] = None,
-        should_fail: bool = False,
-        error_message: str = "Sparse retrieval failed",
-    ):
-        self.results = results or []
-        self.should_fail = should_fail
-        self.error_message = error_message
-        self.call_count = 0
-        self.last_keywords = None
-        self.last_top_k = None
-        self.last_collection = None
-    
-    def retrieve(
-        self,
-        keywords: List[str],
-        top_k: int = 10,
-        collection: Optional[str] = None,
-        trace: Optional[Any] = None,
-    ) -> List[RetrievalResult]:
-        self.call_count += 1
-        self.last_keywords = keywords
-        self.last_top_k = top_k
-        self.last_collection = collection
-        
-        if self.should_fail:
-            raise RuntimeError(self.error_message)
-        
-        return self.results[:top_k]
+def _embed_text(text: str) -> list[float]:
+    return _KeywordEmbedding().embed([text])[0]
+
+
+class _ExplodingDenseRetriever:
+    """总是抛错的 Dense 路 fake（降级测试用）。"""
+
+    def retrieve(self, query, top_k, filters=None, *, trace=None):
+        raise RuntimeError("dense backend offline")
+
+
+class _ExplodingSparseRetriever:
+    """总是抛错的 Sparse 路 fake（降级测试用）。"""
+
+    def retrieve(self, keywords, top_k, *, trace=None):
+        raise RuntimeError("bm25 index corrupted")
 
 
 @pytest.fixture
-def sample_dense_results() -> List[RetrievalResult]:
-    """Sample results from dense retrieval."""
-    return [
-        RetrievalResult(
-            chunk_id="dense_1",
-            score=0.95,
-            text="Azure OpenAI 配置步骤详解",
-            metadata={"source_path": "docs/azure.pdf", "collection": "api-docs"},
-        ),
-        RetrievalResult(
-            chunk_id="dense_2",
-            score=0.88,
-            text="OpenAI API 使用指南",
-            metadata={"source_path": "docs/openai.pdf", "collection": "api-docs"},
-        ),
-        RetrievalResult(
-            chunk_id="common_chunk",
-            score=0.85,
-            text="通用配置说明",
-            metadata={"source_path": "docs/common.pdf", "collection": "general"},
-        ),
-        RetrievalResult(
-            chunk_id="dense_4",
-            score=0.80,
-            text="云服务配置概述",
-            metadata={"source_path": "docs/cloud.pdf", "collection": "general"},
-        ),
+def settings(tmp_path: Path):
+    path = tmp_path / "settings.yaml"
+    path.write_text(_VALID_YAML, encoding="utf-8")
+    return load_settings(path)
+
+
+@pytest.fixture
+def components(tmp_path: Path, settings):
+    """真 Chroma + 真 BM25 + 确定性 embedding 的完整查询栈。"""
+    persist = tmp_path / "chroma_db"
+    settings = replace(settings, vector_store=replace(settings.vector_store, persist_path=str(persist)))
+    store = ChromaStore(settings.vector_store, collection="hybrid_test")
+    indexer = BM25Indexer(index_path=tmp_path / "bm25" / "index.json")
+
+    records = []
+    stats = []
+    for chunk_id, (text, metadata) in _CORPUS.items():
+        records.append(
+            VectorRecord(id=chunk_id, vector=_embed_text(text), text=text, metadata=dict(metadata))
+        )
+        tokens = default_tokenize(text)
+        stats.append(
+            SparseDocStats(
+                chunk_id=chunk_id,
+                term_freqs=dict(__import__("collections").Counter(tokens)),
+                length=len(tokens),
+            )
+        )
+    store.upsert(records)
+    indexer.build(stats)
+
+    dense = DenseRetriever(settings, embedding_client=_KeywordEmbedding(), vector_store=store)
+    sparse = SparseRetriever(settings, bm25_indexer=indexer, vector_store=store)
+    hybrid = HybridSearch(
+        settings,
+        query_processor=QueryProcessor(settings),
+        dense_retriever=dense,
+        sparse_retriever=sparse,
+        fusion=RRFFusion(settings),
+    )
+    yield hybrid
+    shutil.rmtree(persist, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# 混合检索主链路
+# ---------------------------------------------------------------------------
+
+
+def test_hybrid_returns_topk_with_text_and_metadata(components):
+    results = components.search("azure authentication", 5)
+    assert 1 <= len(results) <= 5
+    assert all(isinstance(r, RetrievalResult) for r in results)
+    assert all(r.text for r in results)
+    assert all("source_path" in r.metadata for r in results)
+    # "azure authentication" 两路都应命中 doc_a_0000_h1（唯一同时含两词的 chunk）。
+    assert results[0].chunk_id == "doc_a_0000_h1"
+
+
+def test_hybrid_topk_limit_respected(components):
+    assert len(components.search("azure", 2)) <= 2
+
+
+def test_hybrid_topk_defaults_to_settings(tmp_path, settings, components):
+    results = components.search("azure")  # top_k=None → retrieval.top_k_final=10
+    assert len(results) <= settings.retrieval.top_k_final
+
+
+def test_hybrid_sparse_only_keyword_still_found(components):
+    """两路互补：纯关键词（BM25 强）也能经融合召回。"""
+    results = components.search("bm25 inverted scoring", 5)
+    assert results[0].chunk_id == "doc_b_0000_h3"
+
+
+def test_invalid_topk_fails_fast(components):
+    with pytest.raises(ValueError):
+        components.search("azure", 0)
+    with pytest.raises(ValueError):
+        components.search("azure", 1.5)
+
+
+def test_empty_query_fails_fast_via_processor(components):
+    with pytest.raises(ValueError):
+        components.search("   ")
+
+
+# ---------------------------------------------------------------------------
+# filters：Dense Pre-filter + Sparse Post-filter 兜底
+# ---------------------------------------------------------------------------
+
+
+def test_filters_collection_narrows_results(components):
+    results = components.search("azure", 10, filters={"collection": "ml"})
+    assert results
+    assert all(r.metadata["collection"] == "ml" for r in results)
+    assert {r.chunk_id for r in results} <= {"doc_b_0000_h3", "doc_b_0001_h4"}
+
+
+def test_filters_exclude_all_returns_empty(components):
+    assert components.search("azure", 10, filters={"collection": "nonexistent"}) == []
+
+
+def test_filters_missing_metadata_field_lenient_include(components):
+    """Post-filter 缺失字段宽松包含：无 doc_type 的候选不被误杀。"""
+    results = components.search("azure", 10, filters={"language": "zh"})
+    # 语料无 language 字段 → 全部宽松包含。
+    assert results
+
+
+def test_apply_metadata_filters_unit():
+    candidates = [
+        RetrievalResult(chunk_id="a", score=1.0, text="t", metadata={"collection": "x"}),
+        RetrievalResult(chunk_id="b", score=0.9, text="t", metadata={}),
+        RetrievalResult(chunk_id="c", score=0.8, text="t", metadata={"collection": "y"}),
     ]
+    kept = HybridSearch._apply_metadata_filters(candidates, {"collection": "x"})
+    assert [c.chunk_id for c in kept] == ["a", "b"]  # b 缺字段 → 宽松包含
+    assert HybridSearch._apply_metadata_filters(candidates, None) == candidates
 
 
-@pytest.fixture
-def sample_sparse_results() -> List[RetrievalResult]:
-    """Sample results from sparse retrieval."""
-    return [
-        RetrievalResult(
-            chunk_id="sparse_1",
-            score=8.5,
-            text="Azure 配置 Azure OpenAI 服务",
-            metadata={"source_path": "docs/azure-setup.pdf", "collection": "tutorials"},
-        ),
-        RetrievalResult(
-            chunk_id="common_chunk",  # Same as in dense
-            score=7.2,
-            text="通用配置说明",
-            metadata={"source_path": "docs/common.pdf", "collection": "general"},
-        ),
-        RetrievalResult(
-            chunk_id="sparse_3",
-            score=6.8,
-            text="配置文件 YAML 格式说明",
-            metadata={"source_path": "docs/config.pdf", "collection": "tutorials"},
-        ),
-    ]
+# ---------------------------------------------------------------------------
+# 单路降级与双路失败
+# ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def query_processor() -> QueryProcessor:
-    """Real QueryProcessor instance."""
-    return QueryProcessor()
+def test_dense_failure_degrades_to_sparse(tmp_path, settings, components):
+    hybrid = HybridSearch(
+        settings,
+        query_processor=QueryProcessor(settings),
+        dense_retriever=_ExplodingDenseRetriever(),
+        sparse_retriever=components.sparse_retriever,
+        fusion=RRFFusion(settings),
+    )
+    results = hybrid.search("bm25 scoring", 5)
+    assert results
+    assert results[0].chunk_id == "doc_b_0000_h3"
+    assert list(hybrid.last_route_failures) == ["dense"]
+    assert hybrid.last_dense_results == []
+    assert hybrid.last_sparse_results
 
 
-@pytest.fixture
-def rrf_fusion() -> RRFFusion:
-    """Real RRFFusion instance with default k=60."""
-    return RRFFusion(k=60)
+def test_sparse_failure_degrades_to_dense(tmp_path, settings, components):
+    hybrid = HybridSearch(
+        settings,
+        query_processor=QueryProcessor(settings),
+        dense_retriever=components.dense_retriever,
+        sparse_retriever=_ExplodingSparseRetriever(),
+        fusion=RRFFusion(settings),
+    )
+    results = hybrid.search("azure authentication", 5)
+    assert results
+    assert results[0].chunk_id == "doc_a_0000_h1"
+    assert list(hybrid.last_route_failures) == ["sparse"]
 
 
-# =============================================================================
-# Basic Functionality Tests
-# =============================================================================
-
-class TestHybridSearchBasic:
-    """Test basic HybridSearch functionality."""
-    
-    def test_init_with_all_components(
-        self,
-        query_processor: QueryProcessor,
-        rrf_fusion: RRFFusion,
-        sample_dense_results: List[RetrievalResult],
-        sample_sparse_results: List[RetrievalResult],
-    ):
-        """Test initialization with all components."""
-        dense = MockDenseRetriever(results=sample_dense_results)
-        sparse = MockSparseRetriever(results=sample_sparse_results)
-        
-        hybrid = HybridSearch(
-            query_processor=query_processor,
-            dense_retriever=dense,
-            sparse_retriever=sparse,
-            fusion=rrf_fusion,
-        )
-        
-        assert hybrid.query_processor is query_processor
-        assert hybrid.dense_retriever is dense
-        assert hybrid.sparse_retriever is sparse
-        assert hybrid.fusion is rrf_fusion
-    
-    def test_init_with_config(self):
-        """Test initialization with custom config."""
-        config = HybridSearchConfig(
-            dense_top_k=30,
-            sparse_top_k=30,
-            fusion_top_k=15,
-            parallel_retrieval=False,
-        )
-        
-        hybrid = HybridSearch(config=config)
-        
-        assert hybrid.config.dense_top_k == 30
-        assert hybrid.config.sparse_top_k == 30
-        assert hybrid.config.fusion_top_k == 15
-        assert hybrid.config.parallel_retrieval is False
-    
-    def test_search_returns_results(
-        self,
-        query_processor: QueryProcessor,
-        rrf_fusion: RRFFusion,
-        sample_dense_results: List[RetrievalResult],
-        sample_sparse_results: List[RetrievalResult],
-    ):
-        """Test that search returns fused results."""
-        dense = MockDenseRetriever(results=sample_dense_results)
-        sparse = MockSparseRetriever(results=sample_sparse_results)
-        
-        hybrid = HybridSearch(
-            query_processor=query_processor,
-            dense_retriever=dense,
-            sparse_retriever=sparse,
-            fusion=rrf_fusion,
-        )
-        
-        results = hybrid.search("如何配置 Azure OpenAI？", top_k=5)
-        
-        # Should return results
-        assert len(results) > 0
-        assert len(results) <= 5
-        
-        # Results should be RetrievalResult objects
-        for r in results:
-            assert isinstance(r, RetrievalResult)
-            assert r.chunk_id
-            assert isinstance(r.score, float)
-            assert r.text
-    
-    def test_search_with_return_details(
-        self,
-        query_processor: QueryProcessor,
-        rrf_fusion: RRFFusion,
-        sample_dense_results: List[RetrievalResult],
-        sample_sparse_results: List[RetrievalResult],
-    ):
-        """Test search with return_details=True."""
-        dense = MockDenseRetriever(results=sample_dense_results)
-        sparse = MockSparseRetriever(results=sample_sparse_results)
-        
-        hybrid = HybridSearch(
-            query_processor=query_processor,
-            dense_retriever=dense,
-            sparse_retriever=sparse,
-            fusion=rrf_fusion,
-        )
-        
-        result = hybrid.search("Azure config", top_k=5, return_details=True)
-        
-        assert isinstance(result, HybridSearchResult)
-        assert result.results is not None
-        assert result.dense_results is not None
-        assert result.sparse_results is not None
-        assert result.dense_error is None
-        assert result.sparse_error is None
-        assert result.used_fallback is False
-        assert result.processed_query is not None
-    
-    def test_search_calls_both_retrievers(
-        self,
-        query_processor: QueryProcessor,
-        rrf_fusion: RRFFusion,
-        sample_dense_results: List[RetrievalResult],
-        sample_sparse_results: List[RetrievalResult],
-    ):
-        """Test that both retrievers are called."""
-        dense = MockDenseRetriever(results=sample_dense_results)
-        sparse = MockSparseRetriever(results=sample_sparse_results)
-        
-        hybrid = HybridSearch(
-            query_processor=query_processor,
-            dense_retriever=dense,
-            sparse_retriever=sparse,
-            fusion=rrf_fusion,
-        )
-        
-        hybrid.search("Azure OpenAI 配置", top_k=5)
-        
-        assert dense.call_count == 1
-        assert sparse.call_count == 1
-    
-    def test_common_chunks_deduplicated(
-        self,
-        query_processor: QueryProcessor,
-        rrf_fusion: RRFFusion,
-        sample_dense_results: List[RetrievalResult],
-        sample_sparse_results: List[RetrievalResult],
-    ):
-        """Test that common chunks appear only once in results."""
-        dense = MockDenseRetriever(results=sample_dense_results)
-        sparse = MockSparseRetriever(results=sample_sparse_results)
-        
-        hybrid = HybridSearch(
-            query_processor=query_processor,
-            dense_retriever=dense,
-            sparse_retriever=sparse,
-            fusion=rrf_fusion,
-        )
-        
-        results = hybrid.search("配置", top_k=10)
-        
-        # Check for duplicate chunk_ids
-        chunk_ids = [r.chunk_id for r in results]
-        assert len(chunk_ids) == len(set(chunk_ids)), "Results contain duplicate chunk_ids"
-        
-        # The common_chunk should appear exactly once
-        assert chunk_ids.count("common_chunk") <= 1
+def test_both_routes_fail_raise(tmp_path, settings):
+    hybrid = HybridSearch(
+        settings,
+        query_processor=QueryProcessor(settings),
+        dense_retriever=_ExplodingDenseRetriever(),
+        sparse_retriever=_ExplodingSparseRetriever(),
+        fusion=RRFFusion(settings),
+    )
+    with pytest.raises(HybridSearchError, match="both retrieval routes failed"):
+        hybrid.search("anything", 5)
 
 
-# =============================================================================
-# Graceful Degradation Tests
-# =============================================================================
+def test_failed_route_with_empty_survivor_returns_empty(tmp_path, settings):
+    """一路失败 + 存活路零命中：降级为存活路的合法空结果（不抛错）。
 
-class TestHybridSearchDegradation:
-    """Test graceful degradation when components fail."""
-    
-    def test_dense_fails_uses_sparse_only(
-        self,
-        query_processor: QueryProcessor,
-        rrf_fusion: RRFFusion,
-        sample_sparse_results: List[RetrievalResult],
-    ):
-        """Test fallback to sparse when dense fails."""
-        dense = MockDenseRetriever(should_fail=True)
-        sparse = MockSparseRetriever(results=sample_sparse_results)
-        
-        hybrid = HybridSearch(
-            query_processor=query_processor,
-            dense_retriever=dense,
-            sparse_retriever=sparse,
-            fusion=rrf_fusion,
-        )
-        
-        result = hybrid.search("Azure 配置", top_k=5, return_details=True)
-        
-        assert result.used_fallback is True
-        assert result.dense_error is not None
-        assert "Dense retrieval" in result.dense_error
-        assert result.sparse_error is None
-        assert len(result.results) > 0
-    
-    def test_sparse_fails_uses_dense_only(
-        self,
-        query_processor: QueryProcessor,
-        rrf_fusion: RRFFusion,
-        sample_dense_results: List[RetrievalResult],
-    ):
-        """Test fallback to dense when sparse fails."""
-        dense = MockDenseRetriever(results=sample_dense_results)
-        sparse = MockSparseRetriever(should_fail=True)
-        
-        hybrid = HybridSearch(
-            query_processor=query_processor,
-            dense_retriever=dense,
-            sparse_retriever=sparse,
-            fusion=rrf_fusion,
-        )
-        
-        result = hybrid.search("Azure 配置", top_k=5, return_details=True)
-        
-        assert result.used_fallback is True
-        assert result.sparse_error is not None
-        assert "Sparse retrieval" in result.sparse_error
-        assert result.dense_error is None
-        assert len(result.results) > 0
-    
-    def test_both_fail_raises_error(
-        self,
-        query_processor: QueryProcessor,
-        rrf_fusion: RRFFusion,
-    ):
-        """Test that RuntimeError is raised when both retrievers fail."""
-        dense = MockDenseRetriever(should_fail=True)
-        sparse = MockSparseRetriever(should_fail=True)
-        
-        hybrid = HybridSearch(
-            query_processor=query_processor,
-            dense_retriever=dense,
-            sparse_retriever=sparse,
-            fusion=rrf_fusion,
-        )
-        
-        with pytest.raises(RuntimeError) as exc_info:
-            hybrid.search("Azure 配置", top_k=5)
-        
-        assert "Both retrieval paths failed" in str(exc_info.value)
-    
-    def test_no_retrievers_configured(
-        self,
-        query_processor: QueryProcessor,
-        rrf_fusion: RRFFusion,
-    ):
-        """Test behavior when no retrievers are configured."""
-        hybrid = HybridSearch(
-            query_processor=query_processor,
-            dense_retriever=None,
-            sparse_retriever=None,
-            fusion=rrf_fusion,
-        )
-        
-        with pytest.raises(RuntimeError) as exc_info:
-            hybrid.search("Azure 配置", top_k=5)
-        
-        assert "No retriever" in str(exc_info.value) or "Both" in str(exc_info.value)
-    
-    def test_dense_only_mode(
-        self,
-        query_processor: QueryProcessor,
-        rrf_fusion: RRFFusion,
-        sample_dense_results: List[RetrievalResult],
-    ):
-        """Test search with only dense retriever."""
-        dense = MockDenseRetriever(results=sample_dense_results)
-        
-        hybrid = HybridSearch(
-            query_processor=query_processor,
-            dense_retriever=dense,
-            sparse_retriever=None,
-            fusion=rrf_fusion,
-        )
-        
-        results = hybrid.search("Azure 配置", top_k=3)
-        
-        assert len(results) > 0
-        assert len(results) <= 3
-    
-    def test_sparse_only_mode(
-        self,
-        query_processor: QueryProcessor,
-        rrf_fusion: RRFFusion,
-        sample_sparse_results: List[RetrievalResult],
-    ):
-        """Test search with only sparse retriever."""
-        sparse = MockSparseRetriever(results=sample_sparse_results)
-        
-        hybrid = HybridSearch(
-            query_processor=query_processor,
-            dense_retriever=None,
-            sparse_retriever=sparse,
-            fusion=rrf_fusion,
-        )
-        
-        results = hybrid.search("Azure 配置", top_k=3)
-        
-        assert len(results) > 0
-        assert len(results) <= 3
+    D7 依赖该语义：无 API key/无数据环境下 CLI 应给出友好提示，
+    而非把"存活路无命中"误报为链路故障。
+    """
+    persist = tmp_path / "empty_chroma"
+    settings = replace(settings, vector_store=replace(settings.vector_store, persist_path=str(persist)))
+    store = ChromaStore(settings.vector_store, collection="empty")
+    indexer = BM25Indexer(index_path=tmp_path / "empty_bm25" / "index.json")
+    hybrid = HybridSearch(
+        settings,
+        query_processor=QueryProcessor(settings),
+        dense_retriever=_ExplodingDenseRetriever(),
+        sparse_retriever=SparseRetriever(settings, bm25_indexer=indexer, vector_store=store),
+        fusion=RRFFusion(settings),
+    )
+    assert hybrid.search("azure", 5) == []
+    assert list(hybrid.last_route_failures) == ["dense"]
+    shutil.rmtree(persist, ignore_errors=True)
 
 
-# =============================================================================
-# Filter Tests
-# =============================================================================
-
-class TestHybridSearchFilters:
-    """Test metadata filtering functionality."""
-    
-    def test_explicit_filters_passed_to_retrievers(
-        self,
-        query_processor: QueryProcessor,
-        rrf_fusion: RRFFusion,
-        sample_dense_results: List[RetrievalResult],
-        sample_sparse_results: List[RetrievalResult],
-    ):
-        """Test that explicit filters are passed to retrievers."""
-        dense = MockDenseRetriever(results=sample_dense_results)
-        sparse = MockSparseRetriever(results=sample_sparse_results)
-        
-        hybrid = HybridSearch(
-            query_processor=query_processor,
-            dense_retriever=dense,
-            sparse_retriever=sparse,
-            fusion=rrf_fusion,
-        )
-        
-        hybrid.search("Azure", top_k=5, filters={"collection": "api-docs"})
-        
-        assert dense.last_filters == {"collection": "api-docs"}
-        assert sparse.last_collection == "api-docs"
-    
-    def test_query_filter_syntax_extraction(
-        self,
-        query_processor: QueryProcessor,
-        rrf_fusion: RRFFusion,
-        sample_dense_results: List[RetrievalResult],
-        sample_sparse_results: List[RetrievalResult],
-    ):
-        """Test that filters in query syntax are extracted."""
-        dense = MockDenseRetriever(results=sample_dense_results)
-        sparse = MockSparseRetriever(results=sample_sparse_results)
-        
-        hybrid = HybridSearch(
-            query_processor=query_processor,
-            dense_retriever=dense,
-            sparse_retriever=sparse,
-            fusion=rrf_fusion,
-        )
-        
-        result = hybrid.search("collection:api-docs Azure 配置", top_k=5, return_details=True)
-        
-        # Check that filter was extracted from query
-        assert result.processed_query is not None
-        assert "collection" in result.processed_query.filters
-    
-    def test_post_fusion_metadata_filter(
-        self,
-        query_processor: QueryProcessor,
-        rrf_fusion: RRFFusion,
-        sample_dense_results: List[RetrievalResult],
-        sample_sparse_results: List[RetrievalResult],
-    ):
-        """Test post-fusion metadata filtering."""
-        dense = MockDenseRetriever(results=sample_dense_results)
-        sparse = MockSparseRetriever(results=sample_sparse_results)
-        
-        config = HybridSearchConfig(metadata_filter_post=True)
-        hybrid = HybridSearch(
-            query_processor=query_processor,
-            dense_retriever=dense,
-            sparse_retriever=sparse,
-            fusion=rrf_fusion,
-            config=config,
-        )
-        
-        # Filter for api-docs collection only
-        results = hybrid.search("Azure", top_k=10, filters={"collection": "api-docs"})
-        
-        # All results should have collection=api-docs
-        for r in results:
-            assert r.metadata.get("collection") == "api-docs"
+def test_single_route_degradation_keeps_route_scores(tmp_path, settings, components):
+    """降级结果保留存活路原始分数与排序（不做单路 RRF 重打分）。"""
+    hybrid = HybridSearch(
+        settings,
+        query_processor=QueryProcessor(settings),
+        dense_retriever=components.dense_retriever,
+        sparse_retriever=_ExplodingSparseRetriever(),
+        fusion=RRFFusion(settings),
+    )
+    results = hybrid.search("azure", 10)
+    dense_scores = [r.score for r in hybrid.last_dense_results]
+    assert [r.score for r in results] == dense_scores[: len(results)]
 
 
-# =============================================================================
-# Configuration Tests
-# =============================================================================
-
-class TestHybridSearchConfig:
-    """Test configuration behavior."""
-    
-    def test_top_k_from_config(
-        self,
-        query_processor: QueryProcessor,
-        rrf_fusion: RRFFusion,
-        sample_dense_results: List[RetrievalResult],
-        sample_sparse_results: List[RetrievalResult],
-    ):
-        """Test that top_k values from config are used."""
-        dense = MockDenseRetriever(results=sample_dense_results)
-        sparse = MockSparseRetriever(results=sample_sparse_results)
-        
-        config = HybridSearchConfig(
-            dense_top_k=3,
-            sparse_top_k=3,
-            fusion_top_k=2,
-        )
-        hybrid = HybridSearch(
-            query_processor=query_processor,
-            dense_retriever=dense,
-            sparse_retriever=sparse,
-            fusion=rrf_fusion,
-            config=config,
-        )
-        
-        results = hybrid.search("Azure")  # No explicit top_k
-        
-        assert dense.last_top_k == 3
-        assert sparse.last_top_k == 3
-        assert len(results) <= 2
-    
-    def test_top_k_override(
-        self,
-        query_processor: QueryProcessor,
-        rrf_fusion: RRFFusion,
-        sample_dense_results: List[RetrievalResult],
-        sample_sparse_results: List[RetrievalResult],
-    ):
-        """Test that explicit top_k overrides config."""
-        dense = MockDenseRetriever(results=sample_dense_results)
-        sparse = MockSparseRetriever(results=sample_sparse_results)
-        
-        hybrid = HybridSearch(
-            query_processor=query_processor,
-            dense_retriever=dense,
-            sparse_retriever=sparse,
-            fusion=rrf_fusion,
-        )
-        
-        results = hybrid.search("Azure", top_k=1)
-        
-        assert len(results) == 1
-    
-    def test_sequential_retrieval_mode(
-        self,
-        query_processor: QueryProcessor,
-        rrf_fusion: RRFFusion,
-        sample_dense_results: List[RetrievalResult],
-        sample_sparse_results: List[RetrievalResult],
-    ):
-        """Test sequential retrieval mode (non-parallel)."""
-        dense = MockDenseRetriever(results=sample_dense_results)
-        sparse = MockSparseRetriever(results=sample_sparse_results)
-        
-        config = HybridSearchConfig(parallel_retrieval=False)
-        hybrid = HybridSearch(
-            query_processor=query_processor,
-            dense_retriever=dense,
-            sparse_retriever=sparse,
-            fusion=rrf_fusion,
-            config=config,
-        )
-        
-        results = hybrid.search("Azure", top_k=5)
-        
-        # Both should be called
-        assert dense.call_count == 1
-        assert sparse.call_count == 1
-        assert len(results) > 0
+def test_no_data_returns_empty(tmp_path, settings):
+    """空库 + 空索引：两路均空（非失败）→ 友好空结果。"""
+    persist = tmp_path / "empty_chroma"
+    settings = replace(settings, vector_store=replace(settings.vector_store, persist_path=str(persist)))
+    store = ChromaStore(settings.vector_store, collection="empty")
+    indexer = BM25Indexer(index_path=tmp_path / "empty_bm25" / "index.json")
+    hybrid = HybridSearch(
+        settings,
+        query_processor=QueryProcessor(settings),
+        dense_retriever=DenseRetriever(settings, embedding_client=_KeywordEmbedding(), vector_store=store),
+        sparse_retriever=SparseRetriever(settings, bm25_indexer=indexer, vector_store=store),
+        fusion=RRFFusion(settings),
+    )
+    assert hybrid.search("azure", 5) == []
+    assert hybrid.last_route_failures == {}
+    shutil.rmtree(persist, ignore_errors=True)
 
 
-# =============================================================================
-# Edge Cases and Error Handling Tests
-# =============================================================================
-
-class TestHybridSearchEdgeCases:
-    """Test edge cases and error handling."""
-    
-    def test_empty_query_raises_error(
-        self,
-        query_processor: QueryProcessor,
-        rrf_fusion: RRFFusion,
-    ):
-        """Test that empty query raises ValueError."""
-        hybrid = HybridSearch(
-            query_processor=query_processor,
-            fusion=rrf_fusion,
-        )
-        
-        with pytest.raises(ValueError) as exc_info:
-            hybrid.search("")
-        
-        assert "empty" in str(exc_info.value).lower()
-    
-    def test_whitespace_query_raises_error(
-        self,
-        query_processor: QueryProcessor,
-        rrf_fusion: RRFFusion,
-    ):
-        """Test that whitespace-only query raises ValueError."""
-        hybrid = HybridSearch(
-            query_processor=query_processor,
-            fusion=rrf_fusion,
-        )
-        
-        with pytest.raises(ValueError) as exc_info:
-            hybrid.search("   \t\n  ")
-        
-        assert "empty" in str(exc_info.value).lower()
-    
-    def test_empty_results_from_both_retrievers(
-        self,
-        query_processor: QueryProcessor,
-        rrf_fusion: RRFFusion,
-    ):
-        """Test handling when both retrievers return empty results."""
-        dense = MockDenseRetriever(results=[])
-        sparse = MockSparseRetriever(results=[])
-        
-        hybrid = HybridSearch(
-            query_processor=query_processor,
-            dense_retriever=dense,
-            sparse_retriever=sparse,
-            fusion=rrf_fusion,
-        )
-        
-        results = hybrid.search("obscure query with no matches", top_k=5)
-        
-        assert results == []
-    
-    def test_query_without_keywords_skips_sparse(
-        self,
-        rrf_fusion: RRFFusion,
-        sample_dense_results: List[RetrievalResult],
-        sample_sparse_results: List[RetrievalResult],
-    ):
-        """Test that sparse is skipped when no keywords extracted."""
-        # Mock query processor that returns empty keywords
-        mock_processor = MagicMock()
-        mock_processor.process.return_value = ProcessedQuery(
-            original_query="的",  # Only stopwords
-            keywords=[],
-            filters={},
-        )
-        
-        dense = MockDenseRetriever(results=sample_dense_results)
-        sparse = MockSparseRetriever(results=sample_sparse_results)
-        
-        hybrid = HybridSearch(
-            query_processor=mock_processor,
-            dense_retriever=dense,
-            sparse_retriever=sparse,
-            fusion=rrf_fusion,
-        )
-        
-        results = hybrid.search("的", top_k=5)
-        
-        # Dense should be called, sparse may be called but with empty keywords
-        assert dense.call_count == 1
-        assert len(results) > 0
-    
-    def test_no_query_processor_fallback(
-        self,
-        rrf_fusion: RRFFusion,
-        sample_dense_results: List[RetrievalResult],
-        sample_sparse_results: List[RetrievalResult],
-    ):
-        """Test fallback when no QueryProcessor is configured."""
-        dense = MockDenseRetriever(results=sample_dense_results)
-        sparse = MockSparseRetriever(results=sample_sparse_results)
-        
-        hybrid = HybridSearch(
-            query_processor=None,  # No processor
-            dense_retriever=dense,
-            sparse_retriever=sparse,
-            fusion=rrf_fusion,
-        )
-        
-        results = hybrid.search("Azure OpenAI", top_k=5)
-        
-        # Should still work with basic tokenization
-        assert len(results) > 0
-    
-    def test_no_fusion_interleave_fallback(
-        self,
-        query_processor: QueryProcessor,
-        sample_dense_results: List[RetrievalResult],
-        sample_sparse_results: List[RetrievalResult],
-    ):
-        """Test interleave fallback when no fusion is configured."""
-        dense = MockDenseRetriever(results=sample_dense_results)
-        sparse = MockSparseRetriever(results=sample_sparse_results)
-        
-        hybrid = HybridSearch(
-            query_processor=query_processor,
-            dense_retriever=dense,
-            sparse_retriever=sparse,
-            fusion=None,  # No fusion
-        )
-        
-        results = hybrid.search("Azure", top_k=5)
-        
-        # Should still return results (interleaved)
-        assert len(results) > 0
-        assert len(results) <= 5
+# ---------------------------------------------------------------------------
+# trace 阶段链与中间结果
+# ---------------------------------------------------------------------------
 
 
-# =============================================================================
-# Factory Function Tests
-# =============================================================================
-
-class TestCreateHybridSearch:
-    """Test the create_hybrid_search factory function."""
-    
-    def test_creates_default_fusion(self):
-        """Test that default RRF fusion is created."""
-        hybrid = create_hybrid_search()
-        
-        assert hybrid.fusion is not None
-        assert isinstance(hybrid.fusion, RRFFusion)
-        assert hybrid.fusion.k == 60  # Default k
-    
-    def test_uses_provided_fusion(self, rrf_fusion: RRFFusion):
-        """Test that provided fusion is used."""
-        custom_fusion = RRFFusion(k=30)
-        
-        hybrid = create_hybrid_search(fusion=custom_fusion)
-        
-        assert hybrid.fusion is custom_fusion
-        assert hybrid.fusion.k == 30
-    
-    def test_passes_all_components(
-        self,
-        query_processor: QueryProcessor,
-        sample_dense_results: List[RetrievalResult],
-        sample_sparse_results: List[RetrievalResult],
-    ):
-        """Test that all components are passed through."""
-        dense = MockDenseRetriever(results=sample_dense_results)
-        sparse = MockSparseRetriever(results=sample_sparse_results)
-        
-        hybrid = create_hybrid_search(
-            query_processor=query_processor,
-            dense_retriever=dense,
-            sparse_retriever=sparse,
-        )
-        
-        assert hybrid.query_processor is query_processor
-        assert hybrid.dense_retriever is dense
-        assert hybrid.sparse_retriever is sparse
+def test_trace_contains_all_stages(components):
+    trace = TraceContext()
+    components.search("azure authentication", 5, trace=trace)
+    stages = {s["stage"] for s in trace.stages}
+    assert {
+        "query_processing",
+        "dense_retrieval",
+        "sparse_retrieval",
+        "fusion",
+        "hybrid",
+    } <= stages
 
 
-# =============================================================================
-# RRF Fusion Integration Tests
-# =============================================================================
+def test_last_intermediate_results_populated(components):
+    components.search("azure", 10)
+    assert components.last_dense_results
+    assert components.last_sparse_results
+    assert components.last_fused_results
+    assert components.last_route_failures == {}
+    assert set(r.chunk_id for r in components.last_fused_results) >= {
+        r.chunk_id for r in components.last_dense_results
+    } | {r.chunk_id for r in components.last_sparse_results}
 
-class TestRRFFusionIntegration:
-    """Test actual RRF fusion behavior in HybridSearch."""
-    
-    def test_common_chunks_boosted_by_rrf(
-        self,
-        query_processor: QueryProcessor,
-        sample_dense_results: List[RetrievalResult],
-        sample_sparse_results: List[RetrievalResult],
-    ):
-        """Test that chunks appearing in both results get boosted."""
-        dense = MockDenseRetriever(results=sample_dense_results)
-        sparse = MockSparseRetriever(results=sample_sparse_results)
-        
-        # Use RRF fusion
-        fusion = RRFFusion(k=60)
-        hybrid = HybridSearch(
-            query_processor=query_processor,
-            dense_retriever=dense,
-            sparse_retriever=sparse,
-            fusion=fusion,
-        )
-        
-        results = hybrid.search("配置", top_k=10)
-        
-        # common_chunk appears in both, should be ranked higher
-        chunk_ids = [r.chunk_id for r in results]
-        
-        # Check that common_chunk is present
-        if "common_chunk" in chunk_ids:
-            common_idx = chunk_ids.index("common_chunk")
-            # It should be relatively high due to RRF boost
-            # (appears in both lists = sum of RRF scores)
-            assert common_idx < 5, "common_chunk should be boosted by RRF"
-    
-    def test_rrf_scores_are_deterministic(
-        self,
-        query_processor: QueryProcessor,
-        sample_dense_results: List[RetrievalResult],
-        sample_sparse_results: List[RetrievalResult],
-    ):
-        """Test that RRF fusion produces deterministic results."""
-        dense = MockDenseRetriever(results=sample_dense_results)
-        sparse = MockSparseRetriever(results=sample_sparse_results)
-        fusion = RRFFusion(k=60)
-        
-        hybrid = HybridSearch(
-            query_processor=query_processor,
-            dense_retriever=dense,
-            sparse_retriever=sparse,
-            fusion=fusion,
-        )
-        
-        # Run same search multiple times
-        results1 = hybrid.search("配置", top_k=5)
-        results2 = hybrid.search("配置", top_k=5)
-        
-        # Results should be identical
-        assert len(results1) == len(results2)
-        for r1, r2 in zip(results1, results2):
-            assert r1.chunk_id == r2.chunk_id
-            assert r1.score == r2.score
+
+def test_hybrid_stage_details_recorded(components):
+    trace = TraceContext()
+    components.search("azure", 3, trace=trace)
+    stage = trace.get_stage("hybrid")
+    assert stage["method"] == "hybrid_search"
+    assert stage["details"]["top_k"] == 3
+    assert stage["details"]["degraded"] == []
+    assert stage["details"]["routes"]["dense"] > 0
+    assert stage["details"]["routes"]["sparse"] > 0
+    assert "elapsed_ms" in stage["details"]
+
+
+# ---------------------------------------------------------------------------
+# F3：查询链路 trace 打点
+# ---------------------------------------------------------------------------
+
+
+def test_query_link_trace_records_all_stages(components, settings):
+    from core.trace.trace_context import TraceContext
+
+    trace = TraceContext(trace_type="query", metadata={"query": "azure authentication"})
+    components.search("azure authentication", 5, trace=trace)
+
+    data = trace.to_dict()
+    assert data["trace_type"] == "query"
+    assert data["trace_id"]
+    assert data["finished_at"] is not None
+    assert data["total_elapsed_ms"] >= 0.0
+    stages = [s["stage"] for s in data["stages"]]
+    for expected in ("query_processing", "dense_retrieval", "sparse_retrieval", "fusion", "hybrid"):
+        assert expected in stages
+    for record in data["stages"]:
+        assert "elapsed_ms" in record, f"stage {record['stage']} missing elapsed_ms"
+        assert "method" in record, f"stage {record['stage']} missing method"
+
+
+def test_rerank_stage_recorded_with_trace(components, settings):
+    from core.query_engine.reranker import Reranker
+    from core.trace.trace_context import TraceContext
+
+    trace = TraceContext(trace_type="query")
+    results = components.search("azure authentication", 5, trace=trace)
+    reranker = Reranker(settings)
+    reranker.rerank("azure authentication", results, trace=trace)
+
+    record = trace.get_stage("rerank")
+    assert record is not None
+    assert record["method"] == "reranker"
+    assert "elapsed_ms" in record
+    assert trace.to_dict()["trace_type"] == "query"

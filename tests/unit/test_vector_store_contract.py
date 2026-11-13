@@ -1,499 +1,388 @@
-"""Unit tests for VectorStore Factory and Base VectorStore.
+"""``BaseVectorStore`` 契约测试与 ``VectorStoreFactory`` 路由测试（阶段 B4）。
 
-Test Coverage:
-- Factory pattern: provider registration, creation, and routing
-- Configuration-driven instantiation
-- Error handling for unknown/missing providers
-- Validation logic in BaseVectorStore
-- Contract testing for interface compliance
+契约测试（contract test）约束 ``upsert`` / ``query`` 的输入输出 shape：
+- ``upsert`` 接收 ``VectorRecord`` 序列，返回 int（写入数）。
+- ``query`` 接收向量 + top_k + filters，返回按 score 降序的 ``QueryResult`` 列表。
+- 工厂按 ``settings.vector_store.backend`` 路由，未知 backend 报错。
 """
 
-from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock
+from __future__ import annotations
+
+from dataclasses import replace
+from pathlib import Path
+from textwrap import dedent
 
 import pytest
 
-from src.libs.vector_store.base_vector_store import BaseVectorStore
-from src.libs.vector_store.vector_store_factory import VectorStoreFactory
+from core.settings import load_settings
+from libs.vector_store.base_vector_store import BaseVectorStore, QueryResult, VectorRecord
+from libs.vector_store.vector_store_factory import VectorStoreBackendError, VectorStoreFactory
 
-
-class FakeVectorStore(BaseVectorStore):
-    """Fake vector store provider for testing.
-    
-    Maintains an in-memory dict to simulate upsert/query operations.
+_VALID_YAML = dedent(
+    """\
+    llm:
+      provider: azure
+      model: gpt-4o
+    embedding:
+      provider: openai
+      model: text-embedding-3-small
+    vision_llm:
+      provider: azure
+      model: gpt-4o
+    vector_store:
+      backend: chroma
+      persist_path: ./data/db/chroma
+    retrieval:
+      sparse_backend: bm25
+      fusion_algorithm: rrf
+    rerank:
+      backend: none
+    evaluation:
+      backends: [custom]
     """
-    
-    def __init__(self, settings: Any = None, **kwargs: Any):
-        """Initialize fake vector store.
-        
-        Args:
-            settings: Optional settings (unused in fake).
-            **kwargs: Additional parameters (unused).
-        """
-        self.settings = settings
-        self.storage: Dict[str, Dict[str, Any]] = {}
-        self.upsert_count = 0
-        self.query_count = 0
-    
-    def upsert(
-        self,
-        records: List[Dict[str, Any]],
-        trace: Optional[Any] = None,
-        **kwargs: Any,
-    ) -> None:
-        """Store records in memory."""
-        self.validate_records(records)
-        self.upsert_count += 1
-        
-        for record in records:
-            self.storage[record['id']] = record
-    
-    def query(
-        self,
-        vector: List[float],
-        top_k: int = 10,
-        filters: Optional[Dict[str, Any]] = None,
-        trace: Optional[Any] = None,
-        **kwargs: Any,
-    ) -> List[Dict[str, Any]]:
-        """Return stored records with fake similarity scores."""
-        self.validate_query_vector(vector, top_k)
-        self.query_count += 1
-        
-        # Simple fake: return all records with descending fake scores
-        results = []
-        for i, (record_id, record) in enumerate(self.storage.items()):
-            if i >= top_k:
-                break
-            
-            # Apply metadata filters if provided
+)
+
+
+def _settings(tmp_path: Path, backend: str | None = None):
+    path = tmp_path / "settings.yaml"
+    path.write_text(_VALID_YAML, encoding="utf-8")
+    settings = load_settings(path)
+    if backend is not None:
+        settings = replace(settings, vector_store=replace(settings.vector_store, backend=backend))
+    return settings
+
+
+# ---------------------------------------------------------------------------
+# Fake VectorStore（满足契约的内存实现）
+# ---------------------------------------------------------------------------
+
+
+class _FakeVectorStore(BaseVectorStore):
+    def __init__(self, vs_config, **kwargs):
+        self.vs_config = vs_config
+        self.kwargs = kwargs
+        self._store: dict[str, VectorRecord] = {}
+
+    def upsert(self, records, *, trace=None, **kwargs):
+        n = 0
+        for r in records:
+            if not isinstance(r, VectorRecord):
+                raise ValueError("upsert requires VectorRecord instances")
+            if not r.id or not isinstance(r.vector, list):
+                raise ValueError("VectorRecord needs id + vector")
+            self._store[r.id] = r
+            n += 1
+        return n
+
+    def query(self, vector, top_k=10, *, filters=None, trace=None, **kwargs):
+        results: list[QueryResult] = []
+        for rec in self._store.values():
             if filters:
-                metadata = record.get('metadata', {})
-                if not all(metadata.get(k) == v for k, v in filters.items()):
+                ok = all(rec.metadata.get(k) == v for k, v in filters.items())
+                if not ok:
                     continue
-            
-            results.append({
-                'id': record_id,
-                'score': 1.0 - (i * 0.1),  # Fake decreasing scores
-                'metadata': record.get('metadata', {}),
-                'vector': record.get('vector'),
-            })
-        
-        return results
+            # 简单点积作为 score（仅用于契约测试的确定性排序）。
+            score = sum(a * b for a, b in zip(vector, rec.vector))
+            results.append(QueryResult(id=rec.id, score=score, text=rec.text, metadata=rec.metadata))
+        results.sort(key=lambda r: r.score, reverse=True)
+        return results[:top_k]
+
+    def get_by_ids(self, ids, *, trace=None, **kwargs):
+        out = []
+        seen = set()
+        for rid in ids:
+            if rid in seen:
+                continue
+            seen.add(rid)
+            rec = self._store.get(rid)
+            if rec is not None:
+                out.append({"id": rec.id, "text": rec.text, "metadata": dict(rec.metadata)})
+        return out
+
+    def delete_by_metadata(self, filters, *, trace=None, **kwargs):
+        if not isinstance(filters, dict) or not filters:
+            raise ValueError("filters must be a non-empty dict (refuse to wipe all)")
+        deleted = 0
+        for rid, rec in list(self._store.items()):
+            if all(rec.metadata.get(k) == v for k, v in filters.items()):
+                del self._store[rid]
+                deleted += 1
+        return deleted
+
+    def get_by_metadata(self, filters=None, *, trace=None, **kwargs):
+        records = []
+        for rec in self._store.values():
+            if filters and not all(rec.metadata.get(k) == v for k, v in filters.items()):
+                continue
+            records.append({"id": rec.id, "text": rec.text, "metadata": dict(rec.metadata)})
+        records.sort(key=lambda r: r["id"])
+        return records
+
+    def get_collection_stats(self, *, trace=None, **kwargs):
+        records = self.get_by_metadata()
+        sources = {r["metadata"].get("source_path") for r in records if r["metadata"].get("source_path")}
+        return {"name": "fake", "chunk_count": len(records), "document_count": len(sources), "collections": []}
 
 
-class TestBaseVectorStore:
-    """Tests for BaseVectorStore abstract class."""
-    
-    def test_validate_records_success(self):
-        """Valid records should pass validation."""
-        store = FakeVectorStore()
-        records = [
-            {'id': 'doc1', 'vector': [0.1, 0.2, 0.3]},
-            {'id': 'doc2', 'vector': [0.4, 0.5, 0.6], 'metadata': {'source': 'test.pdf'}},
-        ]
-        # Should not raise
-        store.validate_records(records)
-    
-    def test_validate_records_empty_list(self):
-        """Empty records list should raise ValueError."""
-        store = FakeVectorStore()
-        with pytest.raises(ValueError, match="cannot be empty"):
-            store.validate_records([])
-    
-    def test_validate_records_non_dict(self):
-        """Non-dict records should raise ValueError."""
-        store = FakeVectorStore()
-        with pytest.raises(ValueError, match="not a dict"):
-            store.validate_records([{'id': 'doc1', 'vector': [0.1]}, "invalid"])  # type: ignore
-    
-    def test_validate_records_missing_id(self):
-        """Record missing 'id' field should raise ValueError."""
-        store = FakeVectorStore()
-        with pytest.raises(ValueError, match="missing required field: 'id'"):
-            store.validate_records([{'vector': [0.1, 0.2]}])
-    
-    def test_validate_records_missing_vector(self):
-        """Record missing 'vector' field should raise ValueError."""
-        store = FakeVectorStore()
-        with pytest.raises(ValueError, match="missing required field: 'vector'"):
-            store.validate_records([{'id': 'doc1'}])
-    
-    def test_validate_records_invalid_vector_type(self):
-        """Vector with wrong type should raise ValueError."""
-        store = FakeVectorStore()
-        with pytest.raises(ValueError, match="invalid vector type"):
-            store.validate_records([{'id': 'doc1', 'vector': "not a list"}])  # type: ignore
-    
-    def test_validate_records_empty_vector(self):
-        """Empty vector should raise ValueError."""
-        store = FakeVectorStore()
-        with pytest.raises(ValueError, match="empty vector"):
-            store.validate_records([{'id': 'doc1', 'vector': []}])
-    
-    def test_validate_query_vector_success(self):
-        """Valid query vector should pass validation."""
-        store = FakeVectorStore()
-        # Should not raise
-        store.validate_query_vector([0.1, 0.2, 0.3], top_k=10)
-    
-    def test_validate_query_vector_invalid_type(self):
-        """Query vector with wrong type should raise ValueError."""
-        store = FakeVectorStore()
-        with pytest.raises(ValueError, match="must be a list or tuple"):
-            store.validate_query_vector("not a list", top_k=10)  # type: ignore
-    
-    def test_validate_query_vector_empty(self):
-        """Empty query vector should raise ValueError."""
-        store = FakeVectorStore()
-        with pytest.raises(ValueError, match="cannot be empty"):
-            store.validate_query_vector([], top_k=10)
-    
-    def test_validate_query_vector_invalid_top_k(self):
-        """Invalid top_k should raise ValueError."""
-        store = FakeVectorStore()
-        with pytest.raises(ValueError, match="must be a positive integer"):
-            store.validate_query_vector([0.1, 0.2], top_k=0)
-        
-        with pytest.raises(ValueError, match="must be a positive integer"):
-            store.validate_query_vector([0.1, 0.2], top_k=-5)
-    
-    def test_delete_not_implemented(self):
-        """delete() should raise NotImplementedError by default."""
-        store = FakeVectorStore()
-        with pytest.raises(NotImplementedError, match="does not implement delete"):
-            store.delete(['doc1'])
-    
-    def test_clear_not_implemented(self):
-        """clear() should raise NotImplementedError by default."""
-        store = FakeVectorStore()
-        with pytest.raises(NotImplementedError, match="does not implement clear"):
-            store.clear()
+def _make_fake():
+    def ctor(vs_config, **kwargs):
+        return _FakeVectorStore(vs_config, **kwargs)
+    return ctor
 
 
-class TestFakeVectorStore:
-    """Tests for FakeVectorStore implementation."""
-    
-    def test_upsert_single_record(self):
-        """Upserting single record should store it."""
-        store = FakeVectorStore()
-        records = [{'id': 'doc1', 'vector': [0.1, 0.2, 0.3]}]
-        store.upsert(records)
-        
-        assert store.upsert_count == 1
-        assert 'doc1' in store.storage
-        assert store.storage['doc1']['vector'] == [0.1, 0.2, 0.3]
-    
-    def test_upsert_multiple_records(self):
-        """Upserting multiple records should store them all."""
-        store = FakeVectorStore()
-        records = [
-            {'id': 'doc1', 'vector': [0.1, 0.2]},
-            {'id': 'doc2', 'vector': [0.3, 0.4], 'metadata': {'source': 'test.pdf'}},
-        ]
-        store.upsert(records)
-        
-        assert len(store.storage) == 2
-        assert 'doc1' in store.storage
-        assert 'doc2' in store.storage
-        assert store.storage['doc2']['metadata']['source'] == 'test.pdf'
-    
-    def test_upsert_idempotent(self):
-        """Upserting same record multiple times should be idempotent."""
-        store = FakeVectorStore()
-        records = [{'id': 'doc1', 'vector': [0.1, 0.2]}]
-        
-        store.upsert(records)
-        store.upsert(records)
-        
-        assert store.upsert_count == 2
-        assert len(store.storage) == 1  # Still only one record
-    
-    def test_upsert_validates_input(self):
-        """upsert() should validate records and raise on invalid input."""
-        store = FakeVectorStore()
-        
-        with pytest.raises(ValueError, match="cannot be empty"):
-            store.upsert([])
-        
-        with pytest.raises(ValueError, match="missing required field: 'id'"):
-            store.upsert([{'vector': [0.1]}])
-    
-    def test_query_returns_results(self):
-        """query() should return stored records with scores."""
-        store = FakeVectorStore()
-        store.upsert([
-            {'id': 'doc1', 'vector': [0.1, 0.2]},
-            {'id': 'doc2', 'vector': [0.3, 0.4]},
-        ])
-        
-        results = store.query(vector=[0.5, 0.6], top_k=10)
-        
-        assert len(results) == 2
-        assert results[0]['id'] == 'doc1'
-        assert results[0]['score'] == 1.0
-        assert results[1]['id'] == 'doc2'
-        assert results[1]['score'] == 0.9
-    
-    def test_query_respects_top_k(self):
-        """query() should limit results to top_k."""
-        store = FakeVectorStore()
-        store.upsert([
-            {'id': f'doc{i}', 'vector': [float(i), float(i)]}
-            for i in range(10)
-        ])
-        
-        results = store.query(vector=[0.0, 0.0], top_k=3)
-        
-        assert len(results) == 3
-    
-    def test_query_with_filters(self):
-        """query() should apply metadata filters."""
-        store = FakeVectorStore()
-        store.upsert([
-            {'id': 'doc1', 'vector': [0.1], 'metadata': {'source': 'a.pdf'}},
-            {'id': 'doc2', 'vector': [0.2], 'metadata': {'source': 'b.pdf'}},
-            {'id': 'doc3', 'vector': [0.3], 'metadata': {'source': 'a.pdf'}},
-        ])
-        
-        results = store.query(vector=[0.0], top_k=10, filters={'source': 'a.pdf'})
-        
-        # Should only return doc1 and doc3
-        result_ids = [r['id'] for r in results]
-        assert 'doc1' in result_ids
-        assert 'doc3' in result_ids
-        assert 'doc2' not in result_ids
-    
-    def test_query_increments_count(self):
-        """Each query should increment the counter."""
-        store = FakeVectorStore()
-        assert store.query_count == 0
-        
-        store.query(vector=[0.1], top_k=5)
-        assert store.query_count == 1
-        
-        store.query(vector=[0.2], top_k=5)
-        assert store.query_count == 2
-    
-    def test_query_validates_input(self):
-        """query() should validate inputs and raise on invalid parameters."""
-        store = FakeVectorStore()
-        
-        with pytest.raises(ValueError, match="cannot be empty"):
-            store.query(vector=[], top_k=5)
-        
-        with pytest.raises(ValueError, match="must be a positive integer"):
-            store.query(vector=[0.1], top_k=0)
+@pytest.fixture
+def clean_registry():
+    saved = dict(VectorStoreFactory._registry)
+    VectorStoreFactory._registry.clear()
+    yield VectorStoreFactory
+    VectorStoreFactory._registry.clear()
+    VectorStoreFactory._registry.update(saved)
 
 
-class TestVectorStoreFactory:
-    """Tests for VectorStoreFactory."""
-    
-    def setup_method(self):
-        """Reset factory registry before each test."""
-        VectorStoreFactory._PROVIDERS.clear()
-    
-    def test_register_provider_success(self):
-        """Registering a valid provider should add it to registry."""
-        VectorStoreFactory.register_provider('fake', FakeVectorStore)
-        
-        assert 'fake' in VectorStoreFactory._PROVIDERS
-        assert VectorStoreFactory._PROVIDERS['fake'] is FakeVectorStore
-    
-    def test_register_provider_case_insensitive(self):
-        """Provider names should be case-insensitive."""
-        VectorStoreFactory.register_provider('FakeStore', FakeVectorStore)
-        
-        assert 'fakestore' in VectorStoreFactory._PROVIDERS
-    
-    def test_register_provider_invalid_class(self):
-        """Registering non-BaseVectorStore class should raise ValueError."""
-        
-        class NotAVectorStore:
-            pass
-        
-        with pytest.raises(ValueError, match="must inherit from BaseVectorStore"):
-            VectorStoreFactory.register_provider('invalid', NotAVectorStore)  # type: ignore
-    
-    def test_create_with_registered_provider(self):
-        """Creating instance with registered provider should work."""
-        VectorStoreFactory.register_provider('fake', FakeVectorStore)
-        
-        # Mock settings
-        settings = MagicMock()
-        settings.vector_store.provider = 'fake'
-        
-        store = VectorStoreFactory.create(settings)
-        
-        assert isinstance(store, FakeVectorStore)
-        assert store.settings is settings
-    
-    def test_create_case_insensitive_provider(self):
-        """Provider lookup should be case-insensitive."""
-        VectorStoreFactory.register_provider('fake', FakeVectorStore)
-        
-        settings = MagicMock()
-        settings.vector_store.provider = 'FAKE'
-        
-        store = VectorStoreFactory.create(settings)
-        
-        assert isinstance(store, FakeVectorStore)
-    
-    def test_create_unknown_provider(self):
-        """Creating instance with unknown provider should raise ValueError."""
-        settings = MagicMock()
-        settings.vector_store.provider = 'nonexistent'
-        
-        with pytest.raises(ValueError, match="Unsupported VectorStore provider: 'nonexistent'"):
-            VectorStoreFactory.create(settings)
-    
-    def test_create_unknown_provider_shows_available(self):
-        """Error message should list available providers."""
-        VectorStoreFactory.register_provider('chroma', FakeVectorStore)
-        VectorStoreFactory.register_provider('qdrant', FakeVectorStore)
-        
-        settings = MagicMock()
-        settings.vector_store.provider = 'unknown'
-        
-        with pytest.raises(ValueError, match="Available providers: chroma, qdrant"):
-            VectorStoreFactory.create(settings)
-    
-    def test_create_missing_provider_field(self):
-        """Missing provider field should raise ValueError with helpful message."""
-        settings = MagicMock()
-        del settings.vector_store  # Simulate missing config section
-        
-        with pytest.raises(ValueError) as exc_info:
-            VectorStoreFactory.create(settings)
-        
-        error_message = str(exc_info.value)
-        assert "Missing required configuration" in error_message
-        assert "settings.vector_store.provider" in error_message
-        assert "settings.yaml" in error_message
-    
-    def test_create_with_override_kwargs(self):
-        """Factory should pass override kwargs to provider constructor."""
-        
-        class ConfigurableVectorStore(BaseVectorStore):
-            def __init__(self, settings: Any, custom_param: str = "default", **kwargs: Any):
-                self.settings = settings
-                self.custom_param = custom_param
-            
-            def upsert(self, records: List[Dict[str, Any]], trace: Optional[Any] = None, **kwargs: Any) -> None:
-                pass
-            
-            def query(self, vector: List[float], top_k: int = 10, filters: Optional[Dict[str, Any]] = None, trace: Optional[Any] = None, **kwargs: Any) -> List[Dict[str, Any]]:
-                return []
-        
-        VectorStoreFactory.register_provider('configurable', ConfigurableVectorStore)
-        
-        settings = MagicMock()
-        settings.vector_store.provider = 'configurable'
-        
-        store = VectorStoreFactory.create(settings, custom_param="overridden")
-        
-        assert isinstance(store, ConfigurableVectorStore)
-        assert store.custom_param == "overridden"
-    
-    def test_create_provider_instantiation_error(self):
-        """Errors during provider instantiation should be wrapped with context."""
-        
-        class FailingVectorStore(BaseVectorStore):
-            def __init__(self, settings: Any, **kwargs: Any):
-                raise RuntimeError("Simulated initialization failure")
-            
-            def upsert(self, records: List[Dict[str, Any]], trace: Optional[Any] = None, **kwargs: Any) -> None:
-                pass
-            
-            def query(self, vector: List[float], top_k: int = 10, filters: Optional[Dict[str, Any]] = None, trace: Optional[Any] = None, **kwargs: Any) -> List[Dict[str, Any]]:
-                return []
-        
-        VectorStoreFactory.register_provider('failing', FailingVectorStore)
-        
-        settings = MagicMock()
-        settings.vector_store.provider = 'failing'
-        
-        with pytest.raises(RuntimeError, match="Failed to instantiate VectorStore provider 'failing'"):
-            VectorStoreFactory.create(settings)
-    
-    def test_list_providers_empty(self):
-        """list_providers() should return empty list when no providers registered."""
-        assert VectorStoreFactory.list_providers() == []
-    
-    def test_list_providers_with_providers(self):
-        """list_providers() should return sorted list of provider names."""
-        VectorStoreFactory.register_provider('chroma', FakeVectorStore)
-        VectorStoreFactory.register_provider('qdrant', FakeVectorStore)
-        VectorStoreFactory.register_provider('milvus', FakeVectorStore)
-        
-        providers = VectorStoreFactory.list_providers()
-        
-        assert providers == ['chroma', 'milvus', 'qdrant']  # Alphabetically sorted
+# ---------------------------------------------------------------------------
+# 工厂路由测试
+# ---------------------------------------------------------------------------
 
 
-# ── Boundary / Contract tests (I4) ──────────────────────────────────
+def test_register_and_route_to_fake(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    settings = _settings(tmp_path, backend="chroma")
+    vs = clean_registry.create(settings)
+    assert isinstance(vs, _FakeVectorStore)
 
-class TestBaseVectorStoreContractBoundary:
-    """Boundary tests for BaseVectorStore contract."""
 
-    def test_get_by_ids_not_implemented(self):
-        """get_by_ids() should raise NotImplementedError by default."""
-        store = FakeVectorStore()
-        with pytest.raises(NotImplementedError, match="does not implement get_by_ids"):
-            store.get_by_ids(['doc1'])
+def test_route_to_different_backend(tmp_path, clean_registry):
+    clean_registry.register("qdrant")(_make_fake())
+    settings = _settings(tmp_path, backend="qdrant")
+    vs = clean_registry.create(settings)
+    assert isinstance(vs, _FakeVectorStore)
 
-    def test_validate_records_vector_non_numeric_accepted(self):
-        """Vector containing non-numeric elements is accepted at base level.
-        
-        Note: The base class only checks type (list/tuple) and non-empty.
-        Type enforcement of individual elements is provider-specific.
-        """
-        store = FakeVectorStore()
-        # Base validation does not reject non-numeric elements
-        store.validate_records([{'id': 'doc1', 'vector': ['a', 'b']}])
 
-    def test_validate_records_single_element_vector(self):
-        """Single-element vector should be valid."""
-        store = FakeVectorStore()
-        store.validate_records([{'id': 'doc1', 'vector': [0.5]}])
+def test_unknown_backend_raises(tmp_path, clean_registry):
+    settings = _settings(tmp_path, backend="nonexistent")
+    with pytest.raises(VectorStoreBackendError) as exc_info:
+        clean_registry.create(settings)
+    assert "nonexistent" in str(exc_info.value)
 
-    def test_query_top_k_one(self):
-        """top_k=1 should return at most 1 result."""
-        store = FakeVectorStore()
-        store.upsert([
-            {'id': 'a', 'vector': [0.1]},
-            {'id': 'b', 'vector': [0.2]},
-        ])
-        results = store.query([0.1], top_k=1)
-        assert len(results) <= 1
 
-    def test_query_empty_store(self):
-        """Querying empty store should return empty list."""
-        store = FakeVectorStore()
-        results = store.query([0.1, 0.2], top_k=5)
-        assert results == []
+def test_unknown_backend_error_lists_registered(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    settings = _settings(tmp_path, backend="bad")
+    with pytest.raises(VectorStoreBackendError) as exc_info:
+        clean_registry.create(settings)
+    msg = str(exc_info.value)
+    assert "bad" in msg
+    assert "chroma" in msg
 
-    def test_upsert_preserves_metadata(self):
-        """Metadata should be preserved through upsert → query cycle."""
-        store = FakeVectorStore()
-        store.upsert([{
-            'id': 'doc1',
-            'vector': [0.1],
-            'metadata': {'source': 'test.pdf', 'page': 3},
-        }])
-        results = store.query([0.1], top_k=1)
-        assert results[0]['metadata']['source'] == 'test.pdf'
-        assert results[0]['metadata']['page'] == 3
 
-    def test_query_filters_empty_dict(self):
-        """Empty filter dict should match all records."""
-        store = FakeVectorStore()
-        store.upsert([{'id': 'a', 'vector': [0.1], 'metadata': {'k': 'v'}}])
-        results = store.query([0.1], top_k=10, filters={})
-        assert len(results) == 1
+def test_kwargs_passthrough_to_ctor(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    settings = _settings(tmp_path, backend="chroma")
+    vs = clean_registry.create(settings, extra_flag=True)
+    assert vs.kwargs["extra_flag"] is True
 
-    def test_delete_requires_list(self):
-        """delete() takes a list of IDs (contract shape check)."""
-        store = FakeVectorStore()
-        with pytest.raises(NotImplementedError):
-            store.delete(['id1', 'id2'])
+
+# ---------------------------------------------------------------------------
+# 契约测试：upsert / query 输入输出 shape
+# ---------------------------------------------------------------------------
+
+
+def test_upsert_returns_int_count(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    records = [
+        VectorRecord(id="c1", vector=[1.0, 0.0], text="a", metadata={"page": 1}),
+        VectorRecord(id="c2", vector=[0.0, 1.0], text="b", metadata={"page": 2}),
+    ]
+    n = vs.upsert(records)
+    assert isinstance(n, int)
+    assert n == 2
+
+
+def test_upsert_is_idempotent(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    rec = VectorRecord(id="c1", vector=[1.0, 0.0], text="a")
+    assert vs.upsert([rec]) == 1
+    # 重复 upsert 同一 id 不产生重复记录。
+    assert vs.upsert([rec]) == 1
+    assert vs.query([1.0, 0.0], top_k=10) == [QueryResult(id="c1", score=1.0, text="a", metadata={})]
+
+
+def test_query_returns_queryresult_list_sorted_by_score(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    vs.upsert([
+        VectorRecord(id="c1", vector=[1.0, 0.0], text="a"),
+        VectorRecord(id="c2", vector=[0.9, 0.1], text="b"),
+        VectorRecord(id="c3", vector=[0.0, 1.0], text="c"),
+    ])
+    results = vs.query([1.0, 0.0], top_k=3)
+    assert isinstance(results, list)
+    assert all(isinstance(r, QueryResult) for r in results)
+    scores = [r.score for r in results]
+    assert scores == sorted(scores, reverse=True)
+    assert results[0].id == "c1"  # 最相关
+
+
+def test_query_top_k_limits_results(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    vs.upsert([
+        VectorRecord(id=f"c{i}", vector=[float(i), 0.0], text=str(i)) for i in range(5)
+    ])
+    results = vs.query([1.0, 0.0], top_k=2)
+    assert len(results) == 2
+
+
+def test_query_filters_by_metadata(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    vs.upsert([
+        VectorRecord(id="c1", vector=[1.0, 0.0], text="a", metadata={"collection": "x"}),
+        VectorRecord(id="c2", vector=[1.0, 0.0], text="b", metadata={"collection": "y"}),
+    ])
+    results = vs.query([1.0, 0.0], top_k=10, filters={"collection": "x"})
+    assert len(results) == 1
+    assert results[0].id == "c1"
+
+
+def test_query_result_to_dict_shape(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    vs.upsert([VectorRecord(id="c1", vector=[1.0, 0.0], text="a", metadata={"page": 1})])
+    res = vs.query([1.0, 0.0], top_k=1)[0]
+    d = res.to_dict()
+    assert set(d.keys()) == {"id", "score", "text", "metadata"}
+    assert d["metadata"] == {"page": 1}
+
+
+def test_upsert_rejects_non_vectorrecord(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    with pytest.raises(ValueError):
+        vs.upsert([{"id": "x", "vector": [1.0]}])  # type: ignore[list-item]
+
+
+def test_query_empty_store_returns_empty_list(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    assert vs.query([1.0, 0.0], top_k=5) == []
+
+
+def test_delete_by_metadata_removes_matching_records(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    vs.upsert([
+        VectorRecord(id="c1", vector=[1.0, 0.0], text="a", metadata={"source_path": "a.pdf", "collection": "docs"}),
+        VectorRecord(id="c2", vector=[1.0, 0.0], text="b", metadata={"source_path": "b.pdf", "collection": "docs"}),
+        VectorRecord(id="c3", vector=[1.0, 0.0], text="c", metadata={"source_path": "a.pdf", "collection": "other"}),
+    ])
+    deleted = vs.delete_by_metadata({"source_path": "a.pdf", "collection": "docs"})
+    assert deleted == 1
+    remaining = vs.get_by_metadata()
+    assert {r["id"] for r in remaining} == {"c2", "c3"}
+
+
+def test_delete_by_metadata_rejects_empty_filters(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    with pytest.raises(ValueError):
+        vs.delete_by_metadata({})
+
+
+def test_get_by_metadata_filters_and_sorts(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    vs.upsert([
+        VectorRecord(id="c2", vector=[1.0, 0.0], text="b", metadata={"collection": "docs"}),
+        VectorRecord(id="c1", vector=[1.0, 0.0], text="a", metadata={"collection": "docs"}),
+        VectorRecord(id="c3", vector=[1.0, 0.0], text="c", metadata={"collection": "other"}),
+    ])
+    records = vs.get_by_metadata({"collection": "docs"})
+    assert [r["id"] for r in records] == ["c1", "c2"]
+
+
+def test_get_collection_stats_counts_chunks_and_documents(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    vs.upsert([
+        VectorRecord(id="c1", vector=[1.0, 0.0], text="a", metadata={"source_path": "a.pdf"}),
+        VectorRecord(id="c2", vector=[1.0, 0.0], text="b", metadata={"source_path": "a.pdf"}),
+        VectorRecord(id="c3", vector=[1.0, 0.0], text="c", metadata={"source_path": "b.pdf"}),
+    ])
+    stats = vs.get_collection_stats()
+    assert stats["chunk_count"] == 3
+    assert stats["document_count"] == 2
+
+
+# ---------------------------------------------------------------------------
+# 契约补齐（I4）：delete_by_metadata / get_by_ids 边界
+# ---------------------------------------------------------------------------
+
+
+def test_delete_by_metadata_no_match_returns_zero(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    vs.upsert([VectorRecord(id="c1", vector=[1.0, 0.0], text="a", metadata={"source_path": "a.pdf"})])
+    assert vs.delete_by_metadata({"source_path": "missing.pdf"}) == 0
+    assert len(vs.get_by_metadata()) == 1
+
+
+def test_delete_by_metadata_removes_multiple_matches(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    vs.upsert([
+        VectorRecord(id=f"c{i}", vector=[1.0, 0.0], text=str(i), metadata={"source_path": "a.pdf"})
+        for i in range(3)
+    ])
+    assert vs.delete_by_metadata({"source_path": "a.pdf"}) == 3
+    assert vs.get_by_metadata() == []
+
+
+def test_delete_by_metadata_non_dict_filters_rejected(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    with pytest.raises(ValueError):
+        vs.delete_by_metadata(None)  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        vs.delete_by_metadata(["source_path"])  # type: ignore[arg-type]
+
+
+def test_delete_by_metadata_idempotent_second_call_zero(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    vs.upsert([VectorRecord(id="c1", vector=[1.0, 0.0], text="a", metadata={"collection": "x"})])
+    assert vs.delete_by_metadata({"collection": "x"}) == 1
+    assert vs.delete_by_metadata({"collection": "x"}) == 0
+
+
+def test_delete_by_metadata_accepts_trace_kwarg(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    vs.upsert([VectorRecord(id="c1", vector=[1.0, 0.0], text="a", metadata={"collection": "x"})])
+    assert vs.delete_by_metadata({"collection": "x"}, trace=None) == 1
+
+
+def test_query_after_delete_excludes_deleted(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    vs.upsert([
+        VectorRecord(id="c1", vector=[1.0, 0.0], text="a", metadata={"keep": True}),
+        VectorRecord(id="c2", vector=[1.0, 0.0], text="b", metadata={"drop": True}),
+    ])
+    vs.delete_by_metadata({"drop": True})
+    results = vs.query([1.0, 0.0], top_k=10)
+    assert [r.id for r in results] == ["c1"]
+
+
+def test_get_by_ids_after_delete_skips_missing(tmp_path, clean_registry):
+    clean_registry.register("chroma")(_make_fake())
+    vs = clean_registry.create(_settings(tmp_path, backend="chroma"))
+    vs.upsert([
+        VectorRecord(id="c1", vector=[1.0, 0.0], text="a", metadata={"keep": True}),
+        VectorRecord(id="c2", vector=[1.0, 0.0], text="b", metadata={"drop": True}),
+    ])
+    vs.delete_by_metadata({"drop": True})
+    records = vs.get_by_ids(["c2", "c1"])  # c2 已删，缺失跳过不占位
+    assert [r["id"] for r in records] == ["c1"]

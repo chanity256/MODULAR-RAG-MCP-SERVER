@@ -2,10 +2,10 @@
 """QA Config — Switch settings.yaml profiles for testing different configurations.
 
 Usage:
-    python .github/skills/qa-tester/scripts/qa_config.py show          # List profiles
-    python .github/skills/qa-tester/scripts/qa_config.py check         # Verify credentials
-    python .github/skills/qa-tester/scripts/qa_config.py apply <name>  # Apply a profile
-    python .github/skills/qa-tester/scripts/qa_config.py restore       # Restore backup
+    python .claude/skills/qa-tester/scripts/qa_config.py show          # List profiles
+    python .claude/skills/qa-tester/scripts/qa_config.py check         # Verify credentials
+    python .claude/skills/qa-tester/scripts/qa_config.py apply <name>  # Apply a profile
+    python .claude/skills/qa-tester/scripts/qa_config.py restore       # Restore backup
 
 Profiles:
     deepseek         LLM → DeepSeek + Vision disabled (needs test_credentials.yaml)
@@ -26,7 +26,7 @@ except ImportError:
     print("ERROR: PyYAML is required. Install with: pip install pyyaml")
     sys.exit(2)
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[4]
 SETTINGS_FILE = REPO_ROOT / "config" / "settings.yaml"
 SETTINGS_BACKUP = REPO_ROOT / "config" / "settings.yaml.bak"
 CREDENTIALS_FILE = REPO_ROOT / "config" / "test_credentials.yaml"

@@ -1,96 +1,61 @@
-"""Abstract base class for Embedding providers.
+"""Embedding 抽象基类（阶段 B2）。
 
-This module defines the pluggable interface for Embedding service providers,
-enabling seamless switching between different backends (OpenAI, Local/BGE, etc.)
-through configuration-driven instantiation.
+定义全链路共用的 ``BaseEmbedding`` 接口，屏蔽不同 Embedding Provider
+（OpenAI / Azure / Ollama）的认证与请求格式差异。
+
+设计要点：
+- ``embed(texts)`` 为统一批量入口，返回 ``list[list[float]]``。
+- 预留 ``trace: TraceContext | None`` 参数（阶段 F 打点时使用，当前仅占位）。
+- 不在此处做任何网络/IO 的"业务初始化"，仅定义契约。
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, List, Optional
+from typing import Any, Sequence
+
+__all__ = ["BaseEmbedding"]
 
 
 class BaseEmbedding(ABC):
-    """Abstract base class for Embedding providers.
-    
-    All Embedding implementations must inherit from this class and implement
-    the embed() method. This ensures consistent interface across different
-    providers (OpenAI, Local/BGE, Ollama, etc.).
-    
-    Design Principles Applied:
-    - Pluggable: Subclasses can be swapped without changing upstream code.
-    - Observable: Accepts optional TraceContext for observability integration.
-    - Config-Driven: Instances are created via factory based on settings.
-    - Batch-First: Designed for batch processing to maximize efficiency.
-    """
-    
+    """Embedding 抽象基类，所有 provider 实现需继承并实现 ``embed``。"""
+
+    @property
+    def dimension(self) -> int | None:
+        """输出向量维度（若已知）。默认 ``None``，由子类按需覆盖。"""
+        return None
+
     @abstractmethod
     def embed(
         self,
-        texts: List[str],
-        trace: Optional[Any] = None,
+        texts: Sequence[str],
+        *,
+        trace: Any | None = None,
         **kwargs: Any,
-    ) -> List[List[float]]:
-        """Generate embeddings for a batch of texts.
-        
+    ) -> list[list[float]]:
+        """对一批文本生成稠密向量。
+
         Args:
-            texts: List of text strings to embed. Must not be empty.
-            trace: Optional TraceContext for observability (reserved for Stage F).
-            **kwargs: Provider-specific parameters (batch_size, dimensions, etc.).
-        
+            texts: 待向量化的文本序列。
+            trace: 可选的 ``TraceContext``，用于阶段 F 打点（当前占位）。
+            **kwargs: provider 特定的扩展参数。
+
         Returns:
-            List of embedding vectors, where each vector is a list of floats.
-            The length of the outer list matches len(texts).
-            The length of each inner list (vector dimension) is provider-dependent.
-        
+            与 ``texts`` 等长的向量列表，每个向量是 ``list[float]``。
+
         Raises:
-            ValueError: If texts list is empty or contains invalid entries.
-            RuntimeError: If the embedding provider call fails.
-        
-        Example:
-            >>> embeddings = embedding.embed(["hello", "world"])
-            >>> len(embeddings)  # 2 vectors
-            >>> len(embeddings[0])  # dimension (e.g., 1536 for OpenAI)
+            ValueError: 输入为空或包含非法项时。
         """
-        pass
-    
-    def validate_texts(self, texts: List[str]) -> None:
-        """Validate input text list.
-        
-        Args:
-            texts: List of texts to validate.
-        
-        Raises:
-            ValueError: If texts list is empty or contains invalid entries.
-        """
-        if not texts:
-            raise ValueError("Texts list cannot be empty")
-        
-        for i, text in enumerate(texts):
-            if not isinstance(text, str):
-                raise ValueError(
-                    f"Text at index {i} is not a string (type: {type(text).__name__})"
-                )
-            if not text.strip():
-                raise ValueError(
-                    f"Text at index {i} is empty or whitespace-only. "
-                    "Embedding providers typically reject empty strings."
-                )
-    
-    def get_dimension(self) -> int:
-        """Get the dimensionality of embeddings produced by this provider.
-        
-        Returns:
-            The vector dimension (e.g., 1536 for OpenAI text-embedding-3-small).
-        
-        Raises:
-            NotImplementedError: If the subclass doesn't override this method.
-        
-        Note:
-            Subclasses should override this method to return their specific dimension.
-            This is useful for validation and storage configuration.
-        """
-        raise NotImplementedError(
-            f"{self.__class__.__name__} must implement get_dimension() method"
-        )
+        raise NotImplementedError
+
+    def embed_one(
+        self,
+        text: str,
+        *,
+        trace: Any | None = None,
+        **kwargs: Any,
+    ) -> list[float]:
+        """便捷方法：对单条文本生成向量并返回单个向量。"""
+        if not isinstance(text, str) or text == "":
+            raise ValueError("embed_one requires a non-empty string")
+        return self.embed([text], trace=trace, **kwargs)[0]

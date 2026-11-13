@@ -1,163 +1,247 @@
-"""Unit tests for CustomEvaluator and EvaluatorFactory."""
+"""``CustomEvaluator`` 指标测试与 ``EvaluatorFactory`` 路由测试（阶段 B6）。
 
-from unittest.mock import MagicMock
+验证：
+- 输入 query + retrieved_ids + golden_ids 输出稳定 metrics（hit_rate / mrr / hit_at_k）。
+- 指标对同一输入确定性可复现。
+- 工厂按名称路由，``custom`` 默认注册，未知名称报错。
+- ``create_from_settings`` 批量创建。
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from textwrap import dedent
 
 import pytest
 
-from src.libs.evaluator.base_evaluator import NoneEvaluator
-from src.libs.evaluator.custom_evaluator import CustomEvaluator
-from src.libs.evaluator.evaluator_factory import EvaluatorFactory
+from core.settings import load_settings
+from libs.evaluator.base_evaluator import BaseEvaluator
+from libs.evaluator.custom_evaluator import CustomEvaluator
+from libs.evaluator.evaluator_factory import EvaluatorBackendError, EvaluatorFactory
+
+_VALID_YAML = dedent(
+    """\
+    llm:
+      provider: azure
+      model: gpt-4o
+    embedding:
+      provider: openai
+      model: text-embedding-3-small
+    vision_llm:
+      provider: azure
+      model: gpt-4o
+    vector_store:
+      backend: chroma
+    retrieval:
+      sparse_backend: bm25
+      fusion_algorithm: rrf
+    rerank:
+      backend: none
+    evaluation:
+      backends: [custom]
+    """
+)
 
 
-class TestCustomEvaluator:
-    """Tests for CustomEvaluator metrics computation."""
-
-    def test_hit_rate_and_mrr_success(self) -> None:
-        evaluator = CustomEvaluator(metrics=["hit_rate", "mrr"])
-        retrieved = [
-            {"id": "c1"},
-            {"id": "c2"},
-            {"id": "c3"},
-        ]
-        ground_truth = ["c2", "c9"]
-
-        metrics = evaluator.evaluate("query", retrieved, ground_truth=ground_truth)
-
-        assert metrics["hit_rate"] == 1.0
-        assert metrics["mrr"] == 0.5
-
-    def test_hit_rate_and_mrr_no_hit(self) -> None:
-        evaluator = CustomEvaluator(metrics=["hit_rate", "mrr"])
-        retrieved = [{"id": "a"}, {"id": "b"}]
-        ground_truth = ["x", "y"]
-
-        metrics = evaluator.evaluate("query", retrieved, ground_truth=ground_truth)
-
-        assert metrics["hit_rate"] == 0.0
-        assert metrics["mrr"] == 0.0
-
-    def test_validate_query_and_retrieved(self) -> None:
-        evaluator = CustomEvaluator(metrics=["hit_rate"])
-
-        with pytest.raises(ValueError, match="Query cannot be empty"):
-            evaluator.evaluate("  ", [{"id": "x"}], ground_truth=["x"])
-
-        with pytest.raises(ValueError, match="retrieved_chunks cannot be empty"):
-            evaluator.evaluate("query", [], ground_truth=["x"])
-
-    def test_unsupported_metric_raises(self) -> None:
-        with pytest.raises(ValueError, match="Unsupported custom metrics"):
-            CustomEvaluator(metrics=["faithfulness"])  # not supported in custom evaluator
+def _settings(tmp_path: Path, backends: list[str] | None = None):
+    path = tmp_path / "settings.yaml"
+    yaml_text = _VALID_YAML
+    if backends is not None:
+        yaml_text = yaml_text.replace("backends: [custom]", f"backends: {backends}")
+    path.write_text(yaml_text, encoding="utf-8")
+    return load_settings(path)
 
 
-class TestEvaluatorFactory:
-    """Tests for EvaluatorFactory."""
-
-    def setup_method(self) -> None:
-        EvaluatorFactory._PROVIDERS = {"custom": CustomEvaluator}
-
-    def test_create_custom_evaluator(self) -> None:
-        settings = MagicMock()
-        settings.evaluation.enabled = True
-        settings.evaluation.provider = "custom"
-        settings.evaluation.metrics = ["hit_rate", "mrr"]
-
-        evaluator = EvaluatorFactory.create(settings)
-
-        assert isinstance(evaluator, CustomEvaluator)
-
-    def test_create_disabled_returns_none_evaluator(self) -> None:
-        settings = MagicMock()
-        settings.evaluation.enabled = False
-        settings.evaluation.provider = "custom"
-        settings.evaluation.metrics = ["hit_rate"]
-
-        evaluator = EvaluatorFactory.create(settings)
-
-        assert isinstance(evaluator, NoneEvaluator)
-
-    def test_create_unknown_provider_raises(self) -> None:
-        settings = MagicMock()
-        settings.evaluation.enabled = True
-        settings.evaluation.provider = "unknown"
-        settings.evaluation.metrics = ["hit_rate"]
-
-        with pytest.raises(ValueError, match="Unsupported Evaluator provider"):
-            EvaluatorFactory.create(settings)
-
-    def test_register_provider_success(self) -> None:
-        class FakeEvaluator(CustomEvaluator):
-            pass
-
-        EvaluatorFactory.register_provider("fake", FakeEvaluator)
-
-        assert "fake" in EvaluatorFactory._PROVIDERS
-        assert EvaluatorFactory._PROVIDERS["fake"] is FakeEvaluator
-
-    def test_list_providers_sorted(self) -> None:
-        class AlphaEvaluator(CustomEvaluator):
-            pass
-
-        class BetaEvaluator(CustomEvaluator):
-            pass
-
-        EvaluatorFactory.register_provider("beta", BetaEvaluator)
-        EvaluatorFactory.register_provider("alpha", AlphaEvaluator)
-
-        assert EvaluatorFactory.list_providers() == ["alpha", "beta", "custom"]
+# ---------------------------------------------------------------------------
+# CustomEvaluator 指标
+# ---------------------------------------------------------------------------
 
 
-# ── Boundary / Contract tests (I4) ──────────────────────────────────
+def test_hit_and_mrr_first_position():
+    ev = CustomEvaluator()
+    m = ev.evaluate("q", ["c1", "c2", "c3"], ["c1"])
+    assert m["hit_rate"] == 1.0
+    assert m["mrr"] == 1.0
+    assert m["hit_at_k"] == 1.0
 
-class TestCustomEvaluatorBoundary:
-    """Boundary tests for CustomEvaluator."""
 
-    def test_hit_rate_first_position(self) -> None:
-        """Hit at position 1 should give MRR = 1.0."""
-        evaluator = CustomEvaluator(metrics=["hit_rate", "mrr"])
-        retrieved = [{"id": "target"}, {"id": "other"}]
-        metrics = evaluator.evaluate("q", retrieved, ground_truth=["target"])
-        assert metrics["hit_rate"] == 1.0
-        assert metrics["mrr"] == 1.0
+def test_hit_and_mrr_later_position():
+    ev = CustomEvaluator()
+    m = ev.evaluate("q", ["c1", "c2", "c3"], ["c2"])
+    assert m["hit_rate"] == 1.0
+    assert m["mrr"] == pytest.approx(0.5)
+    assert m["hit_at_k"] == 1.0
 
-    def test_hit_rate_last_position(self) -> None:
-        """Hit at last position should give MRR = 1/n."""
-        evaluator = CustomEvaluator(metrics=["mrr"])
-        retrieved = [{"id": "a"}, {"id": "b"}, {"id": "c"}, {"id": "target"}]
-        metrics = evaluator.evaluate("q", retrieved, ground_truth=["target"])
-        assert metrics["mrr"] == pytest.approx(0.25)
 
-    def test_single_retrieved_single_ground_truth_match(self) -> None:
-        """Minimal case: 1 retrieved, 1 ground_truth, match."""
-        evaluator = CustomEvaluator(metrics=["hit_rate", "mrr"])
-        metrics = evaluator.evaluate("q", [{"id": "x"}], ground_truth=["x"])
-        assert metrics["hit_rate"] == 1.0
-        assert metrics["mrr"] == 1.0
+def test_no_hit():
+    ev = CustomEvaluator()
+    m = ev.evaluate("q", ["c1", "c2"], ["c9"])
+    assert m["hit_rate"] == 0.0
+    assert m["mrr"] == 0.0
+    assert m["hit_at_k"] == 0.0
 
-    def test_single_retrieved_single_ground_truth_no_match(self) -> None:
-        """Minimal case: 1 retrieved, 1 ground_truth, no match."""
-        evaluator = CustomEvaluator(metrics=["hit_rate", "mrr"])
-        metrics = evaluator.evaluate("q", [{"id": "a"}], ground_truth=["b"])
-        assert metrics["hit_rate"] == 0.0
-        assert metrics["mrr"] == 0.0
 
-    def test_multiple_ground_truth_best_mrr(self) -> None:
-        """MRR should use the best (earliest) matching position."""
-        evaluator = CustomEvaluator(metrics=["mrr"])
-        retrieved = [{"id": "a"}, {"id": "gt1"}, {"id": "gt2"}]
-        metrics = evaluator.evaluate("q", retrieved, ground_truth=["gt1", "gt2"])
-        assert metrics["mrr"] == 0.5  # gt1 at position 2 → 1/2
+def test_multiple_golden_hit_at_k():
+    ev = CustomEvaluator()
+    m = ev.evaluate("q", ["c1", "c2", "c3"], ["c2", "c3", "c9"])
+    # 2/3 golden 命中
+    assert m["hit_at_k"] == pytest.approx(2 / 3)
+    # mrr 取第一个命中（c2 在 rank 2）
+    assert m["mrr"] == 0.5
 
-    def test_none_evaluator_returns_empty_dict(self) -> None:
-        """NoneEvaluator should return empty metrics dict."""
-        evaluator = NoneEvaluator()
-        metrics = evaluator.evaluate("q", [{"id": "x"}])
-        assert metrics == {}
 
-    def test_none_evaluator_validates_inputs(self) -> None:
-        """NoneEvaluator should still validate query and chunks."""
-        evaluator = NoneEvaluator()
-        with pytest.raises(ValueError):
-            evaluator.evaluate("", [{"id": "x"}])
-        with pytest.raises(ValueError):
-            evaluator.evaluate("q", [])
+def test_top_k_truncation():
+    ev = CustomEvaluator()
+    # top_k=2 时，c3 被截断，golden=[c3] 不命中
+    m = ev.evaluate("q", ["c1", "c2", "c3"], ["c3"], top_k=2)
+    assert m["hit_rate"] == 0.0
+    assert m["hit_at_k"] == 0.0
+    # mrr 仍基于全量 retrieved
+    assert m["mrr"] == pytest.approx(1 / 3)
+
+
+def test_metrics_deterministic():
+    ev = CustomEvaluator()
+    args = ("q", ["c1", "c2", "c3"], ["c2"])
+    assert ev.evaluate(*args) == ev.evaluate(*args)
+
+
+def test_empty_golden_returns_zeros():
+    ev = CustomEvaluator()
+    m = ev.evaluate("q", ["c1", "c2"], [])
+    assert m == {"hit_rate": 0.0, "mrr": 0.0, "hit_at_k": 0.0}
+
+
+def test_evaluator_name():
+    ev = CustomEvaluator()
+    assert ev.name == "custom"
+
+
+# ---------------------------------------------------------------------------
+# EvaluatorFactory 路由
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def clean_registry():
+    saved = dict(EvaluatorFactory._registry)
+    EvaluatorFactory._registry = {"custom": saved["custom"]}
+    yield EvaluatorFactory
+    EvaluatorFactory._registry = saved
+
+
+def test_factory_create_custom(clean_registry):
+    ev = clean_registry.create("custom")
+    assert isinstance(ev, CustomEvaluator)
+    assert isinstance(ev, BaseEvaluator)
+
+
+def test_factory_custom_always_registered(clean_registry):
+    assert clean_registry.is_registered("custom")
+    assert "custom" in clean_registry.available_backends()
+
+
+def test_factory_unknown_name_raises(clean_registry):
+    with pytest.raises(EvaluatorBackendError) as exc_info:
+        clean_registry.create("nonexistent")
+    assert "nonexistent" in str(exc_info.value)
+
+
+def test_factory_unknown_name_lists_registered(clean_registry):
+    with pytest.raises(EvaluatorBackendError) as exc_info:
+        clean_registry.create("bad")
+    assert "custom" in str(exc_info.value)
+
+
+def test_factory_register_fake(clean_registry):
+    class _FakeEv(BaseEvaluator):
+        def evaluate(self, query, retrieved_ids, golden_ids, *, top_k=None, trace=None, **kwargs):
+            return {"x": 1.0}
+
+    clean_registry.register("fake")(lambda **kw: _FakeEv())
+    ev = clean_registry.create("fake")
+    assert isinstance(ev, _FakeEv)
+    assert ev.evaluate("q", [], []) == {"x": 1.0}
+
+
+def test_create_from_settings_single(tmp_path, clean_registry):
+    settings = _settings(tmp_path, backends=["custom"])
+    evs = clean_registry.create_from_settings(settings)
+    assert len(evs) == 1
+    assert isinstance(evs[0], CustomEvaluator)
+
+
+def test_create_from_settings_multiple(tmp_path, clean_registry):
+    class _FakeEv2(BaseEvaluator):
+        def evaluate(self, query, retrieved_ids, golden_ids, *, top_k=None, trace=None, **kwargs):
+            return {}
+
+    clean_registry.register("fake2")(lambda **kw: _FakeEv2())
+    settings = _settings(tmp_path, backends=["custom", "fake2"])
+    evs = clean_registry.create_from_settings(settings)
+    assert len(evs) == 2
+    assert isinstance(evs[0], CustomEvaluator)
+    assert isinstance(evs[1], _FakeEv2)
+
+
+def test_create_from_settings_unknown_raises(tmp_path, clean_registry):
+    settings = _settings(tmp_path, backends=["nonexistent"])
+    with pytest.raises(EvaluatorBackendError):
+        clean_registry.create_from_settings(settings)
+
+
+# ---------------------------------------------------------------------------
+# 契约补齐（I4）：输入边界
+# ---------------------------------------------------------------------------
+
+
+def test_empty_retrieved_no_hit():
+    ev = CustomEvaluator()
+    m = ev.evaluate("q", [], ["c1"])
+    assert m == {"hit_rate": 0.0, "mrr": 0.0, "hit_at_k": 0.0}
+
+
+def test_duplicate_golden_ids_do_not_inflate_hit_at_k():
+    ev = CustomEvaluator()
+    # golden 去重语义：["c1","c1"] 等价 ["c1"]
+    m = ev.evaluate("q", ["c1"], ["c1", "c1"])
+    assert m["hit_at_k"] == 1.0
+    assert m["hit_rate"] == 1.0
+
+
+def test_duplicate_retrieved_ids_counted_once_for_hit_at_k():
+    ev = CustomEvaluator()
+    m = ev.evaluate("q", ["c1", "c1", "c2"], ["c1", "c2"])
+    # 命中 c1/c2 各一次（重复 c1 不重复计数）→ 2/2
+    assert m["hit_at_k"] == 1.0
+
+
+def test_top_k_zero_considered_empty():
+    ev = CustomEvaluator()
+    m = ev.evaluate("q", ["c1", "c2"], ["c2"], top_k=0)
+    # top_k=0 → considered 为空 → hit_rate/hit_at_k=0；mrr 按全量惯例仍计
+    assert m["hit_rate"] == 0.0
+    assert m["hit_at_k"] == 0.0
+    assert m["mrr"] == pytest.approx(0.5)
+
+
+def test_golden_later_than_top_k_only_mrr_counts():
+    ev = CustomEvaluator()
+    m = ev.evaluate("q", ["c1", "c2", "c3"], ["c3"], top_k=1)
+    assert m["hit_rate"] == 0.0
+    assert m["hit_at_k"] == 0.0
+    assert m["mrr"] == pytest.approx(1 / 3)
+
+
+def test_metrics_always_contain_exactly_three_keys():
+    ev = CustomEvaluator()
+    for args in (("q", ["c1"], ["c1"]), ("q", [], []), ("q", ["a"], ["z"])):
+        keys = ev.evaluate(*args).keys()
+        assert set(keys) == {"hit_rate", "mrr", "hit_at_k"}
+    assert set(ev.evaluate("q", ["c1"], ["c1"], top_k=3).keys()) == {"hit_rate", "mrr", "hit_at_k"}
+
+
+def test_trace_and_kwargs_ignored():
+    ev = CustomEvaluator()
+    m = ev.evaluate("q", ["c1"], ["c1"], top_k=None, trace=None, extra="ignored")
+    assert m["hit_rate"] == 1.0

@@ -9,10 +9,21 @@
 - [项目概述](#-项目概述)
 - [分支说明](#-分支说明)
 - [快速开始](#-快速开始)
+- [运行手册（10 分钟跑通全链路）](#️-运行手册10-分钟跑通全链路)
 - [谁适合用这个项目 & 怎么用](#-谁适合用这个项目--怎么用)
 - [简历参考](#-简历参考)
 - [常见问题](#-常见问题)
 - [后续安排](#-后续安排)
+
+### 📚 开发文档（docs/）
+
+| 目录 | 内容 |
+|------|------|
+| [docs/frozen/](docs/frozen/) | 已冻结文档：[01_DEV_SPEC_frozen.md](docs/frozen/01_DEV_SPEC_frozen.md)（主规格，架构参考）、[03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md](docs/frozen/03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md)（S 系列）、[05_SIRCHMUNK_EXTENSION_SPEC_frozen.md](docs/frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md)（SX 系列，Sirchmunk 能力补齐，已收口）、[04_INGESTION_ROBUSTNESS_SPEC_frozen.md](docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md)（IR 系列，IR0–IR7 已交付收口：摄取健壮性 + Markdown 摄取）、[06_WEBUI_CHAT_SPEC_frozen.md](docs/frozen/06_WEBUI_CHAT_SPEC_frozen.md)（WC 系列，WebUI + Chat，已收口）、[07_LOGGING_SPEC_frozen.md](docs/frozen/07_LOGGING_SPEC_frozen.md)（LG 系列，日志分层与按日切分，已收口）、[08_WEBUI_PARITY_SPEC_frozen.md](docs/frozen/08_WEBUI_PARITY_SPEC_frozen.md)（WP 系列，WebUI 双轨遗留差异收口，已收口）、[09_WEBUI_SIDECAR_SPEC_frozen.md](docs/frozen/09_WEBUI_SIDECAR_SPEC_frozen.md)（WS 系列，sidecar 托管编排 + Playground Deep 进度日志，已收口）、[10_STREAMLIT_RETIREMENT_SPEC_frozen.md](docs/frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)（SR 系列，Streamlit 退役，已收口）、[02_ACCEPTANCE_GAPS_frozen.md](docs/frozen/02_ACCEPTANCE_GAPS_frozen.md) |
+| [docs/specs/](docs/specs/) | 开发中规格：[AI_NATIVE_SDLC_SPEC.md](docs/specs/AI_NATIVE_SDLC_SPEC.md)（SD 系列，AI-Native SDLC 流程升级：CI 门、AI review、evals、度量、skill 单一来源；承接 ci-pipeline 提案，进行中：SD1 本地部分、SD2 review 规则与 SD6 skill 单一来源已交付） |
+| [docs/analysis/](docs/analysis/) | 分析与规划：[MICROSERVICES_ANALYSIS.md](docs/analysis/MICROSERVICES_ANALYSIS.md)、[SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md](docs/analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md)、[SIRCHMUNK_WEBUI_CHAT_REUSE_ANALYSIS.md](docs/analysis/SIRCHMUNK_WEBUI_CHAT_REUSE_ANALYSIS.md)（WebUI/Chat 复用分析）、[WEBUI_PARITY_AUDIT.md](docs/analysis/WEBUI_PARITY_AUDIT.md)（Streamlit ↔ Web UI 七页双轨等价核验）、[STORAGE_SCALING_ANALYSIS.md](docs/analysis/STORAGE_SCALING_ANALYSIS.md) |
+| [docs/backlog/](docs/backlog/) | 候选功能与待开发规格（文件命名固定带 `_backlog` 后缀）：[OBSIDIAN_RAG_SPEC_backlog.md](docs/backlog/OBSIDIAN_RAG_SPEC_backlog.md)、[sirchmunk-extension-followups_backlog.md](docs/backlog/sirchmunk-extension-followups_backlog.md)（SX 规格遗留事项台账）等（webui-parity-followups 台账已晋升为 [10_STREAMLIT_RETIREMENT_SPEC_frozen.md](docs/frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)；ci-pipeline 提案已并入 [AI_NATIVE_SDLC_SPEC.md](docs/specs/AI_NATIVE_SDLC_SPEC.md) 并存档） |
+| [docs/reference/](docs/reference/) | 使用参考：[USAGE_GUIDE.md](docs/reference/USAGE_GUIDE.md)（速查手册）、[FUTURE_OPTIMIZATION_ROADMAP.md](docs/reference/FUTURE_OPTIMIZATION_ROADMAP.md)（优化路线图） |
 
 ---
 
@@ -42,7 +53,7 @@
 | **Ingestion Pipeline** | PDF → Markdown → Chunk → Transform → Embedding → Upsert | 全链路数据摄取，支持多模态图片描述（Image Captioning） |
 | **Hybrid Search** | Dense (向量) + Sparse (BM25) + RRF Fusion + Rerank | 粗排召回 + 精排重排的两段式检索架构 |
 | **MCP Server** | 标准 MCP 协议暴露 Tools | `query_knowledge_hub`、`list_collections`、`get_document_summary` |
-| **Dashboard** | Streamlit 六页面管理平台 | 系统总览 / 数据浏览 / Ingestion 管理 / 摄取追踪 / 查询追踪 / 评估面板 |
+| **Web UI** | FastAPI + Next 静态导出，单端口托管（主界面） | Chat（多轮对话 + 有据回答）+ 七个管理页：Overview / Data Browser / Ingestion Manager / Ingestion Traces / Query Traces / Evaluation / Query Playground |
 | **Evaluation** | Ragas + Custom 评估体系 | 支持 golden test set 回归测试，拒绝"凭感觉"调优 |
 | **Observability** | 全链路白盒化追踪 | Ingestion 与 Query 两条链路的每一个中间状态透明可见 |
 | **Skill 驱动全流程** | 从编写到测试、打包、配置一键完成 | auto-coder / qa-tester / package / setup 等 Skill 覆盖完整开发生命周期（笔记中每个 Skill 的使用和设计思路均有讲解，请参考配套视频） |
@@ -57,13 +68,13 @@
 
 **📡 MCP 生态集成**：遵循 Model Context Protocol 标准，可直接对接 GitHub Copilot、Claude Desktop 等 MCP Client，零前端开发，一次开发处处可用。
 
-**📊 可视化管理 + 自动化评估**：Streamlit Dashboard 提供完整的数据管理与链路追踪能力，集成 Ragas 等评估框架，建立基于数据的迭代反馈回路。
+**📊 可视化管理 + 自动化评估**：Web UI（FastAPI + Next）提供完整的数据管理、链路追踪与 Chat 能力，集成 Ragas 等评估框架，建立基于数据的迭代反馈回路。
 
-**🧪 三层测试体系**：Unit / Integration / E2E 分层测试，覆盖独立模块逻辑、模块间交互、完整链路（MCP Client / Dashboard）。
+**🧪 三层测试体系**：Unit / Integration / E2E 分层测试，覆盖独立模块逻辑、模块间交互、完整链路（MCP Client / Web UI）。
 
 **🤖 Skill 驱动全流程**：内置 auto-coder（自动编码）、qa-tester（自动测试）、package（清理打包）、setup（一键配置）等 Agent Skill，覆盖从代码编写到测试、打包、部署的完整开发生命周期。每个 Skill 的使用方法和设计思路在笔记的项目部分均有讲解视频，可参考学习。
 
-> 📖 详细架构设计、模块说明和任务排期请参阅 [DEV_SPEC.md](DEV_SPEC.md)
+> 📖 详细架构设计、模块说明和任务排期请参阅 [docs/frozen/01_DEV_SPEC_frozen.md](docs/frozen/01_DEV_SPEC_frozen.md)（全部开发文档索引见 [docs/MOC.md](docs/MOC.md)）
 
 ---
 
@@ -121,6 +132,257 @@ setup
 Agent 会自动引导你完成全部配置流程。
 
 > 💡 如果不熟悉 Skill 的使用方式，请观看配套笔记中的 **Setup Skill 使用讲解视频**。
+
+---
+
+## 🛠️ 运行手册（10 分钟跑通全链路）
+
+> 本节面向想手动跑通 **ingest → query → dashboard → evaluate** 全流程的用户。以下所有命令均在仓库根目录执行，需先激活虚拟环境：
+>
+> ```bash
+> # macOS / Linux
+> source .venv/bin/activate
+> # Windows (PowerShell)
+> .\.venv\Scripts\Activate.ps1
+> ```
+
+### 1. 安装依赖
+
+```bash
+pip install -r requirements.txt
+# 或
+pip install -e .
+```
+
+### 2. 配置 API Key
+
+编辑 `config/settings.yaml`（或使用环境变量），至少配置：
+
+- `embedding`: provider（openai / azure / ollama）+ `api_key` + `model`
+- `llm`: provider + `api_key`（仅在使用 LLM 增强 / LLM Rerank / Ragas 时必需）
+
+```yaml
+embedding:
+  provider: openai
+  model: text-embedding-3-small
+  api_key: ${OPENAI_API_KEY}   # 支持环境变量占位符
+```
+
+> 想完全离线运行？把 `embedding.provider` 换成 `ollama` 并本地部署 `nomic-embed-text` 即可。
+
+### 3. 首次摄取
+
+把文档放入 `data/documents/`（或任意目录），然后：
+
+```bash
+python scripts/ingest.py --path data/documents/ --collection default
+# 强制重摄取（跳过增量判定）
+python scripts/ingest.py --path data/documents/ --collection default --force
+# 查看逐阶段进度
+python scripts/ingest.py --path data/documents/ -v
+```
+
+**支持格式**：`.pdf` 开箱即用；`.md` / `.markdown` 走 MarkdownLoader（Obsidian 语法感知：frontmatter / tags / wikilinks / 笔记嵌入，图片引用落盘图片索引）；`.docx` / `.pptx` / `.xlsx` / `.html` 走 markitdown，需额外安装可选依赖 `pip install '.[ingest-formats]'`（未安装时这些文件在 load 阶段失败并给出安装提示）。摄取 Obsidian 库时，`.obsidian/`、`.trash/`、`templates/` 目录默认被排除（`ingestion.source_filters` 可定制，见 [04_INGESTION_ROBUSTNESS_SPEC_frozen.md](docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md) 3.8，承接自 [OBSIDIAN_RAG_SPEC_backlog](docs/backlog/OBSIDIAN_RAG_SPEC_backlog.md) M1/M2）。
+
+**增量与版本替换**：按 `(source_path, collection)` 判定，同一文件可分别摄取到不同 collection；文件内容变更后重摄取会先清理旧版本的 chunk / BM25 / 图片，不留残留。
+
+**同步与重试模式**（`--sync` / `--prune` / `--retry-failed` 三者互斥）：
+
+```bash
+# 目录与存储对比：摄取新增/修改文件，清理磁盘上已删除的文档
+python scripts/ingest.py --path data/documents/ --collection default --sync
+# 只清理已删除的文档，不摄取
+python scripts/ingest.py --path data/documents/ --collection default --prune
+# 只打印计划（new / modified / unchanged / deleted / stale），不写任何存储；必须配合 --sync 或 --prune
+python scripts/ingest.py --path data/documents/ --collection default --sync --dry-run
+# 重跑该集合历史中失败的文件（--path 可省略，给出时限定范围）
+python scripts/ingest.py --collection default --retry-failed
+```
+
+`--force` 不能与 `--sync` / `--prune` 同用。退出码：`0` 全部成功或跳过；`1` 有文件失败；`2` 用法或配置错误。
+
+摄取产物：Chroma 向量库（`data/db/chroma/`）、BM25 索引（`data/db/bm25/`）、图片索引（`data/db/image_index.db`）、摄取历史（`data/db/ingestion_history.db`，表 `ingestion_history_v2`；首次打开旧库时自动迁移，旧表改名为 `ingestion_history_legacy_backup` 保留）。设计细节见 [04_INGESTION_ROBUSTNESS_SPEC_frozen.md](docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md)。
+
+### 4. 查询验证
+
+```bash
+python scripts/query.py --query "如何配置 Azure？" --verbose
+python scripts/query.py --query "bm25 scoring" --collection default --top-k 5
+python scripts/query.py --query "部署密钥" --no-rerank   # 跳过精排
+```
+
+### 5. 启动 MCP Server（stdio）
+
+```bash
+PYTHONPATH=src python -m mcp_server.server
+```
+
+Server 通过 stdin/stdout 收发 JSON-RPC（MCP 2025-06-18），暴露三个 tools：`query_knowledge_hub`、`list_collections`、`get_document_summary`。开启 `agentic_search.enabled` 后会多出第四个工具 `agentic_search`（见下一节）。
+
+### 5.1 Agentic 检索（sidecar，可选）
+
+`agentic_search` 工具把查询转发给独立进程中的 [sirchmunk](https://github.com/modelscope/sirchmunk)（无索引 Agentic 检索：rg/rga 词法召回 + LLM 迭代探索），与 Dense + BM25 主链路互补，不替换它。sirchmunk 装在独立 venv 里，主项目 venv 永远不 import 它，只通过 HTTP 调用 `POST /api/v1/search`。完整设计与注意事项见 [`docs/frozen/03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md`](docs/frozen/03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md)。
+
+**启动 sidecar**
+
+```bash
+brew install ripgrep ripgrep-all                     # 必须预装 rg / rga（否则 sirchmunk 会自行从 GitHub 下载）
+bash scripts/sirchmunk/setup_venv.sh                 # 独立 venv + 锁定上游 commit b314e11
+cp scripts/sirchmunk/env.example .env-sirchmunk      # 填入 LLM_API_KEY / SIRCHMUNK_API_TOKEN 等
+bash scripts/sirchmunk/start_sidecar.sh              # 绑定 127.0.0.1:8584 + Bearer 鉴权
+bash scripts/sirchmunk/preflight.sh                  # 健康检查：rg / rga / /api/v1/search/status
+```
+
+sirchmunk 只支持 OpenAI 兼容的 LLM 端点（无原生 Azure）。
+
+**主项目配置**（`config/settings.yaml`）
+
+```yaml
+agentic_search:
+  enabled: true
+  base_url: http://127.0.0.1:8584
+  api_token: ${SIRCHMUNK_API_TOKEN}   # 与 sidecar 使用同一 token
+  mode: FAST                          # DEEP 单次可达数十秒，需同时设置 allow_deep: true
+  allowed_roots: [./data/documents]   # enabled 时必须非空
+  denied_substrings: [.env, .git, data/db]
+```
+
+**工具参数**：`query`（必填）、`mode`（FAST / DEEP）、`paths`（可选，缺省为 `allowed_roots`）、`top_k`。返回带出处的答案与证据片段；证据不含页码（`page` 恒为空）。
+
+**安全边界**：sirchmunk 的 `paths` 参数本身不是安全边界（其 ReAct `file_read` 可读任意绝对路径）。本项目用 PathGuard 做两层防护：调用前校验 `paths`，越出白名单或命中 `denied_substrings` 直接返回 `-32602`；调用后丢弃白名单外的证据。sidecar 只应监听 127.0.0.1，并始终开启 Bearer 鉴权。sidecar 不可达时工具返回 `isError: true` 的友好提示，不影响其他工具。
+
+**旁路对比**：`python scripts/sirchmunk/compare.py --base-url http://127.0.0.1:8584 --token "$SIRCHMUNK_API_TOKEN" --repo-root .` 用 `tests/fixtures/agentic/golden_questions.json` 逐条调用 sidecar，输出命中文件、耗时与 Token 用量表（真实 LLM 调用，产生费用）。
+
+**Agentic 第三路（HybridSearch 可选路由，S2，默认关闭）**：除独立 MCP 工具外，agentic 检索还可作为 HybridSearch 的可选第三路（Dense + BM25 + RRF + Rerank 主链路之外按条件触发）。`agentic_search.enabled` 默认为 `false`，关闭或未触发时与基线行为完全一致。关键配置（`config/settings.yaml` → `agentic_search` 节）：
+
+- `trigger`：第三路触发策略——`tool_only`（默认，永不自动触发，只由 MCP 工具显式调用）/ `fallback`（主路信号不足时触发）/ `always`（仅实验/评估）；
+- `trigger_score_threshold` / `trigger_min_results`：fallback 判定阈值（0.5 为未校准占位值，须在独立校准集上标定，禁止用评估 golden set 调参）；
+- `mode` / `allow_deep` / `timeout_s` / `allowed_roots` / `denied_substrings`：与 MCP 工具共用，PathGuard fail-closed 同样适用（越权路径保留原 snippet 不抛错）。
+
+CLI 用法：
+
+```bash
+# 查询时启用第三路并打印中间结果（触发状态/证据文件/Token/耗时）；
+# enabled=false 时退出码 2 并提示改 config/settings.yaml
+python scripts/query.py --query "如何配置 Azure？" --agentic --verbose
+
+# 评估 A/B：hybrid（基线）/ agentic（纯第三路）/ hybrid+agentic（第三路注入 HybridSearch）
+# source 级 hit/MRR（基于 expected_sources）与 chunk 级指标并列不混算，报告含延迟/Token 列
+python scripts/evaluate.py --retrieval-mode hybrid+agentic --agentic-trigger always
+```
+
+**Dashboard 展示**：Query 追踪页基于 trace 的 `agentic_search` 阶段动态渲染（模式/Token/调用次数/证据文件列表），未启用时自然隐藏；系统总览页配置卡显示 agentic 开关与 backend。
+
+**在线检索页（S4）**：Dashboard 导航「检索」分组 → 「在线检索」提供三模式在线查询，不写代码、不敲 CLI 也能检索。Normal / Fast / Deep 三个模式按钮默认选中 Normal；门控严格遵守 settings——Fast 需 `agentic_search.enabled: true`（否则置灰并悬停提示开启方法与 sidecar 启动），Deep 另需 `allow_deep: true`；collection 输入仅 Normal 模式显示，Deep 检索时提示「可能需要数十秒」。结果区共有 Markdown 答案与引用表（来源/页码/分数），Fast/Deep 额外展示 Agentic 答案、模式、Token、LLM 调用次数、耗时与证据文件；sidecar 不可用或参数非法以页面错误提示友好展示。每次检索自动写入 trace，可到「Query 追踪」页查看各阶段耗时。
+
+**安全边界与默认关闭**：第三路复用 PathGuard fail-closed 防护，且 `enabled: false` 为默认口径——G0 终裁结论是本仓库自指语料上裸 rg 6/6 严格优于 sidecar，故 agentic 路默认不参与检索；是否启用由真实语料场景决定。真实 sidecar 的相关测试永不自动运行，须显式 `RAG_AGENTIC_INTEGRATION=1` 门控（见第 8 节）。
+
+### 6. 启动 Web UI（主界面）
+
+```bash
+(cd frontend && npm ci && npm run build)   # 首次或前端有改动时（Node 22）
+python scripts/start_api.py --serve-ui     # http://127.0.0.1:8600
+```
+
+- `api.enabled` 默认 `false`：在 `config/settings.yaml` 设 `api.enabled: true`，或命令行追加 `--force`。
+- 首页是 **Chat**（多轮对话 + RAG 有据回答，检索模式 hybrid / agentic_fast / agentic_deep），另有七个管理页：
+
+| 页面 | 功能 |
+|------|------|
+| Query Playground | 三模式在线查询：Normal / Fast / Deep（agentic，默认关闭）、引用与 agentic 指标（Deep 无实时进度日志） |
+| Overview | 组件配置卡片 + 数据资产统计 + 最近 trace 健康状态 |
+| Data Browser | 文档/Chunk/图片浏览（集合筛选、关键词搜索、分页、带确认的删除） |
+| Ingestion Manager | 上传文件 → 后台摄取任务（实时进度，刷新可恢复）、删除文档 |
+| Ingestion Traces | 摄取历史、阶段耗时瀑布图 |
+| Query Traces | 查询历史、来源筛选（hybrid / chat / agentic）、Dense/Sparse 对比、Rerank 前后变化、Chat 阶段 |
+| Evaluation | 选择后端运行评估（后台任务）、指标卡片、持久化历史对比 |
+
+- 非 loopback 访问须设环境变量 `RAG_API_TOKEN`（独立于 `SIRCHMUNK_API_TOKEN`）；前端开发模式、`api:`/`chat:` 配置、WS 帧协议、REST 路由索引、Playwright e2e 命令见 [docs/reference/USAGE_GUIDE.md 第 10 章](docs/reference/USAGE_GUIDE.md#10-web-ui-与-chat)。
+- `start_api.py` 默认不托管 sidecar：用 agentic 检索时先手动 `bash scripts/sirchmunk/start_sidecar.sh`，或加 `--manage-sidecar` 由启动器自动托管（拉起 / 等健康 / 退出回收）。
+
+### 7. 运行评估
+
+```bash
+python scripts/evaluate.py                                   # 默认 golden set + composite 后端
+python scripts/evaluate.py --evaluator custom --top-k 5      # 纯离线指标
+python scripts/evaluate.py --test-set tests/fixtures/golden_test_set.json --collection default
+python scripts/evaluate.py --retrieval-mode hybrid+agentic   # A/B：agentic 第三路（见 5.1，默认关闭）
+```
+
+### 8. 运行测试
+
+```bash
+pytest -q                          # 全量（默认全绿、离线、零网络）
+pytest tests/unit -q               # 单元测试
+pytest tests/integration -q        # 集成测试
+pytest tests/e2e -q                # E2E（MCP client 模拟 / Dashboard 冒烟 / Recall 回归）
+pytest tests/e2e_web -q            # Web UI 假后端启动冒烟（需先构建 frontend/out，否则 skip）
+(cd frontend && npm run typecheck && npm run lint && npm test)   # 前端静态检查与单测
+(cd frontend && npx playwright install chromium && npm run build && npm run e2e)   # 浏览器 e2e（opt-in，离线假后端）
+RAG_LLM_INTEGRATION=1 pytest tests/integration/test_chunk_refiner_llm.py -v   # 真实 LLM（可选，产生费用）
+RAG_AGENTIC_INTEGRATION=1 pytest tests/e2e/test_agentic_mcp.py -v               # 真实 sirchmunk sidecar 冒烟（需先启动 sidecar）
+```
+
+### 9. MCP Client 配置示例
+
+**GitHub Copilot（VS Code）** — `.vscode/mcp.json`：
+
+```json
+{
+  "servers": {
+    "modular-rag": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "mcp_server.server"],
+      "cwd": "/absolute/path/to/Modular-RAG-MCP-Server",
+      "env": { "PYTHONPATH": "/absolute/path/to/Modular-RAG-MCP-Server/src" }
+    }
+  }
+}
+```
+
+**Claude Desktop** — `claude_desktop_config.json`：
+
+```json
+{
+  "mcpServers": {
+    "modular-rag": {
+      "command": "python",
+      "args": ["-m", "mcp_server.server"],
+      "cwd": "/absolute/path/to/Modular-RAG-MCP-Server",
+      "env": { "PYTHONPATH": "/absolute/path/to/Modular-RAG-MCP-Server/src" }
+    }
+  }
+}
+```
+
+配置完成后，在 Copilot / Claude 中即可直接调用 `query_knowledge_hub` 检索私有知识库。
+
+### 配置说明（settings.yaml 关键字段）
+
+| 字段 | 含义 |
+|------|------|
+| `llm.provider / model / api_key` | LLM 后端（azure / openai / deepseek / ollama） |
+| `embedding.provider / model` | Embedding 后端（openai / azure / ollama） |
+| `vision_llm.*` | 图片描述用的 Vision LLM（azure / dashscope） |
+| `vector_store.backend / persist_path` | 向量库（chroma）与持久化目录 |
+| `splitter.chunk_size / chunk_overlap` | 分块大小与重叠 |
+| `ingestion.*` | Transform 开关（chunk_refiner / metadata_enricher / image_captioner 的 use_llm）与批大小 |
+| `ingestion.retry.*` | 可选：失败重试（`max_attempts` 缺省 1 即不重试；>1 时仅超时/连接/5xx/429 等可重试错误按指数退避，上限 30s） |
+| `ingestion.version_policy.*` | 可选：写入历史表的 parser / chunk / embedding 版本（缺省 `auto` 推导）；`on_embedding_mismatch: stale`（告警跳过）/ `rebuild`（提示全量重建，不自动执行） |
+| `retrieval.top_k_dense / top_k_sparse / top_k_final / rrf_k` | 混合检索各级候选数与 RRF 平滑常数 |
+| `rerank.backend / model / top_m` | 精排后端（none / cross_encoder / llm） |
+| `evaluation.backends / golden_test_set` | 评估后端组合与黄金测试集路径 |
+| `observability.log_file` | JSON Lines trace 日志路径（Dashboard 追踪页数据源） |
+| `agentic_search.*` | 可选 sirchmunk sidecar 检索（默认关闭；`base_url` / `api_token` / `mode` / `allowed_roots`，见 5.1 节） |
+
+### 常见问题排查
+
+- **API Key 报错**：确认 `settings.yaml` 中 `api_key` 字段或对应环境变量（`OPENAI_API_KEY` / `AZURE_OPENAI_API_KEY`）已设置；Ollama 场景确认 `base_url`（默认 `http://localhost:11434`）可达。
+- **依赖安装失败**：确认 Python ≥ 3.10；`pip install -r requirements.txt` 失败时可先升级 pip。Windows 下 `chromadb` / `pillow` 编译问题建议使用 Python 3.11+。
+- **查询无结果**：先确认已摄取（`python scripts/query.py --query ...` 提示先摄取则运行 `scripts/ingest.py`）；Dashboard「Ingestion 追踪」页可查看各阶段是否成功。
+- **MCP 连接问题**：确认配置中 `cwd` / `PYTHONPATH` 为绝对路径；手动运行 `PYTHONPATH=src python -m mcp_server.server` 验证 server 可启动。
+- **Ragas 未安装**：`ragas` 后端是可选依赖（`pip install ragas`），未安装时自动降级，`custom` 指标始终可用。
 
 ---
 
@@ -260,7 +522,7 @@ Skill 采用 **"写作原则 + 项目亮点 + 用户画像 = 定制化简历"** 
 
 **结果**：系统支撑 5000+ 篇文档的实时语义检索，检索准确率（Hit Rate@10）达 92%，端到端查询延迟控制在 800ms 以内，三层测试体系（Unit / Integration / E2E）覆盖 1200+ 测试用例。
 
-**技术栈**：Python / LangChain / ChromaDB / BM25 / Cross-Encoder / MCP Protocol / Streamlit / Ragas / Azure OpenAI
+**技术栈**：Python / LangChain / ChromaDB / BM25 / Cross-Encoder / MCP Protocol / Web UI（FastAPI + Next）/ Ragas / Azure OpenAI
 
 ### 示例二：社招 · 已有 Agent 项目，融入 RAG 深度
 
@@ -276,13 +538,13 @@ Skill 采用 **"写作原则 + 项目亮点 + 用户画像 = 定制化简历"** 
 - 设计 Agent + RAG 分层架构，Agent 端负责意图识别与 Tool Calling，RAG 端提供 BM25 + Dense Embedding 混合召回 + Cross-Encoder 精排的两段式检索能力，通过 MCP 协议暴露标准化工具接口供 Agent 调用
 - 实现全链路 Ingestion Pipeline，支持 PDF / Markdown 多格式文档解析，集成 Vision LLM 自动生成图片描述（架构图、截图等），解决"搜文字出图"的多模态检索需求
 - 构建可插拔后端架构，LLM / Embedding / Reranker / VectorStore 均定义抽象接口，支持 Azure OpenAI ↔ DeepSeek ↔ Ollama 一键切换，适配团队不同网络环境
-- 搭建 Streamlit Dashboard 管理平台，提供数据浏览、Ingestion 追踪、查询追踪、评估面板六大功能页，实现全链路白盒化可观测
+- 搭建 Web UI（FastAPI + Next）管理平台，提供数据浏览、在线检索、Ingestion 追踪、查询追踪、评估面板七大功能页，实现全链路白盒化可观测
 - 集成 Ragas 评估框架 + Golden Test Set 回归测试，在版本迭代中持续监控检索质量，Faithfulness 评分稳定在 0.85 以上
 - 采用 Skill 驱动全流程开发模式，编写 DEV_SPEC 规格文档驱动 auto-coder 自动编码、qa-tester 自动测试与修复、setup 一键环境配置，5 大 Agent Skill 覆盖完整开发生命周期，2 个月业余时间完成 68 个子任务交付
 
 **结果**：系统覆盖团队 8000+ 篇技术文档，工程师日均文档查询时间从 15 分钟缩短至 3 分钟，检索准确率 Hit Rate@10 达 90%，已通过 MCP 协议接入 3 个内部 AI 工具，累计处理查询 2 万+ 次。
 
-**技术栈**：Python / Agent / Tool Calling / RAG / BM25 / Dense Retrieval / Cross-Encoder / MCP Protocol / ChromaDB / Streamlit / Ragas / Skill-Driven Development / Azure OpenAI
+**技术栈**：Python / Agent / Tool Calling / RAG / BM25 / Dense Retrieval / Cross-Encoder / MCP Protocol / ChromaDB / Web UI（FastAPI + Next）/ Ragas / Skill-Driven Development / Azure OpenAI
 
 ### 示例三：社招 · 后端工程师转 AI 方向
 
@@ -304,7 +566,7 @@ Skill 采用 **"写作原则 + 项目亮点 + 用户画像 = 定制化简历"** 
 
 **结果**：系统上线后支撑 12000+ 篇合规文档的实时语义检索，条款定位准确率从 68% 提升至 91%，单次查询延迟控制在 700ms，合规团队文档审查效率提升约 50%。
 
-**技术栈**：Python / 可插拔架构 / 工厂模式 / BM25 / Dense Retrieval / RRF / Cross-Encoder / ChromaDB / MCP Protocol / Streamlit / Ragas / Skill-Driven Development / Azure OpenAI
+**技术栈**：Python / 可插拔架构 / 工厂模式 / BM25 / Dense Retrieval / RRF / Cross-Encoder / ChromaDB / MCP Protocol / Web UI（FastAPI + Next）/ Ragas / Skill-Driven Development / Azure OpenAI
 
 ---
 
@@ -337,16 +599,15 @@ Skill 采用 **"写作原则 + 项目亮点 + 用户画像 = 定制化简历"** 
 
 > **原理说明**：项目的 `src/libs/` 下的 LLM、Embedding、Reranker 等模块都使用工厂模式，新增一个 Provider 只需要：① 新增一个 Provider 类；② 在工厂注册；③ 更新 `settings.yaml` 配置。AI 完全可以自动完成这些步骤。
 
-### 2. 项目评估（Custom Evaluator）与 Cross-Encoder Reranker 部分
+### 2. 评估体系与 Cross-Encoder Reranker
 
-这两个模块的**框架代码已经搭好，但尚未经过完整测试**，感兴趣的同学可以自行完善：
+评估体系（阶段 H）已完整落地：`CustomEvaluator`（hit_rate / mrr / hit_at_k）与 `RagasEvaluator`（faithfulness / answer_relevancy / context_precision，需 `pip install ragas`）经 `CompositeEvaluator` 组合，`scripts/evaluate.py` + golden test set 支持回归测试。
 
-| 模块 | 状态 | 需要做什么 |
+| 模块 | 状态 | 说明 |
 |------|------|-----------|
-| **自定义评估（Custom Evaluator）** | 框架已有，未测试 | 定义评估方法，准备对应的测试数据集 |
-| **Cross-Encoder Reranker** | 框架已有，未测试 | 需要下载本地重排模型（如 `cross-encoder/ms-marco-MiniLM-L-6-v2`） |
-
-**这些 AI 都能帮你写出来**。把需求描述清楚，AI 可以帮你实现评估方法、准备数据、下载模型并完成集成测试。完成这些扩展对面试也是加分项，体现了你的独立扩展能力。
+| **自定义评估（Custom Evaluator）** | 已完成 | 离线可用，`python scripts/evaluate.py --evaluator custom` |
+| **Ragas 评估** | 已完成 | 可选依赖 `pip install ragas`，未安装自动降级 |
+| **Cross-Encoder Reranker** | 已实现，默认未启用 | 需下载本地重排模型（如 `cross-encoder/ms-marco-MiniLM-L-6-v2`），`settings.yaml` 中 `rerank.backend: cross_encoder` 启用 |
 
 ### 3. 项目报错 / Bug 怎么办？
 
@@ -358,11 +619,9 @@ Skill 采用 **"写作原则 + 项目亮点 + 用户画像 = 定制化简历"** 
 
 ### 4. 想摄取 PDF 以外的文档格式（Word / Markdown / HTML 等）怎么办？
 
-**直接问 AI 帮你扩展即可。**
+Word / PowerPoint / Excel / HTML（`.docx` / `.pptx` / `.xlsx` / `.html`）已内置支持，安装可选依赖 `pip install '.[ingest-formats]'` 即可（见运行手册第 3 节）。
 
-项目的 Loader 层采用了可插拔的抽象设计（`BaseLoader`），目前默认实现了 PDF Loader。如果你需要支持 Word、Markdown、HTML 等其他格式，整体架构已经设计好了扩展点，让 AI 帮你新增一个对应的 Loader 实现就可以了。
-
-比如告诉 AI："帮我新增一个 Word 文档的 Loader，参考现有的 PDF Loader 实现"，AI 完全可以搞定。
+其他格式（如 Markdown）可以**直接问 AI 帮你扩展**：Loader 层采用可插拔的抽象设计（`BaseLoader`），新增一个对应的 Loader 实现，并在 `src/ingestion/pipeline.py` 与 `scripts/ingest.py` 两处登记扩展名即可（drift guard 单测会检查两处一致）。比如告诉 AI："帮我新增一个 Markdown 的 Loader，参考现有的 MarkitdownLoader 实现"。
 
 ### 5. 如何集成到 AI 工具中（Copilot / Cursor / Claude Code 等）？
 

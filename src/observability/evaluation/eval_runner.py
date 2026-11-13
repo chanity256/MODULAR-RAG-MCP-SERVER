@@ -1,411 +1,212 @@
-"""Evaluation runner for batch quality assessment.
+"""EvalRunner（阶段 H3）。
 
-EvalRunner reads a golden test set, runs HybridSearch for each test case,
-optionally generates answers, then invokes the configured Evaluator(s) to
-produce a structured evaluation report.
+读取 golden test set（JSON），逐条驱动 ``HybridSearch`` 检索，
+用 ``BaseEvaluator``（默认 ``CustomEvaluator``）计算指标，聚合为
+``EvalReport``。
 
-Design Principles:
-- Config-Driven: Evaluator selected via settings.yaml.
-- Observable: Produces EvalReport with per-query details.
-- Decoupled: Works with any BaseEvaluator implementation.
+golden test set 格式（spec H3）::
+
+    {
+      "test_cases": [
+        {
+          "query": "如何配置 Azure OpenAI？",
+          "expected_chunk_ids": ["chunk_abc_001", "chunk_abc_002"],
+          "expected_sources": ["config_guide.pdf"]
+        }
+      ]
+    }
+
+设计要点：
+- ``hybrid_search`` / ``evaluator`` 可注入（离线单测 fake 检索栈）；
+  缺省按 ``Settings`` 创建 ``HybridSearch`` 与 ``CompositeEvaluator``。
+- 单条 query 检索失败（如 ``HybridSearchError``）记录 error 后继续，
+  不中断整批评估。
+- 报告聚合：逐指标取均值（hit_rate / mrr / hit_at_k 等数值指标），
+  附 per-query 明细（retrieved_ids / golden_ids / metrics / error）。
 """
 
 from __future__ import annotations
 
 import json
-import logging
-import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Sequence
 
-from src.libs.evaluator.base_evaluator import BaseEvaluator
+from core.query_engine.hybrid_search import HybridSearch, HybridSearchError
+from core.settings import Settings
+from core.trace.trace_context import TRACE_TYPE_QUERY, TraceContext
+from libs.evaluator.base_evaluator import BaseEvaluator
+from libs.evaluator.custom_evaluator import CustomEvaluator
+from observability.evaluation.composite_evaluator import CompositeEvaluator
+from observability.logger import get_logger
 
-logger = logging.getLogger(__name__)
+__all__ = ["EvalRunner", "EvalReport", "QueryEvalResult", "GoldenTestCase"]
+
+logger = get_logger(__name__)
 
 
 @dataclass
 class GoldenTestCase:
-    """A single evaluation test case from the golden test set.
-
-    Attributes:
-        query: The test query string.
-        expected_chunk_ids: Ground-truth chunk IDs for IR metrics.
-        expected_sources: Ground-truth source file names (optional).
-        reference_answer: Reference answer text for LLM-as-Judge (optional).
-    """
+    """单条黄金测试用例。"""
 
     query: str
-    expected_chunk_ids: List[str] = field(default_factory=list)
-    expected_sources: List[str] = field(default_factory=list)
-    reference_answer: Optional[str] = None
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> GoldenTestCase:
-        return cls(
-            query=data["query"],
-            expected_chunk_ids=data.get("expected_chunk_ids", []),
-            expected_sources=data.get("expected_sources", []),
-            reference_answer=data.get("reference_answer"),
-        )
+    expected_chunk_ids: list[str]
+    expected_sources: list[str] = field(default_factory=list)
 
 
 @dataclass
-class QueryResult:
-    """Result of evaluating a single test case.
-
-    Attributes:
-        query: The test query.
-        retrieved_chunk_ids: IDs of chunks actually retrieved.
-        generated_answer: The generated answer (if applicable).
-        metrics: Evaluation metrics for this query.
-        elapsed_ms: Time taken for retrieval + evaluation.
-    """
+class QueryEvalResult:
+    """单条 query 的评估明细。"""
 
     query: str
-    retrieved_chunk_ids: List[str] = field(default_factory=list)
-    generated_answer: Optional[str] = None
-    metrics: Dict[str, float] = field(default_factory=dict)
-    elapsed_ms: float = 0.0
+    retrieved_ids: list[str]
+    expected_chunk_ids: list[str]
+    metrics: dict[str, float]
+    error: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "query": self.query,
+            "retrieved_ids": list(self.retrieved_ids),
+            "expected_chunk_ids": list(self.expected_chunk_ids),
+            "metrics": dict(self.metrics),
+            "error": self.error,
+        }
 
 
 @dataclass
 class EvalReport:
-    """Aggregated evaluation report across all test cases.
+    """整批评估报告：聚合指标 + 逐 query 明细。"""
 
-    Attributes:
-        query_results: Per-query evaluation results.
-        aggregate_metrics: Averaged metrics across all queries.
-        total_elapsed_ms: Total time for the entire evaluation.
-        evaluator_name: Name of the evaluator used.
-        test_set_path: Path to the golden test set file.
-    """
+    total: int
+    evaluated: int
+    failed: int
+    metrics: dict[str, float]
+    per_query: list[QueryEvalResult]
 
-    query_results: List[QueryResult] = field(default_factory=list)
-    aggregate_metrics: Dict[str, float] = field(default_factory=dict)
-    total_elapsed_ms: float = 0.0
-    evaluator_name: str = ""
-    test_set_path: str = ""
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Serialise report to dictionary."""
+    def to_dict(self) -> dict[str, Any]:
         return {
-            "evaluator_name": self.evaluator_name,
-            "test_set_path": self.test_set_path,
-            "total_elapsed_ms": round(self.total_elapsed_ms, 1),
-            "aggregate_metrics": {
-                k: round(v, 4) for k, v in self.aggregate_metrics.items()
-            },
-            "query_count": len(self.query_results),
-            "query_results": [
-                {
-                    "query": qr.query,
-                    "retrieved_chunk_ids": qr.retrieved_chunk_ids,
-                    "generated_answer": qr.generated_answer,
-                    "metrics": {k: round(v, 4) for k, v in qr.metrics.items()},
-                    "elapsed_ms": round(qr.elapsed_ms, 1),
-                }
-                for qr in self.query_results
-            ],
+            "total": self.total,
+            "evaluated": self.evaluated,
+            "failed": self.failed,
+            "metrics": dict(self.metrics),
+            "per_query": [q.to_dict() for q in self.per_query],
         }
 
 
-def load_test_set(path: str | Path) -> List[GoldenTestCase]:
-    """Load golden test set from a JSON file.
-
-    Args:
-        path: Path to the golden test set JSON file.
-
-    Returns:
-        List of TestCase instances.
-
-    Raises:
-        FileNotFoundError: If the file does not exist.
-        ValueError: If the file format is invalid.
-    """
-    file_path = Path(path)
-    if not file_path.exists():
-        raise FileNotFoundError(f"Golden test set not found: {file_path}")
-
-    with file_path.open("r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    if "test_cases" not in data:
+def load_golden_test_set(path: str | Path) -> list[GoldenTestCase]:
+    """读取并校验 golden test set JSON。"""
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    cases = data.get("test_cases")
+    if not isinstance(cases, list) or not cases:
         raise ValueError(
-            "Invalid golden test set format: missing 'test_cases' key."
+            f"golden test set {path!r} must contain a non-empty 'test_cases' list"
         )
-
-    return [GoldenTestCase.from_dict(tc) for tc in data["test_cases"]]
+    parsed: list[GoldenTestCase] = []
+    for i, case in enumerate(cases):
+        if not isinstance(case, dict):
+            raise ValueError(f"test_cases[{i}] must be an object, got {type(case).__name__}")
+        query = case.get("query")
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError(f"test_cases[{i}].query must be a non-empty string")
+        expected = case.get("expected_chunk_ids")
+        if not isinstance(expected, list) or not all(isinstance(c, str) for c in expected):
+            raise ValueError(
+                f"test_cases[{i}].expected_chunk_ids must be a list of strings"
+            )
+        sources = case.get("expected_sources", [])
+        if not isinstance(sources, list) or not all(isinstance(s, str) for s in sources):
+            raise ValueError(f"test_cases[{i}].expected_sources must be a list of strings")
+        parsed.append(GoldenTestCase(query=query, expected_chunk_ids=expected, expected_sources=sources))
+    return parsed
 
 
 class EvalRunner:
-    """Runs batch evaluation against a golden test set.
-
-    This class orchestrates:
-    1. Loading the golden test set
-    2. Running HybridSearch for each query
-    3. Optionally generating answers
-    4. Invoking the evaluator to score each result
-    5. Aggregating metrics into an EvalReport
-
-    Example::
-
-        runner = EvalRunner(
-            settings=settings,
-            hybrid_search=hybrid_search,
-            evaluator=evaluator,
-        )
-        report = runner.run("tests/fixtures/golden_test_set.json")
-        print(report.aggregate_metrics)
-    """
+    """评估执行器：golden set → HybridSearch → evaluator → EvalReport。"""
 
     def __init__(
         self,
-        settings: Any = None,
-        hybrid_search: Any = None,
-        evaluator: Optional[BaseEvaluator] = None,
-        answer_generator: Any = None,
-        answer_overrides: Optional[Dict[int, str]] = None,
-        reranker: Any = None,
+        settings: Settings,
+        hybrid_search: HybridSearch | None = None,
+        evaluator: BaseEvaluator | None = None,
     ) -> None:
-        """Initialize EvalRunner.
+        # 注入判定必须 is not None（对齐 C14 纪律）。
+        self._settings = settings
+        self._hybrid_search = hybrid_search if hybrid_search is not None else HybridSearch(settings)
+        self._evaluator = evaluator if evaluator is not None else CustomEvaluator()
 
-        Args:
-            settings: Application settings.
-            hybrid_search: HybridSearch instance for retrieval.
-            evaluator: BaseEvaluator instance for scoring.
-            answer_generator: Optional callable(query, chunks) -> str
-                for generating answers. If None, a simple concatenation
-                is used as a placeholder.
-            answer_overrides: Optional dict mapping test case index (0-based)
-                to a user-provided answer string. When present, the override
-                answer is used instead of auto-generation for that test case.
-            reranker: Optional CoreReranker instance for reranking results.
-        """
-        self.settings = settings
-        self.hybrid_search = hybrid_search
-        self.evaluator = evaluator
-        self.answer_generator = answer_generator
-        self.answer_overrides = answer_overrides or {}
-        self.reranker = reranker
+    @property
+    def hybrid_search(self) -> HybridSearch:
+        return self._hybrid_search
+
+    @property
+    def evaluator(self) -> BaseEvaluator:
+        return self._evaluator
 
     def run(
         self,
         test_set_path: str | Path,
-        top_k: int = 10,
-        collection: Optional[str] = None,
+        *,
+        top_k: int | None = None,
+        filters: dict[str, Any] | None = None,
     ) -> EvalReport:
-        """Run evaluation on the golden test set.
+        """运行整批评估并返回报告。
 
-        Args:
-            test_set_path: Path to golden_test_set.json.
-            top_k: Number of chunks to retrieve per query.
-            collection: Optional collection name filter.
-
-        Returns:
-            EvalReport with per-query and aggregate metrics.
-
-        Raises:
-            FileNotFoundError: If test set file doesn't exist.
-            ValueError: If evaluator or hybrid_search is not set.
+        单条 query 检索/评估异常记录 error 后继续，不中断批次。
         """
-        if self.evaluator is None:
-            raise ValueError("EvalRunner requires an evaluator.")
+        cases = load_golden_test_set(test_set_path)
+        per_query: list[QueryEvalResult] = []
+        metric_sums: dict[str, float] = {}
+        evaluated = 0
 
-        test_cases = load_test_set(test_set_path)
-        if not test_cases:
-            raise ValueError("Golden test set is empty.")
-
-        logger.info(
-            "Starting evaluation: %d test cases, evaluator=%s",
-            len(test_cases),
-            type(self.evaluator).__name__,
-        )
-
-        report = EvalReport(
-            evaluator_name=type(self.evaluator).__name__,
-            test_set_path=str(test_set_path),
-        )
-
-        t0 = time.monotonic()
-
-        for idx, tc in enumerate(test_cases):
-            logger.info("Evaluating [%d/%d]: %s", idx + 1, len(test_cases), tc.query[:60])
-            # Use user-provided answer override if available for this index
-            answer_override = self.answer_overrides.get(idx)
-            qr = self._evaluate_single(
-                tc, top_k=top_k, collection=collection,
-                answer_override=answer_override,
-            )
-            report.query_results.append(qr)
-
-        report.total_elapsed_ms = (time.monotonic() - t0) * 1000.0
-        report.aggregate_metrics = self._aggregate_metrics(report.query_results)
-
-        logger.info(
-            "Evaluation complete: %d queries, aggregate=%s",
-            len(report.query_results),
-            report.aggregate_metrics,
-        )
-
-        return report
-
-    def _evaluate_single(
-        self,
-        test_case: GoldenTestCase,
-        top_k: int = 10,
-        collection: Optional[str] = None,
-        answer_override: Optional[str] = None,
-    ) -> QueryResult:
-        """Evaluate a single test case.
-
-        Args:
-            test_case: The test case to evaluate.
-            top_k: Number of results to retrieve.
-            collection: Optional collection filter.
-            answer_override: User-provided answer text. When set, used
-                instead of auto-generated answer from chunks.
-
-        Returns:
-            QueryResult with metrics for this test case.
-        """
-        t0 = time.monotonic()
-        qr = QueryResult(query=test_case.query)
-
-        # Step 1: Retrieve chunks
-        retrieved_chunks = self._retrieve(test_case.query, top_k, collection)
-        qr.retrieved_chunk_ids = [
-            self._get_chunk_id(c) for c in retrieved_chunks
-        ]
-
-        # Step 2: Generate answer — prefer user override, then generator, then fallback
-        if answer_override:
-            answer = answer_override
-        else:
-            answer = self._generate_answer(test_case.query, retrieved_chunks)
-        qr.generated_answer = answer
-
-        # Step 3: Build ground truth
-        ground_truth = (
-            {"ids": test_case.expected_chunk_ids}
-            if test_case.expected_chunk_ids
-            else None
-        )
-
-        # Step 4: Evaluate
-        try:
-            metrics = self.evaluator.evaluate(  # type: ignore[union-attr]
-                query=test_case.query,
-                retrieved_chunks=retrieved_chunks,
-                generated_answer=answer,
-                ground_truth=ground_truth,
-            )
-            qr.metrics = metrics
-        except Exception as exc:
-            logger.warning("Evaluation failed for '%s': %s", test_case.query[:40], exc)
-            qr.metrics = {}
-
-        qr.elapsed_ms = (time.monotonic() - t0) * 1000.0
-        return qr
-
-    def _retrieve(
-        self,
-        query: str,
-        top_k: int,
-        collection: Optional[str],
-    ) -> List[Any]:
-        """Retrieve chunks using HybridSearch + optional Reranking.
-
-        Falls back to an empty list if search is not configured.
-        """
-        if self.hybrid_search is None:
-            logger.warning("No HybridSearch configured; returning empty results.")
-            return []
-
-        try:
-            # Retrieve more candidates if reranker is enabled
-            has_reranker = self.reranker is not None and getattr(self.reranker, 'is_enabled', False)
-            initial_top_k = top_k * 2 if has_reranker else top_k
-
-            results = self.hybrid_search.search(
-                query=query,
-                top_k=initial_top_k,
-            )
-            results = results if isinstance(results, list) else results.results
-
-            # Apply reranking if enabled
-            if has_reranker and results:
-                rerank_result = self.reranker.rerank(query=query, results=results, top_k=top_k)
-                results = rerank_result.results
-
-            return results
-        except Exception as exc:
-            logger.warning("Retrieval failed for '%s': %s", query[:40], exc)
-            return []
-
-    def _generate_answer(self, query: str, chunks: List[Any]) -> str:
-        """Generate an answer from retrieved chunks.
-
-        If a custom answer_generator is provided, use it.
-        Otherwise, concatenate chunk texts as a simple placeholder.
-        """
-        if self.answer_generator is not None:
+        for case in cases:
+            trace = TraceContext(trace_type=TRACE_TYPE_QUERY)
             try:
-                return self.answer_generator(query, chunks)
-            except Exception as exc:
-                logger.warning("Answer generation failed: %s", exc)
+                results = self._hybrid_search.search(
+                    case.query, top_k=top_k, filters=filters, trace=trace
+                )
+                retrieved_ids = [r.chunk_id for r in results]
+                metrics = self._evaluator.evaluate(
+                    case.query, retrieved_ids, case.expected_chunk_ids, top_k=top_k
+                )
+                metrics = {k: float(v) for k, v in metrics.items()}
+                per_query.append(
+                    QueryEvalResult(
+                        query=case.query,
+                        retrieved_ids=retrieved_ids,
+                        expected_chunk_ids=case.expected_chunk_ids,
+                        metrics=metrics,
+                    )
+                )
+                evaluated += 1
+                for key, value in metrics.items():
+                    metric_sums[key] = metric_sums.get(key, 0.0) + value
+            except Exception as exc:  # 单条失败隔离。
+                logger.warning("eval case failed: %s: %s", case.query, exc)
+                per_query.append(
+                    QueryEvalResult(
+                        query=case.query,
+                        retrieved_ids=[],
+                        expected_chunk_ids=case.expected_chunk_ids,
+                        metrics={},
+                        error=str(exc),
+                    )
+                )
 
-        # Fallback: concatenate chunk texts
-        texts = []
-        for c in chunks:
-            if isinstance(c, str):
-                texts.append(c)
-            elif isinstance(c, dict):
-                texts.append(c.get("text", str(c)))
-            elif hasattr(c, "text"):
-                texts.append(str(getattr(c, "text")))
-            else:
-                texts.append(str(c))
+        aggregate = (
+            {key: value / evaluated for key, value in metric_sums.items()}
+            if evaluated
+            else {}
+        )
+        return EvalReport(
+            total=len(cases),
+            evaluated=evaluated,
+            failed=len(cases) - evaluated,
+            metrics=aggregate,
+            per_query=per_query,
+        )
 
-        return " ".join(texts[:5])  # first 5 chunks
 
-    def _get_chunk_id(self, chunk: Any) -> str:
-        """Extract chunk ID from various representations."""
-        if isinstance(chunk, str):
-            return chunk
-        if isinstance(chunk, dict):
-            for key in ("id", "chunk_id"):
-                if key in chunk:
-                    return str(chunk[key])
-            return str(chunk)
-        if hasattr(chunk, "chunk_id"):
-            return str(getattr(chunk, "chunk_id"))
-        if hasattr(chunk, "id"):
-            return str(getattr(chunk, "id"))
-        return str(chunk)
-
-    @staticmethod
-    def _aggregate_metrics(results: List[QueryResult]) -> Dict[str, float]:
-        """Compute average metrics across all query results.
-
-        Args:
-            results: List of QueryResult with per-query metrics.
-
-        Returns:
-            Dictionary of average metric values.
-        """
-        if not results:
-            return {}
-
-        # Collect all metric keys
-        all_keys: set[str] = set()
-        for qr in results:
-            all_keys.update(qr.metrics.keys())
-
-        # Average each metric
-        averages: Dict[str, float] = {}
-        for key in sorted(all_keys):
-            values = [qr.metrics[key] for qr in results if key in qr.metrics]
-            averages[key] = sum(values) / len(values) if values else 0.0
-
-        return averages
+def build_default_evaluator(settings: Settings) -> BaseEvaluator:
+    """按 ``evaluation.backends`` 组合评估器（供 scripts/evaluate.py 使用）。"""
+    return CompositeEvaluator.from_settings(settings)

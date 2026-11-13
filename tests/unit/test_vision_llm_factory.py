@@ -1,487 +1,290 @@
-"""Unit tests for Vision LLM factory and base interface.
+"""Vision LLM 抽象接口与工厂集成测试（阶段 B8）。
 
-This module tests the Vision LLM factory pattern, provider registration,
-and the BaseVisionLLM abstract interface using a fake implementation.
+验证：
+- ``BaseVisionLLM`` 抽象接口清晰定义多模态输入（文本+图片路径/base64）。
+- 工厂方法 ``create_vision_llm`` 能根据配置路由到不同 provider。
+- 图片辅助方法：load_image（文件路径/bytes）、encode_image_base64、prepare_image。
+- 图片预处理扩展点（_preprocess_image 默认 no-op，子类可覆盖）。
+- 未知 provider 抛出可读错误。
+- ``chat_with_image`` 返回 ``ChatResponse``。
 """
 
-import pytest
+from __future__ import annotations
+
+import base64
+from dataclasses import replace
 from pathlib import Path
-from typing import Any, Optional
+from textwrap import dedent
 
-from src.libs.llm.base_llm import ChatResponse, Message
-from src.libs.llm.base_vision_llm import BaseVisionLLM, ImageInput
-from src.libs.llm.llm_factory import LLMFactory
+import pytest
 
+from core.settings import load_settings
+from libs.llm.base_llm import ChatMessage, ChatResponse
+from libs.llm.base_vision_llm import BaseVisionLLM
+from libs.llm.llm_factory import LLMFactory, LLMProviderError
 
-# ================================
-# Fake Implementation for Testing
-# ================================
-
-class FakeVisionLLM(BaseVisionLLM):
-    """Fake Vision LLM implementation for testing.
-    
-    This implementation returns deterministic responses for testing
-    and tracks call counts for verification.
+_VALID_YAML = dedent(
+    """\
+    llm:
+      provider: azure
+      model: gpt-4o
+    embedding:
+      provider: openai
+      model: text-embedding-3-small
+    vision_llm:
+      provider: azure
+      model: gpt-4o
+    vector_store:
+      backend: chroma
+    retrieval:
+      sparse_backend: bm25
+      fusion_algorithm: rrf
+    rerank:
+      backend: none
+    evaluation:
+      backends: [custom]
     """
-    
-    def __init__(
-        self,
-        settings: Any = None,
-        response_template: str = "I see: {text} | Image: {image_type}",
-        **kwargs: Any
-    ):
-        """Initialize fake Vision LLM.
-        
-        Args:
-            settings: Optional settings object (unused in fake).
-            response_template: Template for generating responses.
-            **kwargs: Additional parameters (unused).
-        """
-        self.settings = settings
-        self.response_template = response_template
-        self.call_count = 0
-        self.last_text = None
-        self.last_image = None
-        self.last_messages = None
-    
-    def chat_with_image(
-        self,
-        text: str,
-        image: ImageInput,
-        messages: Optional[list[Message]] = None,
-        trace: Optional[Any] = None,
-        **kwargs: Any,
-    ) -> ChatResponse:
-        """Generate fake response based on inputs."""
-        # Validate inputs using base class methods
-        self.validate_text(text)
-        self.validate_image(image)
-        
-        # Track call
-        self.call_count += 1
+)
+
+
+def _settings(tmp_path: Path, **vision_overrides):
+    path = tmp_path / "settings.yaml"
+    path.write_text(_VALID_YAML, encoding="utf-8")
+    settings = load_settings(path)
+    if vision_overrides:
+        settings = replace(settings, vision_llm=replace(settings.vision_llm, **vision_overrides))
+    return settings
+
+
+# --- Fake Vision LLM --------------------------------------------------------
+
+
+class _FakeVisionLLM(BaseVisionLLM):
+    """Fake Vision LLM for testing."""
+
+    provider = "fake-vision"
+
+    def __init__(self, vision_config, **kwargs):
+        self.vision_config = vision_config
+        self._kwargs = kwargs
+        self.last_text: str | None = None
+        self.last_image_b64: str | None = None
+        self.last_media_type: str | None = None
+
+    def chat(self, messages, *, trace=None, **kwargs):
+        return ChatResponse(content="chat response", model="fake-vision")
+
+    def chat_with_image(self, text, image, *, trace=None, **kwargs):
         self.last_text = text
-        self.last_image = image
-        self.last_messages = messages
-        
-        # Determine image type for response
-        if image.path:
-            image_type = f"path({image.path})"
-        elif image.data:
-            image_type = f"bytes({len(image.data)} bytes)"
-        elif image.base64:
-            image_type = f"base64({len(image.base64)} chars)"
-        else:
-            image_type = "unknown"
-        
-        # Generate deterministic response
-        content = self.response_template.format(
-            text=text,
-            image_type=image_type
-        )
-        
-        return ChatResponse(
-            content=content,
-            model="fake-vision-model",
-            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
-        )
+        b64, media_type = self.prepare_image(image, max_size=kwargs.get("max_image_size"))
+        self.last_image_b64 = b64
+        self.last_media_type = media_type
+        return ChatResponse(content=f"caption for: {text}", model=self.vision_config.model)
 
 
-# =========================
-# Test BaseVisionLLM
-# =========================
+class _PreprocessingVisionLLM(_FakeVisionLLM):
+    """Fake Vision LLM with actual preprocessing override."""
 
-class TestBaseVisionLLM:
-    """Test the BaseVisionLLM abstract interface."""
-    
-    def test_abstract_cannot_instantiate(self):
-        """BaseVisionLLM cannot be instantiated directly."""
-        with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-            BaseVisionLLM()
-    
-    def test_validate_text_success(self):
-        """validate_text accepts valid text."""
-        fake = FakeVisionLLM()
-        fake.validate_text("valid text")  # Should not raise
-    
-    def test_validate_text_empty(self):
-        """validate_text rejects empty text."""
-        fake = FakeVisionLLM()
-        with pytest.raises(ValueError, match="Text prompt cannot be empty"):
-            fake.validate_text("")
-    
-    def test_validate_text_whitespace_only(self):
-        """validate_text rejects whitespace-only text."""
-        fake = FakeVisionLLM()
-        with pytest.raises(ValueError, match="Text prompt cannot be empty"):
-            fake.validate_text("   \n\t  ")
-    
-    def test_validate_text_non_string(self):
-        """validate_text rejects non-string input."""
-        fake = FakeVisionLLM()
-        with pytest.raises(ValueError, match="Text must be a string"):
-            fake.validate_text(123)  # type: ignore
-    
-    def test_validate_image_success(self):
-        """validate_image accepts valid ImageInput."""
-        fake = FakeVisionLLM()
-        image = ImageInput(path="test.png")
-        fake.validate_image(image)  # Should not raise
-    
-    def test_validate_image_invalid_type(self):
-        """validate_image rejects non-ImageInput."""
-        fake = FakeVisionLLM()
-        with pytest.raises(ValueError, match="Image must be an ImageInput instance"):
-            fake.validate_image("not_an_image_input")  # type: ignore
-    
-    def test_preprocess_image_default(self):
-        """preprocess_image returns image unchanged by default."""
-        fake = FakeVisionLLM()
-        image = ImageInput(path="test.png")
-        result = fake.preprocess_image(image)
-        assert result is image  # Same instance
+    def _preprocess_image(self, image_bytes, max_size, media_type):
+        # 模拟预处理：返回标记字节
+        return b"PREPROCESSED:" + image_bytes
 
 
-# =========================
-# Test ImageInput
-# =========================
+@pytest.fixture
+def registered_fake():
+    """注册 fake-vision provider 并在测试后清理。"""
+    @LLMFactory.register_vision("fake-vision")
+    def _ctor(vision_config, **kwargs):
+        return _FakeVisionLLM(vision_config, **kwargs)
 
-class TestImageInput:
-    """Test the ImageInput dataclass."""
-    
-    def test_image_input_path(self):
-        """ImageInput can be created with path."""
-        image = ImageInput(path="test.png")
-        assert image.path == "test.png"
-        assert image.data is None
-        assert image.base64 is None
-        assert image.mime_type == "image/png"
-    
-    def test_image_input_path_as_pathlib(self):
-        """ImageInput accepts pathlib.Path."""
-        path = Path("test.png")
-        image = ImageInput(path=path)
-        assert image.path == path
-    
-    def test_image_input_data(self):
-        """ImageInput can be created with bytes data."""
-        data = b"fake_image_bytes"
-        image = ImageInput(data=data, mime_type="image/jpeg")
-        assert image.data == data
-        assert image.path is None
-        assert image.base64 is None
-        assert image.mime_type == "image/jpeg"
-    
-    def test_image_input_base64(self):
-        """ImageInput can be created with base64 string."""
-        base64_str = "iVBORw0KGgoAAAANSUhEUgAAAAUA"
-        image = ImageInput(base64=base64_str)
-        assert image.base64 == base64_str
-        assert image.path is None
-        assert image.data is None
-    
-    def test_image_input_no_input(self):
-        """ImageInput raises error if no input provided."""
-        with pytest.raises(ValueError, match="Must provide one of: path, data, or base64"):
-            ImageInput()
-    
-    def test_image_input_multiple_inputs(self):
-        """ImageInput raises error if multiple inputs provided."""
-        with pytest.raises(ValueError, match="Must provide exactly one of"):
-            ImageInput(path="test.png", data=b"bytes")
+    yield LLMFactory
+    # 清理：恢复 none（如果存在），移除 fake-vision
+    LLMFactory._vision_registry.pop("fake-vision", None)
 
 
-# =========================
-# Test FakeVisionLLM
-# =========================
-
-class TestFakeVisionLLM:
-    """Test the FakeVisionLLM implementation."""
-    
-    def test_chat_with_image_path(self):
-        """FakeVisionLLM generates response for path-based image."""
-        fake = FakeVisionLLM()
-        image = ImageInput(path="diagram.png")
-        
-        response = fake.chat_with_image(
-            text="Describe this diagram",
-            image=image
-        )
-        
-        assert response.content == "I see: Describe this diagram | Image: path(diagram.png)"
-        assert response.model == "fake-vision-model"
-        assert fake.call_count == 1
-        assert fake.last_text == "Describe this diagram"
-        assert fake.last_image == image
-    
-    def test_chat_with_image_bytes(self):
-        """FakeVisionLLM generates response for bytes-based image."""
-        fake = FakeVisionLLM()
-        data = b"fake_image_data_12345"
-        image = ImageInput(data=data)
-        
-        response = fake.chat_with_image(
-            text="What is this?",
-            image=image
-        )
-        
-        assert "bytes(21 bytes)" in response.content
-        assert fake.call_count == 1
-    
-    def test_chat_with_image_base64(self):
-        """FakeVisionLLM generates response for base64-based image."""
-        fake = FakeVisionLLM()
-        base64_str = "iVBORw0KGgoAAAANSUhEUgAAAAUA"
-        image = ImageInput(base64=base64_str)
-        
-        response = fake.chat_with_image(
-            text="Analyze this",
-            image=image
-        )
-        
-        assert f"base64({len(base64_str)} chars)" in response.content
-        assert fake.call_count == 1
-    
-    def test_chat_with_image_with_messages(self):
-        """FakeVisionLLM accepts conversation history."""
-        fake = FakeVisionLLM()
-        messages = [
-            Message(role="system", content="You are a helpful assistant"),
-            Message(role="user", content="Previous question")
-        ]
-        image = ImageInput(path="test.png")
-        
-        response = fake.chat_with_image(
-            text="New question",
-            image=image,
-            messages=messages
-        )
-        
-        assert response.content is not None
-        assert fake.last_messages == messages
-    
-    def test_chat_with_image_validates_text(self):
-        """FakeVisionLLM validates text input."""
-        fake = FakeVisionLLM()
-        image = ImageInput(path="test.png")
-        
-        with pytest.raises(ValueError, match="Text prompt cannot be empty"):
-            fake.chat_with_image(text="", image=image)
-    
-    def test_chat_with_image_validates_image(self):
-        """FakeVisionLLM validates image input."""
-        fake = FakeVisionLLM()
-        
-        with pytest.raises(ValueError, match="Image must be an ImageInput instance"):
-            fake.chat_with_image(text="test", image="not_an_image")  # type: ignore
-    
-    def test_custom_response_template(self):
-        """FakeVisionLLM accepts custom response template."""
-        fake = FakeVisionLLM(response_template="Custom: {text}")
-        image = ImageInput(path="test.png")
-        
-        response = fake.chat_with_image(text="Hello", image=image)
-        
-        assert response.content == "Custom: Hello"
+# ---------------------------------------------------------------------------
+# 工厂路由
+# ---------------------------------------------------------------------------
 
 
-# ================================
-# Test Vision LLM Factory
-# ================================
-
-class TestVisionLLMFactory:
-    """Test the Vision LLM factory pattern."""
-    
-    def setup_method(self):
-        """Clean up registry before each test."""
-        LLMFactory._VISION_PROVIDERS.clear()
-    
-    def test_register_vision_provider_success(self):
-        """register_vision_provider registers valid provider."""
-        LLMFactory.register_vision_provider("fake", FakeVisionLLM)
-        
-        assert "fake" in LLMFactory._VISION_PROVIDERS
-        assert LLMFactory._VISION_PROVIDERS["fake"] == FakeVisionLLM
-    
-    def test_register_vision_provider_case_insensitive(self):
-        """register_vision_provider normalizes provider name to lowercase."""
-        LLMFactory.register_vision_provider("FakeVision", FakeVisionLLM)
-        
-        assert "fakevision" in LLMFactory._VISION_PROVIDERS
-        assert "FakeVision" not in LLMFactory._VISION_PROVIDERS
-    
-    def test_register_vision_provider_invalid_class(self):
-        """register_vision_provider rejects non-BaseVisionLLM class."""
-        class NotAVisionLLM:
-            pass
-        
-        with pytest.raises(ValueError, match="must inherit from BaseVisionLLM"):
-            LLMFactory.register_vision_provider("invalid", NotAVisionLLM)  # type: ignore
-    
-    def test_list_vision_providers_empty(self):
-        """list_vision_providers returns empty list when no providers registered."""
-        assert LLMFactory.list_vision_providers() == []
-    
-    def test_list_vision_providers_sorted(self):
-        """list_vision_providers returns sorted provider names."""
-        LLMFactory.register_vision_provider("zebra", FakeVisionLLM)
-        LLMFactory.register_vision_provider("alpha", FakeVisionLLM)
-        LLMFactory.register_vision_provider("beta", FakeVisionLLM)
-        
-        providers = LLMFactory.list_vision_providers()
-        assert providers == ["alpha", "beta", "zebra"]
-    
-    def test_create_vision_llm_success(self):
-        """create_vision_llm creates instance from vision_llm config."""
-        LLMFactory.register_vision_provider("fake", FakeVisionLLM)
-        
-        # Mock settings with vision_llm section
-        class FakeSettings:
-            class VisionLLM:
-                provider = "fake"
-            vision_llm = VisionLLM()
-        
-        settings = FakeSettings()
-        vision_llm = LLMFactory.create_vision_llm(settings)
-        
-        assert isinstance(vision_llm, FakeVisionLLM)
-        assert vision_llm.settings == settings
-    
-    def test_create_vision_llm_fallback_to_llm_config(self):
-        """create_vision_llm falls back to llm.provider if vision_llm not present."""
-        LLMFactory.register_vision_provider("fake", FakeVisionLLM)
-        
-        # Mock settings with only llm section (no vision_llm)
-        class FakeSettings:
-            class LLM:
-                provider = "fake"
-            llm = LLM()
-        
-        settings = FakeSettings()
-        vision_llm = LLMFactory.create_vision_llm(settings)
-        
-        assert isinstance(vision_llm, FakeVisionLLM)
-    
-    def test_create_vision_llm_case_insensitive(self):
-        """create_vision_llm handles case-insensitive provider names."""
-        LLMFactory.register_vision_provider("fake", FakeVisionLLM)
-        
-        class FakeSettings:
-            class VisionLLM:
-                provider = "FAKE"  # Uppercase
-            vision_llm = VisionLLM()
-        
-        settings = FakeSettings()
-        vision_llm = LLMFactory.create_vision_llm(settings)
-        
-        assert isinstance(vision_llm, FakeVisionLLM)
-    
-    def test_create_vision_llm_unknown_provider(self):
-        """create_vision_llm raises error for unknown provider."""
-        LLMFactory.register_vision_provider("fake", FakeVisionLLM)
-        
-        class FakeSettings:
-            class VisionLLM:
-                provider = "unknown"
-            vision_llm = VisionLLM()
-        
-        settings = FakeSettings()
-        
-        with pytest.raises(ValueError, match="Unsupported Vision LLM provider: 'unknown'"):
-            LLMFactory.create_vision_llm(settings)
-    
-    def test_create_vision_llm_missing_config(self):
-        """create_vision_llm raises error if config is missing."""
-        class FakeSettings:
-            pass  # No vision_llm or llm section
-        
-        settings = FakeSettings()
-        
-        with pytest.raises(ValueError, match="Missing required configuration"):
-            LLMFactory.create_vision_llm(settings)
-    
-    def test_create_vision_llm_no_providers_registered(self):
-        """create_vision_llm shows available: none when registry is empty."""
-        class FakeSettings:
-            class VisionLLM:
-                provider = "fake"
-            vision_llm = VisionLLM()
-        
-        settings = FakeSettings()
-        
-        with pytest.raises(ValueError, match="Available Vision LLM providers: none"):
-            LLMFactory.create_vision_llm(settings)
-    
-    def test_create_vision_llm_with_overrides(self):
-        """create_vision_llm passes override kwargs to provider."""
-        LLMFactory.register_vision_provider("fake", FakeVisionLLM)
-        
-        class FakeSettings:
-            class VisionLLM:
-                provider = "fake"
-            vision_llm = VisionLLM()
-        
-        settings = FakeSettings()
-        vision_llm = LLMFactory.create_vision_llm(
-            settings,
-            response_template="Override: {text}"
-        )
-        
-        assert isinstance(vision_llm, FakeVisionLLM)
-        assert vision_llm.response_template == "Override: {text}"
-    
-    def test_create_vision_llm_provider_instantiation_failure(self):
-        """create_vision_llm handles provider instantiation errors."""
-        class BrokenVisionLLM(BaseVisionLLM):
-            def __init__(self, settings, **kwargs):
-                raise RuntimeError("Intentional failure")
-            
-            def chat_with_image(self, text, image, messages=None, trace=None, **kwargs):
-                pass
-        
-        LLMFactory.register_vision_provider("broken", BrokenVisionLLM)
-        
-        class FakeSettings:
-            class VisionLLM:
-                provider = "broken"
-            vision_llm = VisionLLM()
-        
-        settings = FakeSettings()
-        
-        with pytest.raises(RuntimeError, match="Failed to instantiate Vision LLM provider 'broken'"):
-            LLMFactory.create_vision_llm(settings)
+def test_create_vision_llm_routes_to_registered_provider(tmp_path, registered_fake):
+    settings = _settings(tmp_path, provider="fake-vision")
+    vllm = LLMFactory.create_vision_llm(settings)
+    assert isinstance(vllm, _FakeVisionLLM)
+    assert isinstance(vllm, BaseVisionLLM)
 
 
-# ================================
-# Integration Tests
-# ================================
+def test_create_vision_llm_unknown_provider_raises(tmp_path):
+    settings = _settings(tmp_path, provider="nonexistent-vision")
+    with pytest.raises(LLMProviderError) as exc_info:
+        LLMFactory.create_vision_llm(settings)
+    assert "nonexistent-vision" in str(exc_info.value)
+    assert "registered" in str(exc_info.value)
 
-class TestVisionLLMIntegration:
-    """Integration tests combining factory and implementation."""
-    
-    def setup_method(self):
-        """Clean up registry and register fake provider."""
-        LLMFactory._VISION_PROVIDERS.clear()
-        LLMFactory.register_vision_provider("fake", FakeVisionLLM)
-    
-    def test_end_to_end_vision_workflow(self):
-        """Full workflow: create from factory -> call vision method."""
-        class FakeSettings:
-            class VisionLLM:
-                provider = "fake"
-            vision_llm = VisionLLM()
-        
-        settings = FakeSettings()
-        
-        # Create Vision LLM from factory
-        vision_llm = LLMFactory.create_vision_llm(settings)
-        
-        # Use it for image captioning
-        image = ImageInput(path="document.pdf.page1.png")
-        response = vision_llm.chat_with_image(
-            text="Describe the main content of this page",
-            image=image
-        )
-        
-        assert "Describe the main content" in response.content
-        assert "document.pdf.page1.png" in response.content
-        assert response.model == "fake-vision-model"
+
+def test_vision_registry_separate_from_llm_registry(registered_fake):
+    """Vision registry 和普通 LLM registry 是独立的。"""
+    assert "fake-vision" in LLMFactory.available_vision_providers()
+    assert "fake-vision" not in LLMFactory.available_providers()
+
+
+def test_is_vision_registered(registered_fake):
+    assert LLMFactory.is_vision_registered("fake-vision") is True
+    assert LLMFactory.is_vision_registered("nonexistent") is False
+
+
+# ---------------------------------------------------------------------------
+# chat_with_image 接口
+# ---------------------------------------------------------------------------
+
+
+def test_chat_with_image_returns_chat_response(tmp_path, registered_fake):
+    settings = _settings(tmp_path, provider="fake-vision")
+    vllm = LLMFactory.create_vision_llm(settings)
+    # 用 bytes 作为图片输入
+    resp = vllm.chat_with_image("describe this", b"\x89PNG fake image data")
+    assert isinstance(resp, ChatResponse)
+    assert "describe this" in resp.content
+
+
+def test_chat_with_image_with_file_path(tmp_path, registered_fake):
+    settings = _settings(tmp_path, provider="fake-vision")
+    vllm = LLMFactory.create_vision_llm(settings)
+    # 创建临时图片文件
+    img_file = tmp_path / "test.png"
+    img_file.write_bytes(b"\x89PNG fake image data")
+    resp = vllm.chat_with_image("describe this", str(img_file))
+    assert isinstance(resp, ChatResponse)
+    assert vllm.last_text == "describe this"
+
+
+def test_chat_with_image_with_path_object(tmp_path, registered_fake):
+    settings = _settings(tmp_path, provider="fake-vision")
+    vllm = LLMFactory.create_vision_llm(settings)
+    img_file = tmp_path / "test.jpg"
+    img_file.write_bytes(b"\xff\xd8 fake jpeg")
+    resp = vllm.chat_with_image("caption", img_file)
+    assert isinstance(resp, ChatResponse)
+
+
+def test_chat_with_image_nonexistent_file_raises(tmp_path, registered_fake):
+    settings = _settings(tmp_path, provider="fake-vision")
+    vllm = LLMFactory.create_vision_llm(settings)
+    with pytest.raises(FileNotFoundError):
+        vllm.chat_with_image("describe", "/nonexistent/image.png")
+
+
+# ---------------------------------------------------------------------------
+# 图片辅助方法
+# ---------------------------------------------------------------------------
+
+
+def test_load_image_from_bytes():
+    raw, media_type = BaseVisionLLM.load_image(b"\x89PNG data")
+    assert raw == b"\x89PNG data"
+    assert media_type == "image/png"  # default for bytes
+
+
+def test_load_image_from_file(tmp_path):
+    img = tmp_path / "photo.jpg"
+    img.write_bytes(b"\xff\xd8 jpeg data")
+    raw, media_type = BaseVisionLLM.load_image(str(img))
+    assert raw == b"\xff\xd8 jpeg data"
+    assert media_type == "image/jpeg"
+
+
+def test_load_image_from_path_object(tmp_path):
+    img = tmp_path / "pic.webp"
+    img.write_bytes(b"webp data")
+    raw, media_type = BaseVisionLLM.load_image(img)
+    assert raw == b"webp data"
+    assert media_type == "image/webp"
+
+
+def test_load_image_unknown_extension_defaults_png(tmp_path):
+    img = tmp_path / "pic.xyz"
+    img.write_bytes(b"data")
+    _, media_type = BaseVisionLLM.load_image(img)
+    assert media_type == "image/png"
+
+
+def test_encode_image_base64():
+    b64 = BaseVisionLLM.encode_image_base64(b"hello")
+    assert b64 == base64.b64encode(b"hello").decode("ascii")
+    # 可解码还原
+    assert base64.b64decode(b64) == b"hello"
+
+
+def test_prepare_image_returns_base64_and_media_type(tmp_path, registered_fake):
+    settings = _settings(tmp_path, provider="fake-vision")
+    vllm = LLMFactory.create_vision_llm(settings)
+    img = tmp_path / "test.png"
+    img.write_bytes(b"\x89PNG data")
+    b64, media_type = vllm.prepare_image(str(img))
+    assert base64.b64decode(b64) == b"\x89PNG data"
+    assert media_type == "image/png"
+
+
+# ---------------------------------------------------------------------------
+# 图片预处理扩展点
+# ---------------------------------------------------------------------------
+
+
+def test_preprocess_image_default_is_noop():
+    """默认 _preprocess_image 不修改字节。"""
+    vllm = _FakeVisionLLM.__new__(_FakeVisionLLM)
+    result = BaseVisionLLM._preprocess_image(vllm, b"original", 1024, "image/png")
+    assert result == b"original"
+
+
+def test_preprocess_image_override_called(tmp_path):
+    """子类覆盖 _preprocess_image 后，prepare_image 使用处理后的字节。"""
+    from core.settings import VisionLLMConfig
+
+    cfg = VisionLLMConfig(provider="azure", model="gpt-4o")
+    vllm = _PreprocessingVisionLLM(cfg)
+    b64, media_type = vllm.prepare_image(b"raw image", max_size=512)
+    decoded = base64.b64decode(b64)
+    assert decoded == b"PREPROCESSED:raw image"
+
+
+def test_prepare_image_without_max_size_skips_preprocessing(tmp_path, registered_fake):
+    settings = _settings(tmp_path, provider="fake-vision")
+    vllm = LLMFactory.create_vision_llm(settings)
+    b64, _ = vllm.prepare_image(b"raw bytes")  # no max_size
+    assert base64.b64decode(b64) == b"raw bytes"
+
+
+# ---------------------------------------------------------------------------
+# BaseVisionLLM 继承 BaseLLM
+# ---------------------------------------------------------------------------
+
+
+def test_vision_llm_is_base_llm(registered_fake):
+    """BaseVisionLLM 继承 BaseLLM，可调用 chat/chat_text。"""
+    from core.settings import VisionLLMConfig
+
+    cfg = VisionLLMConfig(provider="fake-vision", model="gpt-4o")
+    vllm = _FakeVisionLLM(cfg)
+    # chat_text 继承自 BaseLLM
+    text = vllm.chat_text("hello")
+    assert text == "chat response"
+
+
+# ---------------------------------------------------------------------------
+# 工厂 kwargs 透传
+# ---------------------------------------------------------------------------
+
+
+def test_factory_passes_kwargs_to_vision_constructor(tmp_path, registered_fake):
+    settings = _settings(tmp_path, provider="kwarg-test")
+
+    @LLMFactory.register_vision("kwarg-test")
+    def _ctor(vision_config, **kwargs):
+        llm = _FakeVisionLLM(vision_config, **kwargs)
+        llm._injected_kwarg = kwargs.get("custom_param")
+        return llm
+
+    vllm = LLMFactory.create_vision_llm(settings, custom_param="injected!")
+    assert vllm._injected_kwarg == "injected!"
+    LLMFactory._vision_registry.pop("kwarg-test", None)

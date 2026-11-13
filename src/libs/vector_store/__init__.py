@@ -1,25 +1,14 @@
-"""
-Vector Store Module.
+"""VectorStore 抽象层包。
 
-This package contains vector store abstractions and implementations:
-- Base vector store class
-- Vector store factory
-- Implementations (Chroma, etc.)
+导入本包即触发 ``chroma`` backend 的注册。
 """
 
-from src.libs.vector_store.base_vector_store import BaseVectorStore
-from src.libs.vector_store.vector_store_factory import VectorStoreFactory
+from libs.vector_store.base_vector_store import BaseVectorStore, QueryResult, VectorRecord
+from libs.vector_store.vector_store_factory import VectorStoreFactory
 
-# Auto-register ChromaStore provider
-try:
-    from src.libs.vector_store.chroma_store import ChromaStore
-    VectorStoreFactory.register_provider('chroma', ChromaStore)
-except ImportError:
-    # ChromaDB not installed, skip registration
-    pass
+# 触发 provider 注册。
+from libs.vector_store import chroma_store as _chroma_store  # noqa: F401
 
-__all__ = [
-    'BaseVectorStore',
-    'VectorStoreFactory',
-    'ChromaStore',
-]
+_chroma_store.register_chroma_provider()
+
+__all__ = ["BaseVectorStore", "QueryResult", "VectorRecord", "VectorStoreFactory"]

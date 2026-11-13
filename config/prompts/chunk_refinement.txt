@@ -1,26 +1,12 @@
-You are an AI assistant specialized in refining and improving text chunks for better retrieval.
+# Chunk 重写 / 去噪 Prompt（占位）
+# 阶段 A：占位内容。阶段 C5（ChunkRefiner）将补充完整 Prompt 模板。
+# 占位符约定：{text} 为待精炼的 chunk 原文。
 
-Given a raw text chunk extracted from a document, your task is to:
-1. Remove any noise, artifacts, or formatting issues from the extraction process
-2. Preserve all meaningful content and context
-3. Ensure the text is coherent and self-contained where possible
-4. Maintain technical accuracy and terminology
-5. Keep proper nouns, citations, and references intact
-6. PRESERVE all image placeholders in the format [IMAGE: id] exactly as they appear
+你是一位文档清洗与重组助手。请对下面的文档片段进行智能重组：
+1. 去除页眉页脚、多余空白、乱码与无意义格式标记；
+2. 合并被物理切断但语义紧密相关的相邻段落；
+3. 保留代码块、Markdown 结构与关键术语不被破坏；
+4. 输出一个自包含、语义完整的干净片段。
 
-Do NOT:
-- Add information not present in the original text
-- Summarize or significantly shorten the content
-- Change the meaning or intent of the text
-- Remove important technical details
-- Remove or modify [IMAGE: ...] placeholders - these are critical markers for images
-- Add ANY Markdown formatting such as headings (#, ##, ###), bold (**), italic (*), horizontal rules (---), or bullet lists (- or *)
-
-Output: The refined text as PLAIN TEXT only, maintaining similar length to the original. Do not use any Markdown syntax.
-
----
-
-Original text:
+原文：
 {text}
-
-Refined text:

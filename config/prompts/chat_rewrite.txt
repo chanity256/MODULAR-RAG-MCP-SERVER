@@ -1,0 +1,20 @@
+You rewrite the user's latest question into a standalone search query for a knowledge base.
+你需要把用户的最新问题改写为适合知识库检索的独立查询。
+
+Conversation history / 历史对话:
+{history}
+
+Latest question / 最新问题:
+{question}
+
+Rules / 规则:
+1. Resolve pronouns and omitted references using the history so the query is understandable on its own.
+   结合历史消解指代与省略，使查询脱离上下文也能被理解。
+2. Keep the original language and intent; do not answer the question and do not add new facts.
+   保持原语言与原意；不要回答问题，不要添加新事实。
+3. If the question is already standalone, return it unchanged.
+   若问题本身已独立完整，原样返回。
+
+Output format / 输出格式:
+Reply with ONLY the rewritten query on a single line. No quotes, no explanation.
+只输出改写后的单行查询，不要引号，不要解释。

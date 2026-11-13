@@ -1,125 +1,73 @@
-"""Factory for creating Reranker provider instances.
+"""Reranker 工厂（阶段 B5）。
 
-This module implements the Factory Pattern to instantiate the appropriate
-Reranker provider based on configuration, enabling configuration-driven selection
-of different backends without code changes.
+根据 ``Settings.rerank.backend`` 动态实例化对应的 ``BaseReranker`` 实现。
+
+注册机制与其它工厂一致：
+- 各后端实现通过 ``RerankerFactory.register(backend)`` 装饰器登记构造函数。
+- 工厂在 ``create`` 时按 ``settings.rerank.backend`` 路由。
+- ``none`` 后端始终可用（``NoneReranker`` 在此处注册）。
+- 未知 backend 抛出可读错误（不泄露敏感配置）。
+
+真实后端实现见 B7.7（LLM Reranker）/ B7.8（Cross-Encoder Reranker）。
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, Callable
 
-from src.libs.reranker.base_reranker import BaseReranker, NoneReranker
+from core.settings import RerankConfig, Settings
+from libs.reranker.base_reranker import BaseReranker, NoneReranker
 
-if TYPE_CHECKING:
-    from src.core.settings import Settings
-
-
-def _lazy_import_llm_reranker():
-    """Lazy import to avoid circular dependencies."""
-    from src.libs.reranker.llm_reranker import LLMReranker
-    return LLMReranker
+__all__ = ["RerankerFactory", "RerankerBackendError"]
 
 
-def _lazy_import_cross_encoder_reranker():
-    """Lazy import to avoid circular dependencies."""
-    from src.libs.reranker.cross_encoder_reranker import CrossEncoderReranker
-    return CrossEncoderReranker
+class RerankerBackendError(RuntimeError):
+    """Reranker backend 路由/构造错误。"""
+
+
+def _none_reranker_ctor(rerank_config: RerankConfig, **kwargs: Any) -> NoneReranker:
+    return NoneReranker()
 
 
 class RerankerFactory:
-    """Factory for creating Reranker provider instances.
-    
-    This factory reads the rerank configuration from settings and instantiates
-    the corresponding Reranker implementation. Provider implementations will be
-    added in subsequent tasks (B7.7, B7.8).
-    
-    Design Principles Applied:
-    - Factory Pattern: Centralizes object creation logic.
-    - Config-Driven: Provider selection based on settings.yaml.
-    - Fallback: Disabled or 'none' provider returns NoneReranker.
-    - Fail-Fast: Raises clear errors for unknown providers.
-    """
-    
-    _PROVIDERS: dict[str, type[BaseReranker]] = {}
-    
+    """Reranker 工厂：按配置 backend 路由到具体实现。"""
+
+    # backend 名 -> 构造函数 (rerank_config: RerankConfig, **kwargs) -> BaseReranker
+    _registry: dict[str, Callable[..., BaseReranker]] = {
+        "none": _none_reranker_ctor,
+    }
+
     @classmethod
-    def register_provider(cls, name: str, provider_class: type[BaseReranker]) -> None:
-        """Register a new Reranker provider implementation.
-        
-        Args:
-            name: The provider identifier (e.g., 'cross_encoder', 'llm').
-            provider_class: The BaseReranker subclass implementing the provider.
-        
+    def register(cls, backend: str) -> Callable[[Callable[..., BaseReranker]], Callable[..., BaseReranker]]:
+        """装饰器：注册一个 backend 的构造函数。"""
+
+        def decorator(ctor: Callable[..., BaseReranker]) -> Callable[..., BaseReranker]:
+            cls._registry[backend] = ctor
+            return ctor
+
+        return decorator
+
+    @classmethod
+    def is_registered(cls, backend: str) -> bool:
+        return backend in cls._registry
+
+    @classmethod
+    def available_backends(cls) -> list[str]:
+        return sorted(cls._registry)
+
+    @classmethod
+    def create(cls, settings: Settings, **kwargs: Any) -> BaseReranker:
+        """根据 ``settings.rerank.backend`` 创建 ``BaseReranker`` 实例。
+
         Raises:
-            ValueError: If provider_class doesn't inherit from BaseReranker.
+            RerankerBackendError: backend 未注册时。
         """
-        if not issubclass(provider_class, BaseReranker):
-            raise ValueError(
-                f"Provider class {provider_class.__name__} must inherit from BaseReranker"
+        rerank_config: RerankConfig = settings.rerank
+        backend = rerank_config.backend
+        ctor = cls._registry.get(backend)
+        if ctor is None:
+            raise RerankerBackendError(
+                f"unknown rerank backend: {backend!r}. "
+                f"registered: {cls.available_backends() or '(none)'}."
             )
-        cls._PROVIDERS[name.lower()] = provider_class
-    
-    @classmethod
-    def create(cls, settings: Settings, **override_kwargs: Any) -> BaseReranker:
-        """Create a Reranker instance based on configuration.
-        
-        Args:
-            settings: The application settings containing rerank configuration.
-            **override_kwargs: Optional parameters to override config values.
-        
-        Returns:
-            An instance of the configured Reranker provider.
-        
-        Raises:
-            ValueError: If the configured provider is not supported or missing.
-            RuntimeError: If provider initialization fails.
-        """
-        # Lazy register LLM reranker if not already registered
-        if "llm" not in cls._PROVIDERS:
-            LLMReranker = _lazy_import_llm_reranker()
-            cls.register_provider("llm", LLMReranker)
-        
-        # Lazy register Cross-Encoder reranker if not already registered
-        if "cross_encoder" not in cls._PROVIDERS:
-            CrossEncoderReranker = _lazy_import_cross_encoder_reranker()
-            cls.register_provider("cross_encoder", CrossEncoderReranker)
-        
-        try:
-            rerank_settings = settings.rerank
-            if rerank_settings is None:
-                raise AttributeError("settings.rerank is None")
-            provider_name = rerank_settings.provider.lower()
-            enabled = bool(rerank_settings.enabled)
-        except AttributeError as e:
-            raise ValueError(
-                "Missing required configuration: settings.rerank.provider. "
-                "Please ensure 'rerank.provider' is specified in settings.yaml"
-            ) from e
-        
-        if not enabled or provider_name == "none":
-            return NoneReranker(settings=settings, **override_kwargs)
-        
-        provider_class = cls._PROVIDERS.get(provider_name)
-        if provider_class is None:
-            available = ", ".join(sorted(cls._PROVIDERS.keys())) if cls._PROVIDERS else "none"
-            raise ValueError(
-                f"Unsupported Reranker provider: '{provider_name}'. "
-                f"Available providers: {available}."
-            )
-        
-        try:
-            return provider_class(settings=settings, **override_kwargs)
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to instantiate Reranker provider '{provider_name}': {e}"
-            ) from e
-    
-    @classmethod
-    def list_providers(cls) -> list[str]:
-        """List all registered provider names.
-        
-        Returns:
-            Sorted list of available provider identifiers.
-        """
-        return sorted(cls._PROVIDERS.keys())
+        return ctor(rerank_config, **kwargs)

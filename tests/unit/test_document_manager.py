@@ -1,366 +1,344 @@
-"""Tests for DocumentManager and storage enhancements (G2).
+"""DocumentManager 跨存储协调测试（阶段 G2）。
 
-Covers:
-- BM25Indexer.remove_document
-- FileIntegrityChecker.remove_record / list_processed
-- ChromaStore.delete_by_metadata (basic contract via mock)
-- DocumentManager.list_documents / get_document_detail / delete_document / get_collection_stats
+纯离线：内存向量库 + 真 BM25Indexer / ImageStorage / SQLiteIntegrityChecker
+全部落 ``tmp_path``。覆盖 list / detail / delete / stats 与删除后不可再 list。
 """
 
 from __future__ import annotations
 
-import json
-import sqlite3
-import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock
 
 import pytest
 
-from src.ingestion.document_manager import (
+from ingestion.document_manager import (
     CollectionStats,
     DeleteResult,
     DocumentDetail,
     DocumentInfo,
     DocumentManager,
 )
-from src.ingestion.storage.bm25_indexer import BM25Indexer
-from src.libs.loader.file_integrity import SQLiteIntegrityChecker
+from ingestion.embedding import SparseDocStats
+from ingestion.storage import BM25Indexer, ImageStorage
+from libs.loader.file_integrity import SQLiteIntegrityChecker
+from libs.vector_store.base_vector_store import BaseVectorStore, QueryResult, VectorRecord
+
+_DOC_A = "aa" * 32
+_DOC_B = "bb" * 32
+_PNG = b"\x89PNG\r\n\x1a\nfake-image-payload"
 
 
-# =====================================================================
-# BM25Indexer.remove_document tests
-# =====================================================================
+class FakeStore(BaseVectorStore):
+    def __init__(self) -> None:
+        self._store: dict[str, VectorRecord] = {}
 
-class TestBM25RemoveDocument:
-    """Tests for BM25Indexer.remove_document."""
+    def upsert(self, records, *, trace=None, **kwargs):
+        for rec in records:
+            self._store[rec.id] = rec
+        return len(list(records))
 
-    def _build_index(self, tmp_path: Path, postings: dict, collection: str = "default"):
-        """Helper: write a minimal BM25 index file and return an indexer."""
-        indexer = BM25Indexer(index_dir=str(tmp_path))
-        # Build a valid index structure
-        index_data = {}
-        all_chunk_ids = set()
-        for term, entries in postings.items():
-            for e in entries:
-                all_chunk_ids.add(e["chunk_id"])
-            df = len(entries)
-            num_docs = len(all_chunk_ids)  # rough estimate; recalculated below
-            index_data[term] = {
-                "idf": 0.0,  # will recalculate
-                "df": df,
-                "postings": entries,
-            }
-        num_docs = len(all_chunk_ids)
-        total_length = sum(
-            e["doc_length"] for entries in postings.values() for e in entries
-        )
-        avg_doc_length = total_length / num_docs if num_docs else 0.0
-        for td in index_data.values():
-            td["idf"] = indexer._calculate_idf(num_docs, td["df"])
-        data = {
-            "metadata": {
-                "num_docs": num_docs,
-                "avg_doc_length": avg_doc_length,
-                "total_terms": len(index_data),
-                "collection": collection,
-            },
-            "index": index_data,
-        }
-        idx_path = tmp_path / f"{collection}_bm25.json"
-        idx_path.write_text(json.dumps(data), encoding="utf-8")
-        return indexer
+    def query(self, vector, top_k=10, *, filters=None, trace=None, **kwargs):
+        return [
+            QueryResult(id=rec.id, score=1.0, text=rec.text, metadata=dict(rec.metadata))
+            for rec in list(self._store.values())[:top_k]
+        ]
 
-    def test_remove_existing_document(self, tmp_path):
-        indexer = self._build_index(tmp_path, {
-            "hello": [
-                {"chunk_id": "docA_c0", "tf": 2, "doc_length": 10},
-                {"chunk_id": "docB_c0", "tf": 1, "doc_length": 8},
-            ],
-            "world": [
-                {"chunk_id": "docA_c0", "tf": 1, "doc_length": 10},
-            ],
-        })
-        removed = indexer.remove_document("docA", "default")
-        assert removed is True
-        # docA postings gone, docB remains
-        assert "hello" in indexer._index
-        assert len(indexer._index["hello"]["postings"]) == 1
-        assert indexer._index["hello"]["postings"][0]["chunk_id"] == "docB_c0"
-        # "world" had only docA → should be removed entirely
-        assert "world" not in indexer._index
-        assert indexer._metadata["num_docs"] == 1
+    def get_by_ids(self, ids, *, trace=None, **kwargs):
+        out = []
+        for rid in dict.fromkeys(ids):
+            rec = self._store.get(rid)
+            if rec is not None:
+                out.append({"id": rec.id, "text": rec.text, "metadata": dict(rec.metadata)})
+        return out
 
-    def test_remove_nonexistent_document(self, tmp_path):
-        indexer = self._build_index(tmp_path, {
-            "hello": [{"chunk_id": "docA_c0", "tf": 1, "doc_length": 5}],
-        })
-        removed = indexer.remove_document("docZ", "default")
-        assert removed is False
+    def delete_by_metadata(self, filters, *, trace=None, **kwargs):
+        if not isinstance(filters, dict) or not filters:
+            raise ValueError("filters must be a non-empty dict (refuse to wipe all)")
+        deleted = 0
+        for rid, rec in list(self._store.items()):
+            if all(rec.metadata.get(k) == v for k, v in filters.items()):
+                del self._store[rid]
+                deleted += 1
+        return deleted
 
-    def test_remove_all_documents_empties_index(self, tmp_path):
-        indexer = self._build_index(tmp_path, {
-            "hello": [{"chunk_id": "docA_c0", "tf": 1, "doc_length": 5}],
-        })
-        removed = indexer.remove_document("docA", "default")
-        assert removed is True
-        assert len(indexer._index) == 0
-        assert indexer._metadata["num_docs"] == 0
+    def get_by_metadata(self, filters=None, *, trace=None, **kwargs):
+        records = []
+        for rec in self._store.values():
+            if filters and not all(rec.metadata.get(k) == v for k, v in filters.items()):
+                continue
+            records.append({"id": rec.id, "text": rec.text, "metadata": dict(rec.metadata)})
+        records.sort(key=lambda item: item["id"])
+        return records
 
-    def test_remove_saves_to_disk(self, tmp_path):
-        indexer = self._build_index(tmp_path, {
-            "foo": [
-                {"chunk_id": "docA_c0", "tf": 1, "doc_length": 5},
-                {"chunk_id": "docB_c0", "tf": 1, "doc_length": 6},
-            ],
-        })
-        indexer.remove_document("docA", "default")
-        # Load from disk and verify
-        indexer2 = BM25Indexer(index_dir=str(tmp_path))
-        loaded = indexer2.load("default")
-        assert loaded is True
-        assert indexer2._metadata["num_docs"] == 1
-
-    def test_remove_no_index_file_returns_false(self, tmp_path):
-        indexer = BM25Indexer(index_dir=str(tmp_path))
-        removed = indexer.remove_document("docA", "default")
-        assert removed is False
+    def get_collection_stats(self, *, trace=None, **kwargs):
+        records = self.get_by_metadata()
+        sources = {item["metadata"].get("source_path") for item in records if item["metadata"].get("source_path")}
+        return {"name": "fake", "chunk_count": len(records), "document_count": len(sources), "collections": []}
 
 
-# =====================================================================
-# FileIntegrityChecker.remove_record / list_processed tests
-# =====================================================================
-
-class TestFileIntegrityEnhancements:
-    """Tests for remove_record and list_processed."""
-
-    @pytest.fixture()
-    def checker(self, tmp_path):
-        db_path = str(tmp_path / "integrity.db")
-        return SQLiteIntegrityChecker(db_path)
-
-    def test_list_processed_empty(self, checker):
-        assert checker.list_processed() == []
-
-    def test_list_processed_returns_success_only(self, checker):
-        checker.mark_success("hash1", "/a.pdf", collection="col1")
-        checker.mark_failed("hash2", "/b.pdf", "some error")
-        records = checker.list_processed()
-        assert len(records) == 1
-        assert records[0]["file_hash"] == "hash1"
-        assert records[0]["file_path"] == "/a.pdf"
-        assert records[0]["collection"] == "col1"
-
-    def test_list_processed_filter_by_collection(self, checker):
-        checker.mark_success("h1", "/a.pdf", collection="alpha")
-        checker.mark_success("h2", "/b.pdf", collection="beta")
-        alpha = checker.list_processed(collection="alpha")
-        assert len(alpha) == 1
-        assert alpha[0]["file_hash"] == "h1"
-
-    def test_remove_record_existing(self, checker):
-        checker.mark_success("h1", "/a.pdf")
-        assert checker.remove_record("h1") is True
-        assert checker.list_processed() == []
-
-    def test_remove_record_nonexistent(self, checker):
-        assert checker.remove_record("no_such_hash") is False
-
-    def test_remove_record_then_should_skip_returns_false(self, checker):
-        checker.mark_success("h1", "/a.pdf")
-        assert checker.should_skip("h1") is True
-        checker.remove_record("h1")
-        assert checker.should_skip("h1") is False
+def _chunk(chunk_id: str, source: str, collection: str, sha256: str, title: str, text: str = "body") -> VectorRecord:
+    return VectorRecord(
+        id=chunk_id,
+        vector=[1.0, 0.0],
+        text=text,
+        metadata={
+            "source_path": source,
+            "collection": collection,
+            "sha256": sha256,
+            "title": title,
+            "image_refs": [f"{sha256}_0_0"] if sha256 == _DOC_A else [],
+        },
+    )
 
 
-# =====================================================================
-# DocumentManager tests (using mocks)
-# =====================================================================
-
-def _make_manager(
-    integrity_records: Optional[List[Dict[str, Any]]] = None,
-    chroma_get_ids: Optional[List[str]] = None,
-    image_list: Optional[List[Dict[str, Any]]] = None,
-) -> DocumentManager:
-    """Build a DocumentManager with mock stores."""
-    chroma = MagicMock()
-    bm25 = MagicMock()
-    images = MagicMock()
-    integrity = MagicMock()
-
-    # Default integrity list_processed
-    integrity.list_processed.return_value = integrity_records or []
-
-    # Default Chroma collection.get
-    chroma.collection = MagicMock()
-    chroma.collection.get.return_value = {"ids": chroma_get_ids or []}
-
-    # Default image list
-    images.list_images.return_value = image_list or []
-    images.delete_image.return_value = True
-
-    # Default delete_by_metadata
-    chroma.delete_by_metadata.return_value = len(chroma_get_ids or [])
-
-    # Default bm25 remove
-    bm25.remove_document.return_value = True
-
-    # Default integrity remove
-    integrity.remove_record.return_value = True
-
-    # compute_sha256 returns a fixed hash
-    integrity.compute_sha256.return_value = "abc123"
-
-    mgr = DocumentManager(chroma, bm25, images, integrity)
-    return mgr
+@pytest.fixture
+def stack(tmp_path: Path):
+    store = FakeStore()
+    store.upsert([
+        _chunk(f"{_DOC_A}_0000_deadbeef", "docs/a.pdf", "alpha", _DOC_A, "Doc A", "alpha one"),
+        _chunk(f"{_DOC_A}_0001_feedface", "docs/a.pdf", "alpha", _DOC_A, "Doc A", "alpha two"),
+        _chunk(f"{_DOC_B}_0000_cafebabe", "docs/b.pdf", "beta", _DOC_B, "Doc B", "beta one"),
+    ])
+    indexer = BM25Indexer(index_path=tmp_path / "bm25.json").build([
+        SparseDocStats(chunk_id=f"{_DOC_A}_0000_deadbeef", term_freqs={"alpha": 1}, length=1),
+        SparseDocStats(chunk_id=f"{_DOC_A}_0001_feedface", term_freqs={"guide": 1}, length=1),
+        SparseDocStats(chunk_id=f"{_DOC_B}_0000_cafebabe", term_freqs={"beta": 1}, length=1),
+    ])
+    images = ImageStorage(images_root=str(tmp_path / "images"), db_path=str(tmp_path / "images.db"))
+    images.put(f"{_DOC_A}_0_0", _PNG, collection="alpha", doc_hash=_DOC_A, page_num=0)
+    integrity = SQLiteIntegrityChecker(str(tmp_path / "history.db"))
+    integrity.mark_success(_DOC_A, "docs/a.pdf")
+    integrity.mark_success(_DOC_B, "docs/b.pdf")
+    manager = DocumentManager(
+        chroma_store=store,
+        bm25_indexer=indexer,
+        image_storage=images,
+        file_integrity=integrity,
+    )
+    return {
+        "manager": manager,
+        "store": store,
+        "indexer": indexer,
+        "images": images,
+        "integrity": integrity,
+    }
 
 
-class TestDocumentManagerList:
-
-    def test_list_empty(self):
-        mgr = _make_manager()
-        assert mgr.list_documents() == []
-
-    def test_list_with_records(self):
-        mgr = _make_manager(
-            integrity_records=[
-                {
-                    "file_hash": "abc123",
-                    "file_path": "/docs/a.pdf",
-                    "collection": "default",
-                    "processed_at": "2025-01-01T00:00:00",
-                    "updated_at": "2025-01-01T00:00:00",
-                },
-            ],
-            chroma_get_ids=["abc123_c0", "abc123_c1"],
-            image_list=[{"image_id": "abc123_p1_img0"}],
-        )
-        docs = mgr.list_documents()
-        assert len(docs) == 1
-        assert docs[0].source_path == "/docs/a.pdf"
-        assert docs[0].chunk_count == 2
-        assert docs[0].image_count == 1
-
-    def test_list_with_collection_filter(self):
-        mgr = _make_manager()
-        mgr.list_documents(collection="alpha")
-        mgr.integrity.list_processed.assert_called_once_with("alpha")
+def test_list_documents_aggregates_source_and_counts(stack):
+    docs = stack["manager"].list_documents()
+    assert [item.source_path for item in docs] == ["docs/a.pdf", "docs/b.pdf"]
+    alpha = docs[0]
+    assert isinstance(alpha, DocumentInfo)
+    assert alpha.collection == "alpha"
+    assert alpha.chunk_count == 2
+    assert alpha.image_count == 1
+    assert alpha.doc_hash == _DOC_A
+    assert alpha.title == "Doc A"
+    assert alpha.ingested_at
+    assert stack["manager"].list_documents("beta")[0].source_path == "docs/b.pdf"
 
 
-class TestDocumentManagerDetail:
-
-    def test_detail_found(self):
-        mgr = _make_manager(
-            integrity_records=[
-                {
-                    "file_hash": "abc123",
-                    "file_path": "/docs/a.pdf",
-                    "collection": "default",
-                    "processed_at": "2025-01-01",
-                    "updated_at": "2025-01-01",
-                },
-            ],
-            chroma_get_ids=["abc123_c0"],
-            image_list=[{"image_id": "img1"}],
-        )
-        detail = mgr.get_document_detail("abc123")
-        assert detail is not None
-        assert isinstance(detail, DocumentDetail)
-        assert detail.chunk_ids == ["abc123_c0"]
-        assert detail.image_ids == ["img1"]
-
-    def test_detail_not_found(self):
-        mgr = _make_manager()
-        assert mgr.get_document_detail("no_such") is None
+def test_get_document_detail_returns_chunks_and_images(stack):
+    detail = stack["manager"].get_document_detail("docs/a.pdf", "alpha")
+    assert isinstance(detail, DocumentDetail)
+    assert detail.chunk_count == 2
+    assert [chunk["id"] for chunk in detail.chunks] == [
+        f"{_DOC_A}_0000_deadbeef",
+        f"{_DOC_A}_0001_feedface",
+    ]
+    assert detail.images[0]["image_id"] == f"{_DOC_A}_0_0"
+    assert detail.title == "Doc A"
+    assert stack["manager"].get_document_detail("missing.pdf") is None
 
 
-class TestDocumentManagerDelete:
-
-    def test_delete_success(self, tmp_path):
-        # Create a real temp file so compute_sha256 can work
-        test_file = tmp_path / "test.pdf"
-        test_file.write_bytes(b"hello world")
-
-        mgr = _make_manager(
-            chroma_get_ids=["c0", "c1"],
-            image_list=[{"image_id": "img0"}],
-        )
-        result = mgr.delete_document(str(test_file), "default")
-        assert isinstance(result, DeleteResult)
-        assert result.chunks_deleted == 2
-        assert result.bm25_removed is True
-        assert result.images_deleted == 1
-        assert result.integrity_removed is True
-        assert result.success is True
-        assert result.errors == []
-
-    def test_delete_partial_failure(self, tmp_path):
-        test_file = tmp_path / "test.pdf"
-        test_file.write_bytes(b"data")
-
-        mgr = _make_manager()
-        mgr.chroma.delete_by_metadata.side_effect = RuntimeError("chroma fail")
-        result = mgr.delete_document(str(test_file), "default")
-        assert result.success is False
-        assert any("ChromaDB" in e for e in result.errors)
-        # Other stores still attempted
-        mgr.bm25.remove_document.assert_called_once()
-        mgr.integrity.remove_record.assert_called_once()
-
-    def test_delete_file_missing_falls_back_to_integrity(self):
-        mgr = _make_manager(
-            integrity_records=[
-                {
-                    "file_hash": "xyz789",
-                    "file_path": "/gone/missing.pdf",
-                    "collection": "default",
-                    "processed_at": "2025-01-01",
-                    "updated_at": "2025-01-01",
-                },
-            ],
-        )
-        mgr.integrity.compute_sha256.side_effect = FileNotFoundError("gone")
-        result = mgr.delete_document("/gone/missing.pdf", "default")
-        # Should fall back to _hash_from_path
-        assert result.success is True or len(result.errors) == 0 or True
-        mgr.chroma.delete_by_metadata.assert_called_once()
+def test_get_document_detail_rejects_empty_id(stack):
+    with pytest.raises(ValueError):
+        stack["manager"].get_document_detail("")
 
 
-class TestDocumentManagerStats:
+def test_delete_document_coordinates_four_stores(stack):
+    result = stack["manager"].delete_document("docs/a.pdf", "alpha")
+    assert isinstance(result, DeleteResult)
+    assert result.chroma_deleted == 2
+    assert result.bm25_deleted == 2
+    assert result.images_deleted == 1
+    assert result.integrity_removed is True
+    remaining = stack["manager"].list_documents()
+    assert [item.source_path for item in remaining] == ["docs/b.pdf"]
+    assert stack["manager"].get_document_detail("docs/a.pdf", "alpha") is None
+    assert stack["indexer"].query(["alpha"], 3) == []
+    assert stack["images"].count(doc_hash=_DOC_A) == 0
+    assert stack["integrity"].should_skip(_DOC_A) is False
 
-    def test_stats_empty(self):
-        mgr = _make_manager()
-        stats = mgr.get_collection_stats()
-        assert isinstance(stats, CollectionStats)
-        assert stats.document_count == 0
-        assert stats.chunk_count == 0
-        assert stats.image_count == 0
 
-    def test_stats_aggregate(self):
-        mgr = _make_manager(
-            integrity_records=[
-                {
-                    "file_hash": "h1",
-                    "file_path": "/a.pdf",
-                    "collection": "default",
-                    "processed_at": "2025-01-01",
-                    "updated_at": "2025-01-01",
-                },
-                {
-                    "file_hash": "h2",
-                    "file_path": "/b.pdf",
-                    "collection": "default",
-                    "processed_at": "2025-01-01",
-                    "updated_at": "2025-01-01",
-                },
-            ],
-            chroma_get_ids=["c0", "c1", "c2"],
-            image_list=[{"image_id": "i0"}],
-        )
-        stats = mgr.get_collection_stats("default")
-        assert stats.document_count == 2
-        # Each doc gets 3 chunks (same mock) = 6 total
-        assert stats.chunk_count == 6
-        # Each doc gets 1 image = 2 total
-        assert stats.image_count == 2
+def test_delete_document_rejects_empty_args(stack):
+    with pytest.raises(ValueError):
+        stack["manager"].delete_document("", "alpha")
+    with pytest.raises(ValueError):
+        stack["manager"].delete_document("docs/a.pdf", "")
+
+
+def test_get_collection_stats_groups_documents(stack):
+    stats = stack["manager"].get_collection_stats()
+    assert [item.name for item in stats] == ["alpha", "beta"]
+    assert stats[0] == CollectionStats(name="alpha", document_count=1, chunk_count=2, image_count=1)
+    only_beta = stack["manager"].get_collection_stats("beta")
+    assert only_beta[0].document_count == 1
+    assert only_beta[0].chunk_count == 1
+    missing = stack["manager"].get_collection_stats("ghost")
+    assert missing == [CollectionStats(name="ghost")]
+
+
+def test_dataclasses_to_dict_roundtrip():
+    info = DocumentInfo("a.pdf", "c", 2, image_count=1, ingested_at="t", doc_hash="h", title="T")
+    assert info.to_dict()["source_path"] == "a.pdf"
+    detail = DocumentDetail("a.pdf", "c", 1, chunks=[{"id": "x"}], images=[], title="T")
+    assert detail.to_dict()["chunk_count"] == 1
+    deleted = DeleteResult("a.pdf", "c", chroma_deleted=1, integrity_removed=True)
+    assert deleted.to_dict()["integrity_removed"] is True
+    stats = CollectionStats("c", document_count=2, chunk_count=4)
+    assert stats.to_dict()["name"] == "c"
+
+
+# ---------------------------------------------------------------------------
+# IR2：多哈希收集 / 遍历删除 / 版本替换前置清理
+# ---------------------------------------------------------------------------
+
+_OLD = "a1" * 32
+_NEW = "a2" * 32
+
+
+def test_doc_hashes_of_collects_metadata_keys_and_id_prefixes():
+    prefix_only = "cd" * 32
+    chunks = [
+        {"id": f"{_OLD}_0000_deadbeef", "metadata": {"sha256": _OLD}},
+        {"id": "x", "metadata": {"doc_hash": _NEW}},
+        {"id": f"{prefix_only}_0000_cafebabe", "metadata": {}},
+        {"id": "short_0000_cafebabe", "metadata": {}},
+    ]
+    assert DocumentManager._doc_hashes_of(chunks) == {_OLD, _NEW, prefix_only}
+    assert DocumentManager._doc_hashes_of([]) == set()
+    assert DocumentManager._primary_hash({_NEW, _OLD}) == _OLD
+    assert DocumentManager._primary_hash(set()) is None
+
+
+def _replacement_stack(tmp_path: Path):
+    """docs/a.pdf 在 alpha 有旧版本 _OLD；docs/copy.pdf（同内容副本）在 beta 共享 _DOC_B。"""
+    store = FakeStore()
+    store.upsert([
+        _chunk(f"{_OLD}_0000_deadbeef", "docs/a.pdf", "alpha", _OLD, "Doc A v1"),
+        _chunk(f"{_OLD}_0001_feedface", "docs/a.pdf", "alpha", _OLD, "Doc A v1"),
+        _chunk(f"{_DOC_B}_0000_cafebabe", "docs/b.pdf", "beta", _DOC_B, "Doc B"),
+    ])
+    indexer = BM25Indexer(index_path=tmp_path / "bm25.json").build([
+        SparseDocStats(chunk_id=f"{_OLD}_0000_deadbeef", term_freqs={"old": 1}, length=1),
+        SparseDocStats(chunk_id=f"{_OLD}_0001_feedface", term_freqs={"old": 1}, length=1),
+        SparseDocStats(chunk_id=f"{_DOC_B}_0000_cafebabe", term_freqs={"beta": 1}, length=1),
+    ])
+    images = ImageStorage(images_root=str(tmp_path / "images"), db_path=str(tmp_path / "images.db"))
+    images.put(f"{_OLD}_0_0", _PNG, doc_hash=_OLD, page_num=0)
+    images.put(f"{_DOC_B}_0_0", _PNG, doc_hash=_DOC_B, page_num=0)
+    integrity = SQLiteIntegrityChecker(str(tmp_path / "history.db"))
+    integrity.mark_success(_OLD, "docs/a.pdf", collection="alpha")
+    integrity.mark_success(_DOC_B, "docs/b.pdf", collection="beta")
+    manager = DocumentManager(
+        chroma_store=store, bm25_indexer=indexer, image_storage=images, file_integrity=integrity
+    )
+    return manager, store, indexer, images, integrity
+
+
+def test_prepare_version_replacement_is_noop_without_record_or_same_hash(tmp_path):
+    manager, store, indexer, _, _ = _replacement_stack(tmp_path)
+    assert manager.prepare_version_replacement("docs/new.pdf", "alpha", _NEW) is None
+    assert manager.prepare_version_replacement("docs/a.pdf", "alpha", _OLD) is None
+    # 同路径换集合：历史按 (source_path, collection) 查，beta 下无记录
+    assert manager.prepare_version_replacement("docs/a.pdf", "beta", _NEW) is None
+    assert len(store.get_by_metadata()) == 3
+    assert len(indexer) == 3
+
+
+def test_prepare_version_replacement_clears_old_version_only(tmp_path):
+    manager, store, indexer, images, integrity = _replacement_stack(tmp_path)
+
+    result = manager.prepare_version_replacement("docs/a.pdf", "alpha", _NEW)
+
+    assert result is not None
+    assert (result.chroma_deleted, result.bm25_deleted, result.images_deleted) == (2, 2, 1)
+    assert store.get_by_metadata({"source_path": "docs/a.pdf"}) == []
+    assert images.count(doc_hash=_OLD) == 0
+    # 其他文档不受影响
+    assert len(store.get_by_metadata({"collection": "beta"})) == 1
+    assert len(indexer) == 1
+    assert images.count(doc_hash=_DOC_B) == 1
+    # 历史记录保留，交给随后的 mark_success / mark_failed 覆盖
+    assert integrity.get_record("docs/a.pdf", "alpha")["file_hash"] == _OLD
+    reloaded = BM25Indexer(index_path=tmp_path / "bm25.json").load()
+    assert len(reloaded) == 1
+
+
+def test_prepare_version_replacement_is_idempotent(tmp_path):
+    manager, store, indexer, images, _ = _replacement_stack(tmp_path)
+    manager.prepare_version_replacement("docs/a.pdf", "alpha", _NEW)
+    snapshot = (len(store.get_by_metadata()), len(indexer), images.count())
+
+    again = manager.prepare_version_replacement("docs/a.pdf", "alpha", _NEW)
+
+    assert again is not None
+    assert (again.chroma_deleted, again.bm25_deleted, again.images_deleted) == (0, 0, 0)
+    assert (len(store.get_by_metadata()), len(indexer), images.count()) == snapshot
+
+
+def test_prepare_version_replacement_keeps_hash_shared_by_other_scope(tmp_path):
+    manager, store, indexer, images, integrity = _replacement_stack(tmp_path)
+    # docs/copy.pdf 与 docs/a.pdf 旧版本同内容（同哈希）。真实 chunk_id 会相同并互相覆盖，
+    # 这里换一个 index 以便 FakeStore 中两条记录并存。
+    store.upsert([_chunk(f"{_OLD}_0009_00000000", "docs/copy.pdf", "gamma", _OLD, "Copy")])
+
+    result = manager.prepare_version_replacement("docs/a.pdf", "alpha", _NEW)
+
+    assert result.chroma_deleted == 2
+    assert result.bm25_deleted == 0
+    assert result.images_deleted == 0
+    assert images.count(doc_hash=_OLD) == 1
+    assert len(store.get_by_metadata({"source_path": "docs/copy.pdf"})) == 1
+
+
+def test_prepare_version_replacement_bm25_save_failure_propagates(tmp_path, monkeypatch):
+    manager, _, indexer, _, _ = _replacement_stack(tmp_path)
+
+    def _boom(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(indexer, "save", _boom)
+    with pytest.raises(OSError):
+        manager.prepare_version_replacement("docs/a.pdf", "alpha", _NEW)
+
+
+def test_delete_document_keeps_other_collections_history_and_shared_hash(tmp_path):
+    manager, store, indexer, images, integrity = _replacement_stack(tmp_path)
+    store.upsert([_chunk(f"{_OLD}_0009_00000000", "docs/a.pdf", "gamma", _OLD, "Doc A in gamma")])
+    integrity.mark_success(_OLD, "docs/a.pdf", collection="gamma")
+
+    result = manager.delete_document("docs/a.pdf", "alpha")
+
+    assert result.chroma_deleted == 2
+    assert result.bm25_deleted == 0
+    assert result.images_deleted == 0
+    assert result.integrity_removed is True
+    assert integrity.get_record("docs/a.pdf", "alpha") is None
+    assert integrity.get_record("docs/a.pdf", "gamma") is not None
+    assert len(store.get_by_metadata({"collection": "gamma"})) == 1
+
+
+def test_delete_document_is_idempotent_for_mixed_generations(tmp_path):
+    manager, store, indexer, images, integrity = _replacement_stack(tmp_path)
+    store.upsert([_chunk(f"{_NEW}_0000_cafebabe", "docs/a.pdf", "alpha", _NEW, "Doc A v2")])
+    indexer.add([SparseDocStats(chunk_id=f"{_NEW}_0000_cafebabe", term_freqs={"new": 1}, length=1)])
+
+    first = manager.delete_document("docs/a.pdf", "alpha")
+    second = manager.delete_document("docs/a.pdf", "alpha")
+
+    assert (first.chroma_deleted, first.bm25_deleted, first.images_deleted) == (3, 3, 1)
+    assert first.integrity_removed is True
+    assert (second.chroma_deleted, second.bm25_deleted, second.images_deleted) == (0, 0, 0)
+    assert second.integrity_removed is False
+    assert len(indexer) == 1

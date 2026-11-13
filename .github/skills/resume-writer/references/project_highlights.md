@@ -100,7 +100,7 @@
 - 设计双链路追踪体系：Ingestion Trace（5 阶段）+ Query Trace（5 阶段）
 - TraceContext 显式调用模式，低侵入记录各阶段耗时、候选数量、分数分布
 - JSON Lines 结构化日志持久化，零外部依赖（无 LangSmith/LangFuse）
-- 基于 Streamlit 构建六页面管理平台：
+- 基于 Web UI（FastAPI + Next）构建可视化管理平台：
   - 系统总览（组件配置 + 数据资产统计）
   - 数据浏览器（文档/Chunk/图片详情查看)
   - Ingestion 管理（文件上传、实时进度条、文档删除）
@@ -111,7 +111,7 @@
 
 **简历话术方向**：
 - "构建全链路白盒化追踪体系（Ingestion + Query 双链路），每次检索过程透明可回溯，支持精准定位坏 Case"
-- "基于 Streamlit 实现六页面可视化管理平台，涵盖数据浏览、摄取管理、追踪分析、评估面板，实现 RAG 系统的全生命周期管理"
+- "基于 Web UI（FastAPI + Next）实现可视化管理平台，涵盖数据浏览、摄取管理、追踪分析、评估面板，实现 RAG 系统的全生命周期管理"
 
 **可量化角度**：追踪覆盖阶段数、Dashboard 页面数、追踪日志条数、问题定位效率提升
 
@@ -186,7 +186,7 @@
 ## 亮点 11：Skill 驱动全流程开发（AI Agent 自动化工程实践）
 
 **技术要点**：
-- 设计并实现 DEV_SPEC 驱动开发模式：通过结构化开发规格文档（DEV_SPEC.md）定义架构、接口、任务排期，AI Agent 基于 Spec 自动生成符合规格的代码
+- 设计并实现 DEV_SPEC 驱动开发模式：通过结构化开发规格文档（01_DEV_SPEC_frozen.md）定义架构、接口、任务排期，AI Agent 基于 Spec 自动生成符合规格的代码
 - 内置 5 大 Agent Skill 覆盖完整开发生命周期：
   - **auto-coder**：读取 DEV_SPEC 中的任务定义与架构规范，自动实现代码并运行测试，支持最多 3 轮自动修复
   - **qa-tester**：基于 QA_TEST_PLAN 自动执行全类型测试（CLI / Dashboard UI / MCP 协议 / Provider 切换），自动诊断并修复失败用例

@@ -1,122 +1,76 @@
-"""Abstract base class for Reranker providers.
+"""Reranker 抽象基类与 None 回退实现（阶段 B5）。
 
-This module defines the pluggable interface for reranker providers,
-enabling seamless switching between reranking strategies (None, Cross-Encoder,
-LLM-based) through configuration-driven instantiation.
+定义全链路共用的 ``BaseReranker`` 接口与 ``RerankCandidate`` 数据契约，
+并提供 ``NoneReranker`` 作为默认安全回退（保持原顺序不变）。
+
+设计要点：
+- ``rerank(query, candidates)`` 为统一入口，返回重排后的候选列表。
+- ``NoneReranker``：不改变顺序，作为 ``backend=none`` 的实现与失败回退兜底。
+- 预留 ``trace: TraceContext | None`` 参数（阶段 F 打点时使用，当前仅占位）。
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass, field
+from typing import Any, Sequence
+
+__all__ = ["RerankCandidate", "BaseReranker", "NoneReranker"]
+
+
+@dataclass
+class RerankCandidate:
+    """重排候选的统一数据契约。
+
+    Attributes:
+        id: 候选唯一标识（通常为 chunk_id）。
+        text: 候选文本（供 LLM/Cross-Encoder 打分）。
+        score: 原始分数（来自召回阶段），重排后会被更新。
+        metadata: 元数据（source/page 等）。
+    """
+
+    id: str
+    text: str = ""
+    score: float = 0.0
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class BaseReranker(ABC):
-    """Abstract base class for reranker providers.
-    
-    All reranker implementations must inherit from this class and implement
-    the rerank() method. This ensures a consistent interface across different
-    reranking strategies.
-    
-    Design Principles Applied:
-    - Pluggable: Subclasses can be swapped without changing upstream code.
-    - Observable: Accepts optional TraceContext for observability integration.
-    - Config-Driven: Instances are created via factory based on settings.
-    - Fallback: Implementations should support safe degradation to original order.
-    """
-    
+    """Reranker 抽象基类，所有后端实现需继承并实现 ``rerank``。"""
+
     @abstractmethod
     def rerank(
         self,
         query: str,
-        candidates: List[Dict[str, Any]],
-        trace: Optional[Any] = None,
+        candidates: Sequence[RerankCandidate],
+        *,
+        trace: Any | None = None,
         **kwargs: Any,
-    ) -> List[Dict[str, Any]]:
-        """Rerank candidate chunks for a given query.
-        
+    ) -> list[RerankCandidate]:
+        """对候选集按与 query 的相关性重排。
+
         Args:
-            query: The user query string.
-            candidates: List of candidate records to rerank. Each item is a dict
-                containing at least an identifier and any fields needed by the
-                reranker implementation (e.g., text, score, metadata).
-            trace: Optional TraceContext for observability (reserved for Stage F).
-            **kwargs: Provider-specific parameters (top_k, timeout, etc.).
-        
+            query: 用户查询。
+            candidates: 召回阶段产出的候选序列。
+            trace: 可选的 ``TraceContext``（当前占位）。
+            **kwargs: 后端特定的扩展参数。
+
         Returns:
-            A list of candidates in the reranked order. Implementations should
-            preserve candidate objects and only change ordering unless explicitly
-            documented.
-        
-        Raises:
-            ValueError: If query or candidates are invalid.
-            RuntimeError: If the reranker fails unexpectedly.
+            重排后的候选列表（长度 <= 输入长度）。
         """
-        pass
-    
-    def validate_query(self, query: str) -> None:
-        """Validate the query string.
-        
-        Args:
-            query: Query string to validate.
-        
-        Raises:
-            ValueError: If query is not a non-empty string.
-        """
-        if not isinstance(query, str):
-            raise ValueError(f"Query must be a string, got {type(query).__name__}")
-        if not query.strip():
-            raise ValueError("Query cannot be empty or whitespace-only")
-    
-    def validate_candidates(self, candidates: List[Dict[str, Any]]) -> None:
-        """Validate candidate list structure.
-        
-        Args:
-            candidates: List of candidate records to validate.
-        
-        Raises:
-            ValueError: If candidates list is empty or malformed.
-        """
-        if not isinstance(candidates, list):
-            raise ValueError("Candidates must be a list of dicts")
-        if not candidates:
-            raise ValueError("Candidates list cannot be empty")
-        for i, candidate in enumerate(candidates):
-            if not isinstance(candidate, dict):
-                raise ValueError(
-                    f"Candidate at index {i} is not a dict (type: {type(candidate).__name__})"
-                )
+        raise NotImplementedError
 
 
 class NoneReranker(BaseReranker):
-    """No-op reranker that preserves original order.
-    
-    This implementation is used when reranking is disabled or the provider is set
-    to 'none'. It validates inputs and returns candidates unchanged.
-    """
-    
-    def __init__(self, settings: Any = None, **kwargs: Any) -> None:
-        self.settings = settings
-        self.kwargs = kwargs
-    
+    """``backend=none`` 的实现：保持原顺序不变，作为安全默认/回退兜底。"""
+
     def rerank(
         self,
         query: str,
-        candidates: List[Dict[str, Any]],
-        trace: Optional[Any] = None,
+        candidates: Sequence[RerankCandidate],
+        *,
+        trace: Any | None = None,
         **kwargs: Any,
-    ) -> List[Dict[str, Any]]:
-        """Return candidates in original order.
-        
-        Args:
-            query: Query string.
-            candidates: Candidate list to return.
-            trace: Optional TraceContext (unused).
-            **kwargs: Ignored.
-        
-        Returns:
-            A shallow copy of candidates preserving order.
-        """
-        self.validate_query(query)
-        self.validate_candidates(candidates)
+    ) -> list[RerankCandidate]:
+        # 返回新列表，保持原顺序与原 score 不变。
         return list(candidates)

@@ -1,331 +1,265 @@
-"""Unit tests for Ollama Embedding provider implementation.
+"""``OllamaEmbedding`` 冒烟测试（阶段 B7.4，mock HTTP）。
 
-This test suite validates the Ollama Embedding implementation using
-mocked HTTP responses to ensure reliable, fast, and offline testing.
+通过注入 fake transport 验证：
+- provider=ollama 时 ``EmbeddingFactory`` 可创建。
+- 请求 URL / body 符合 Ollama 原生 ``/api/embed`` 规范（批量 input）。
+- 批量 ``embed(texts)`` 返回与输入等长、顺序一致的向量列表。
+- 空输入 / 非字符串 / 超长输入有明确行为。
+- 正常响应、连接失败、超时、错误响应等场景覆盖。
+- 不泄露 api_key。
 """
 
 from __future__ import annotations
 
-import sys
-from typing import Any
-from unittest.mock import MagicMock, Mock, patch
+from dataclasses import replace
+from pathlib import Path
+from textwrap import dedent
 
 import pytest
 
-from src.libs.embedding.ollama_embedding import OllamaEmbedding, OllamaEmbeddingError
-from src.libs.embedding.embedding_factory import EmbeddingFactory
+from core.settings import load_settings
+from libs.embedding.embedding_factory import EmbeddingFactory
+from libs.embedding.openai_embedding import EmbeddingRequestError
+
+_VALID_YAML = dedent(
+    """\
+    llm:
+      provider: ollama
+      model: llama3
+    embedding:
+      provider: ollama
+      model: nomic-embed-text
+      base_url: http://localhost:11434
+    vision_llm:
+      provider: azure
+      model: gpt-4o
+    vector_store:
+      backend: chroma
+    retrieval:
+      sparse_backend: bm25
+      fusion_algorithm: rrf
+    rerank:
+      backend: none
+    evaluation:
+      backends: [custom]
+    """
+)
 
 
-# =============================================================================
-# Test Fixtures
-# =============================================================================
-
-@pytest.fixture
-def mock_settings_ollama() -> Any:
-    """Create mock settings for Ollama embedding."""
-    settings = Mock()
-    settings.embedding = Mock()
-    settings.embedding.provider = "ollama"
-    settings.embedding.model = "nomic-embed-text"
-    settings.embedding.dimensions = 768
+def _settings(tmp_path: Path, **emb_overrides):
+    path = tmp_path / "settings.yaml"
+    path.write_text(_VALID_YAML, encoding="utf-8")
+    settings = load_settings(path)
+    if emb_overrides:
+        settings = replace(settings, embedding=replace(settings.embedding, **emb_overrides))
     return settings
 
 
+def _ok_response(vectors: list[list[float]], model: str = "nomic-embed-text") -> dict:
+    return {"model": model, "embeddings": vectors}
+
+
+class _FakeTransport:
+    def __init__(self, response: dict | None = None, raise_exc: Exception | None = None):
+        self.response = response
+        self.raise_exc = raise_exc
+        self.last_url = None
+        self.last_headers = None
+        self.last_body = None
+
+    def __call__(self, url, headers, body, *, timeout=None):
+        self.last_url = url
+        self.last_headers = headers
+        self.last_body = body
+        if self.raise_exc is not None:
+            raise self.raise_exc
+        return self.response
+
+
 @pytest.fixture
-def mock_ollama_response() -> dict[str, Any]:
-    """Create a mock Ollama embeddings response."""
-    return {
-        "embedding": [0.1, 0.2, 0.3, 0.4, 0.5]  # Truncated for testing
-    }
+def registered():
+    import libs.embedding  # noqa: F401
+    yield EmbeddingFactory
 
 
-# =============================================================================
-# Ollama Embedding Tests
-# =============================================================================
-
-class TestOllamaEmbedding:
-    """Test suite for OllamaEmbedding implementation."""
-    
-    def test_initialization_default(self, mock_settings_ollama: Any) -> None:
-        """Test successful initialization with default base_url."""
-        embedding = OllamaEmbedding(mock_settings_ollama)
-        
-        assert embedding.model == "nomic-embed-text"
-        assert embedding.dimension == 768
-        assert embedding.base_url == OllamaEmbedding.DEFAULT_BASE_URL
-        assert embedding.timeout == OllamaEmbedding.DEFAULT_TIMEOUT
-    
-    def test_initialization_with_custom_base_url(self, mock_settings_ollama: Any) -> None:
-        """Test initialization with custom base URL."""
-        custom_url = "http://custom-ollama:11434"
-        embedding = OllamaEmbedding(mock_settings_ollama, base_url=custom_url)
-        
-        assert embedding.base_url == custom_url
-    
-    def test_initialization_with_env_var(
-        self, mock_settings_ollama: Any, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Test initialization with base URL from environment variable."""
-        env_url = "http://env-ollama:11434"
-        monkeypatch.setenv("OLLAMA_BASE_URL", env_url)
-        
-        embedding = OllamaEmbedding(mock_settings_ollama)
-        
-        assert embedding.base_url == env_url
-    
-    def test_initialization_with_custom_timeout(self, mock_settings_ollama: Any) -> None:
-        """Test initialization with custom timeout."""
-        custom_timeout = 60.0
-        embedding = OllamaEmbedding(mock_settings_ollama, timeout=custom_timeout)
-        
-        assert embedding.timeout == custom_timeout
-    
-    def test_initialization_without_dimensions_setting(self, mock_settings_ollama: Any) -> None:
-        """Test initialization when dimensions not in settings (uses default)."""
-        delattr(mock_settings_ollama.embedding, 'dimensions')
-        
-        embedding = OllamaEmbedding(mock_settings_ollama)
-        
-        assert embedding.dimension == OllamaEmbedding.DEFAULT_DIMENSION
-    
-    @patch('httpx.Client')
-    def test_embed_single_text(
-        self, 
-        mock_client_class: Mock,
-        mock_settings_ollama: Any,
-        mock_ollama_response: dict[str, Any],
-    ) -> None:
-        """Test embedding a single text."""
-        # Setup mock HTTP response
-        mock_response = Mock()
-        mock_response.json.return_value = mock_ollama_response
-        mock_response.raise_for_status.return_value = None
-        
-        # Setup mock client
-        mock_client_class.return_value.__enter__.return_value.post.return_value = mock_response
-        
-        # Execute
-        embedding = OllamaEmbedding(mock_settings_ollama)
-        result = embedding.embed(["hello world"])
-        
-        # Assert
-        assert len(result) == 1
-        assert result[0] == mock_ollama_response["embedding"]
-        
-        # Verify API call
-        mock_client_class.return_value.__enter__.return_value.post.assert_called_once()
-        call_args = mock_client_class.return_value.__enter__.return_value.post.call_args
-        assert call_args[0][0] == f"{embedding.base_url}/api/embeddings"
-        assert call_args[1]["json"]["model"] == "nomic-embed-text"
-        assert call_args[1]["json"]["prompt"] == "hello world"
-    
-    @patch('httpx.Client')
-    def test_embed_multiple_texts(
-        self, 
-        mock_client_class: Mock,
-        mock_settings_ollama: Any,
-    ) -> None:
-        """Test embedding multiple texts (batch processing)."""
-        # Setup mock HTTP client with different embeddings for each text
-        def create_response(url, json) -> Mock:
-            response = Mock()
-            # Return different embeddings based on prompt
-            if "hello" in json["prompt"]:
-                response.json.return_value = {"embedding": [0.1, 0.2, 0.3]}
-            else:
-                response.json.return_value = {"embedding": [0.4, 0.5, 0.6]}
-            response.raise_for_status.return_value = None
-            return response
-        
-        mock_client_class.return_value.__enter__.return_value.post.side_effect = create_response
-        
-        # Execute
-        embedding = OllamaEmbedding(mock_settings_ollama)
-        result = embedding.embed(["hello world", "test"])
-        
-        # Assert
-        assert len(result) == 2
-        assert result[0] == [0.1, 0.2, 0.3]
-        assert result[1] == [0.4, 0.5, 0.6]
-        
-        # Verify API called twice (once per text)
-        assert mock_client_class.return_value.__enter__.return_value.post.call_count == 2
-    
-    def test_embed_empty_list(self, mock_settings_ollama: Any) -> None:
-        """Test that embedding empty list raises ValueError."""
-        embedding = OllamaEmbedding(mock_settings_ollama)
-        
-        with pytest.raises(ValueError, match="Texts list cannot be empty"):
-            embedding.embed([])
-    
-    def test_embed_with_empty_string(self, mock_settings_ollama: Any) -> None:
-        """Test that embedding empty string raises ValueError."""
-        embedding = OllamaEmbedding(mock_settings_ollama)
-        
-        with pytest.raises(ValueError, match="empty or whitespace-only"):
-            embedding.embed([""])
-    
-    def test_embed_with_non_string(self, mock_settings_ollama: Any) -> None:
-        """Test that embedding non-string raises ValueError."""
-        embedding = OllamaEmbedding(mock_settings_ollama)
-        
-        with pytest.raises(ValueError, match="not a string"):
-            embedding.embed([123])  # type: ignore
-    
-    @patch('httpx.Client')
-    def test_embed_http_status_error(
-        self,
-        mock_client_class: Mock,
-        mock_settings_ollama: Any,
-    ) -> None:
-        """Test handling of HTTP status errors (4xx, 5xx)."""
-        # Setup mock to raise HTTPStatusError
-        mock_response = Mock()
-        mock_response.status_code = 404
-        mock_response.raise_for_status.side_effect = __import__('httpx').HTTPStatusError(
-            "Not Found", request=Mock(), response=mock_response
-        )
-        
-        mock_client_class.return_value.__enter__.return_value.post.return_value = mock_response
-        
-        # Execute and assert
-        embedding = OllamaEmbedding(mock_settings_ollama)
-        
-        with pytest.raises(OllamaEmbeddingError, match="Ollama API request failed with status 404"):
-            embedding.embed(["test"])
-    
-    @patch('httpx.Client')
-    def test_embed_connection_error(
-        self,
-        mock_client_class: Mock,
-        mock_settings_ollama: Any,
-    ) -> None:
-        """Test handling of connection errors (server not reachable)."""
-        # Setup mock to raise ConnectError
-        mock_client_class.return_value.__enter__.return_value.post.side_effect = __import__('httpx').ConnectError(
-            "Connection refused"
-        )
-        
-        # Execute and assert
-        embedding = OllamaEmbedding(mock_settings_ollama)
-        
-        with pytest.raises(OllamaEmbeddingError, match="Failed to connect to Ollama server"):
-            embedding.embed(["test"])
-    
-    @patch('httpx.Client')
-    def test_embed_timeout_error(
-        self,
-        mock_client_class: Mock,
-        mock_settings_ollama: Any,
-    ) -> None:
-        """Test handling of timeout errors."""
-        # Setup mock to raise TimeoutException
-        mock_client_class.return_value.__enter__.return_value.post.side_effect = __import__('httpx').TimeoutException(
-            "Request timed out"
-        )
-        
-        # Execute and assert
-        embedding = OllamaEmbedding(mock_settings_ollama)
-        
-        with pytest.raises(OllamaEmbeddingError, match="Ollama API request timed out"):
-            embedding.embed(["test"])
-    
-    @patch('httpx.Client')
-    def test_embed_missing_embedding_field(
-        self,
-        mock_client_class: Mock,
-        mock_settings_ollama: Any,
-    ) -> None:
-        """Test handling of response missing 'embedding' field."""
-        # Setup mock with invalid response format
-        mock_response = Mock()
-        mock_response.json.return_value = {"wrong_field": "data"}
-        mock_response.raise_for_status.return_value = None
-        
-        mock_client_class.return_value.__enter__.return_value.post.return_value = mock_response
-        
-        # Execute and assert
-        embedding = OllamaEmbedding(mock_settings_ollama)
-        
-        with pytest.raises(OllamaEmbeddingError, match="Unexpected response format"):
-            embedding.embed(["test"])
-    
-    @patch('httpx.Client')
-    def test_embed_json_parse_error(
-        self,
-        mock_client_class: Mock,
-        mock_settings_ollama: Any,
-    ) -> None:
-        """Test handling of JSON parsing errors."""
-        # Setup mock with response that fails JSON parsing
-        mock_response = Mock()
-        mock_response.json.side_effect = ValueError("Invalid JSON")
-        mock_response.raise_for_status.return_value = None
-        
-        mock_client_class.return_value.__enter__.return_value.post.return_value = mock_response
-        
-        # Execute and assert
-        embedding = OllamaEmbedding(mock_settings_ollama)
-        
-        with pytest.raises(OllamaEmbeddingError, match="Failed to parse Ollama API response"):
-            embedding.embed(["test"])
-    
-    @patch.dict('sys.modules', {'httpx': None})
-    def test_embed_missing_httpx_dependency(
-        self,
-        mock_settings_ollama: Any,
-    ) -> None:
-        """Test that missing httpx library raises clear error."""
-        embedding = OllamaEmbedding(mock_settings_ollama)
-        
-        with pytest.raises(OllamaEmbeddingError, match="httpx library is required"):
-            embedding.embed(["test"])
-    
-    def test_get_dimension(self, mock_settings_ollama: Any) -> None:
-        """Test get_dimension method returns configured dimension."""
-        embedding = OllamaEmbedding(mock_settings_ollama)
-        
-        assert embedding.get_dimension() == 768
-    
-    def test_get_dimension_default(self, mock_settings_ollama: Any) -> None:
-        """Test get_dimension returns default when not configured."""
-        delattr(mock_settings_ollama.embedding, 'dimensions')
-        
-        embedding = OllamaEmbedding(mock_settings_ollama)
-        
-        assert embedding.get_dimension() == OllamaEmbedding.DEFAULT_DIMENSION
+# ---------------------------------------------------------------------------
+# 工厂创建 + 请求构建
+# ---------------------------------------------------------------------------
 
 
-# =============================================================================
-# Factory Integration Tests
-# =============================================================================
+def test_factory_creates_ollama(tmp_path, registered):
+    settings = _settings(tmp_path, provider="ollama")
+    emb = registered.create(settings, transport=_FakeTransport(_ok_response([[0.1, 0.2]])))
+    assert emb.__class__.__name__ == "OllamaEmbedding"
 
-class TestOllamaEmbeddingFactoryIntegration:
-    """Test suite for Ollama Embedding factory integration."""
-    
-    def test_factory_creates_ollama_embedding(self, mock_settings_ollama: Any) -> None:
-        """Test that factory correctly creates Ollama embedding instance."""
-        # Register Ollama provider
-        EmbeddingFactory.register_provider("ollama", OllamaEmbedding)
-        
-        # Create via factory
-        embedding = EmbeddingFactory.create(mock_settings_ollama)
-        
-        # Assert correct type
-        assert isinstance(embedding, OllamaEmbedding)
-        assert embedding.model == "nomic-embed-text"
-    
-    def test_factory_with_override_kwargs(self, mock_settings_ollama: Any) -> None:
-        """Test factory with parameter overrides."""
-        EmbeddingFactory.register_provider("ollama", OllamaEmbedding)
-        
-        # Create with overrides
-        embedding = EmbeddingFactory.create(
-            mock_settings_ollama,
-            base_url="http://override:11434",
-            timeout=30.0,
-        )
-        
-        assert isinstance(embedding, OllamaEmbedding)
-        assert embedding.base_url == "http://override:11434"
-        assert embedding.timeout == 30.0
+
+def test_ollama_embed_builds_native_request(tmp_path, registered):
+    transport = _FakeTransport(_ok_response([[0.1, 0.2], [0.3, 0.4]], model="nomic-embed-text"))
+    settings = _settings(tmp_path, provider="ollama", model="nomic-embed-text", base_url="http://localhost:11434")
+    emb = registered.create(settings, transport=transport)
+    vecs = emb.embed(["hello", "world"])
+    assert vecs == [[0.1, 0.2], [0.3, 0.4]]
+    assert transport.last_url == "http://localhost:11434/api/embed"
+    assert transport.last_body["model"] == "nomic-embed-text"
+    assert transport.last_body["input"] == ["hello", "world"]
+
+
+def test_ollama_custom_base_url(tmp_path, registered):
+    transport = _FakeTransport(_ok_response([[0.1]]))
+    settings = _settings(tmp_path, provider="ollama", base_url="http://gpu-box:11434")
+    emb = registered.create(settings, transport=transport)
+    emb.embed(["hi"])
+    assert transport.last_url == "http://gpu-box:11434/api/embed"
+
+
+def test_ollama_default_base_url_when_unspecified(tmp_path, registered):
+    transport = _FakeTransport(_ok_response([[0.1]]))
+    settings = _settings(tmp_path, provider="ollama", base_url=None)
+    emb = registered.create(settings, transport=transport)
+    emb.embed(["hi"])
+    assert transport.last_url == "http://localhost:11434/api/embed"
+
+
+def test_ollama_vector_dimension_from_model(tmp_path, registered):
+    """输出向量维度由模型决定（nomic-embed-text 为 768 维示例）。"""
+    dim = 768
+    transport = _FakeTransport(_ok_response([[0.01] * dim]))
+    settings = _settings(tmp_path, provider="ollama", model="nomic-embed-text")
+    emb = registered.create(settings, transport=transport)
+    vecs = emb.embed(["hi"])
+    assert len(vecs) == 1
+    assert len(vecs[0]) == dim
+
+
+def test_ollama_batch_embed_order_preserved(tmp_path, registered):
+    transport = _FakeTransport(_ok_response([[1.0], [2.0], [3.0]]))
+    settings = _settings(tmp_path, provider="ollama")
+    emb = registered.create(settings, transport=transport)
+    vecs = emb.embed(["a", "b", "c"])
+    assert vecs == [[1.0], [2.0], [3.0]]
+
+
+def test_ollama_embed_one_helper(tmp_path, registered):
+    transport = _FakeTransport(_ok_response([[0.1, 0.2, 0.3]]))
+    settings = _settings(tmp_path, provider="ollama")
+    emb = registered.create(settings, transport=transport)
+    vec = emb.embed_one("hi")
+    assert vec == [0.1, 0.2, 0.3]
+
+
+# ---------------------------------------------------------------------------
+# 兼容旧版 /api/embeddings 单条响应
+# ---------------------------------------------------------------------------
+
+
+def test_ollama_legacy_single_embedding_response(tmp_path, registered):
+    transport = _FakeTransport({"embedding": [0.1, 0.2]})
+    settings = _settings(tmp_path, provider="ollama")
+    emb = registered.create(settings, transport=transport)
+    vecs = emb.embed(["hi"])
+    assert vecs == [[0.1, 0.2]]
+
+
+# ---------------------------------------------------------------------------
+# 输入校验
+# ---------------------------------------------------------------------------
+
+
+def test_empty_texts_raises(tmp_path, registered):
+    settings = _settings(tmp_path, provider="ollama")
+    emb = registered.create(settings, transport=_FakeTransport(_ok_response([])))
+    with pytest.raises(EmbeddingRequestError) as exc_info:
+        emb.embed([])
+    assert "ollama" in str(exc_info.value)
+
+
+def test_non_string_input_raises(tmp_path, registered):
+    settings = _settings(tmp_path, provider="ollama")
+    emb = registered.create(settings, transport=_FakeTransport(_ok_response([[0.1]])))
+    with pytest.raises(EmbeddingRequestError):
+        emb.embed(["ok", 123])  # type: ignore[list-item]
+
+
+def test_too_long_input_raises_by_default(tmp_path, registered):
+    settings = _settings(tmp_path, provider="ollama")
+    settings = replace(settings, embedding=replace(settings.embedding, extra={"max_input_length": 5}))
+    emb = registered.create(settings, transport=_FakeTransport(_ok_response([[0.1]])))
+    with pytest.raises(EmbeddingRequestError) as exc_info:
+        emb.embed(["abcdefgh"])
+    assert "max_input_length" in str(exc_info.value)
+
+
+def test_too_long_input_truncate_strategy(tmp_path, registered):
+    settings = _settings(tmp_path, provider="ollama")
+    settings = replace(
+        settings,
+        embedding=replace(settings.embedding, extra={"max_input_length": 5, "on_too_long": "truncate"}),
+    )
+    transport = _FakeTransport(_ok_response([[0.1]]))
+    emb = registered.create(settings, transport=transport)
+    emb.embed(["abcdefgh"])
+    assert transport.last_body["input"] == ["abcde"]
+
+
+# ---------------------------------------------------------------------------
+# 错误场景：连接失败 / 超时 / 错误响应 / 不泄露 api_key
+# ---------------------------------------------------------------------------
+
+
+def test_api_error_raises_readable(tmp_path, registered):
+    transport = _FakeTransport({"error": "model 'nomic-embed-text' not found"})
+    settings = _settings(tmp_path, provider="ollama")
+    emb = registered.create(settings, transport=transport)
+    with pytest.raises(EmbeddingRequestError) as exc_info:
+        emb.embed(["hi"])
+    assert "ollama" in str(exc_info.value)
+    assert "not found" in str(exc_info.value)
+
+
+def test_malformed_response_raises(tmp_path, registered):
+    transport = _FakeTransport({"foo": "bar"})
+    settings = _settings(tmp_path, provider="ollama")
+    emb = registered.create(settings, transport=transport)
+    with pytest.raises(EmbeddingRequestError) as exc_info:
+        emb.embed(["hi"])
+    assert "ollama" in str(exc_info.value)
+    assert "embeddings" in str(exc_info.value)
+
+
+def test_connection_failure_raises_readable(tmp_path, registered):
+    transport = _FakeTransport(raise_exc=ConnectionError("Connection refused"))
+    settings = _settings(tmp_path, provider="ollama")
+    emb = registered.create(settings, transport=transport)
+    with pytest.raises(EmbeddingRequestError) as exc_info:
+        emb.embed(["hi"])
+    assert "ollama" in str(exc_info.value)
+    assert "Connection refused" in str(exc_info.value)
+
+
+def test_timeout_raises_readable(tmp_path, registered):
+    import socket
+
+    transport = _FakeTransport(raise_exc=socket.timeout("timed out"))
+    settings = _settings(tmp_path, provider="ollama")
+    emb = registered.create(settings, transport=transport)
+    with pytest.raises(EmbeddingRequestError) as exc_info:
+        emb.embed(["hi"])
+    assert "ollama" in str(exc_info.value)
+
+
+def test_error_does_not_leak_api_key(tmp_path, registered):
+    transport = _FakeTransport(raise_exc=ConnectionError("boom"))
+    settings = _settings(tmp_path, provider="ollama", api_key="super-secret-key")
+    emb = registered.create(settings, transport=transport)
+    with pytest.raises(EmbeddingRequestError) as exc_info:
+        emb.embed(["hi"])
+    assert "super-secret-key" not in str(exc_info.value)
+
+
+def test_response_count_mismatch_raises(tmp_path, registered):
+    transport = _FakeTransport(_ok_response([[0.1]]))
+    settings = _settings(tmp_path, provider="ollama")
+    emb = registered.create(settings, transport=transport)
+    with pytest.raises(EmbeddingRequestError) as exc_info:
+        emb.embed(["a", "b"])
+    assert "count" in str(exc_info.value)

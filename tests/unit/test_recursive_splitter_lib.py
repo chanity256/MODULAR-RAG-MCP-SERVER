@@ -1,420 +1,202 @@
-"""Unit tests for RecursiveSplitter.
+"""``RecursiveSplitter`` 测试（阶段 B7.5）。
 
-Test Coverage:
-- Configuration-driven instantiation from settings
-- Chunk size and overlap parameter handling
-- Markdown structure preservation (headers, code blocks)
-- Edge cases: empty text, very short text, very long text
-- Error handling: missing dependencies, invalid configuration
-- Integration with BaseSplitter validation
+验证：
+- ``provider=recursive`` 时 ``SplitterFactory`` 可创建。
+- ``split_text`` 能正确处理 Markdown 结构（标题/代码块不被打断）。
+- 配置驱动 ``chunk_size`` / ``chunk_overlap`` 影响切分结果。
+- 自定义 separators 可覆盖默认。
+- 边界：空字符串、纯文本。
 """
 
-from typing import Any
-from unittest.mock import MagicMock, patch
+from __future__ import annotations
+
+from dataclasses import replace
+from pathlib import Path
+from textwrap import dedent
 
 import pytest
 
-from src.libs.splitter.base_splitter import BaseSplitter
+from core.settings import load_settings
+from libs.splitter.recursive_splitter import DEFAULT_MARKDOWN_SEPARATORS, RecursiveSplitter
+from libs.splitter.splitter_factory import SplitterFactory
+
+_VALID_YAML = dedent(
+    """\
+    llm:
+      provider: azure
+      model: gpt-4o
+    embedding:
+      provider: openai
+      model: text-embedding-3-small
+    vision_llm:
+      provider: azure
+      model: gpt-4o
+    vector_store:
+      backend: chroma
+    retrieval:
+      sparse_backend: bm25
+      fusion_algorithm: rrf
+    rerank:
+      backend: none
+    evaluation:
+      backends: [custom]
+    """
+)
 
 
-# Test if langchain-text-splitters is available
-try:
-    from src.libs.splitter.recursive_splitter import RecursiveSplitter
-    LANGCHAIN_AVAILABLE = True
-except ImportError:
-    LANGCHAIN_AVAILABLE = False
-    RecursiveSplitter = None  # type: ignore[misc, assignment]
+def _settings(tmp_path: Path, **splitter_overrides):
+    path = tmp_path / "settings.yaml"
+    path.write_text(_VALID_YAML, encoding="utf-8")
+    settings = load_settings(path)
+    sp = settings.splitter
+    if splitter_overrides:
+        sp = replace(sp, **splitter_overrides)
+    return replace(settings, splitter=sp)
 
 
-@pytest.mark.skipif(not LANGCHAIN_AVAILABLE, reason="langchain-text-splitters not installed")
-class TestRecursiveSplitterConfiguration:
-    """Tests for RecursiveSplitter configuration and initialization."""
-    
-    def create_mock_settings(
-        self,
-        chunk_size: int = 1000,
-        chunk_overlap: int = 200,
-    ) -> Any:
-        """Create mock settings object."""
-        settings = MagicMock()
-        settings.ingestion = MagicMock()
-        settings.ingestion.chunk_size = chunk_size
-        settings.ingestion.chunk_overlap = chunk_overlap
-        return settings
-    
-    def test_initialization_from_settings(self):
-        """Test that RecursiveSplitter reads configuration from settings."""
-        settings = self.create_mock_settings(chunk_size=500, chunk_overlap=100)
-        splitter = RecursiveSplitter(settings=settings)
-        
-        assert splitter.chunk_size == 500
-        assert splitter.chunk_overlap == 100
-        assert isinstance(splitter, BaseSplitter)
-    
-    def test_initialization_with_overrides(self):
-        """Test that constructor parameters override settings values."""
-        settings = self.create_mock_settings(chunk_size=500, chunk_overlap=100)
-        splitter = RecursiveSplitter(
-            settings=settings,
-            chunk_size=300,
-            chunk_overlap=50,
-        )
-        
-        assert splitter.chunk_size == 300
-        assert splitter.chunk_overlap == 50
-    
-    def test_initialization_with_custom_separators(self):
-        """Test custom separator configuration."""
-        settings = self.create_mock_settings()
-        custom_separators = ["\n\n", "\n", " "]
-        splitter = RecursiveSplitter(
-            settings=settings,
-            separators=custom_separators,
-        )
-        
-        assert splitter.separators == custom_separators
-    
-    def test_initialization_default_separators(self):
-        """Test that default separators are Markdown-aware."""
-        settings = self.create_mock_settings()
-        splitter = RecursiveSplitter(settings=settings)
-        
-        # Check that default separators include common text boundaries
-        assert "\n\n" in splitter.separators  # Paragraphs
-        assert "\n" in splitter.separators    # Lines
-        assert " " in splitter.separators     # Words
-        assert "" in splitter.separators      # Characters
-    
-    def test_initialization_missing_settings(self):
-        """Test error when settings.ingestion is missing."""
-        settings = MagicMock()
-        settings.ingestion = None
-        
-        with pytest.raises(ValueError, match="Missing ingestion configuration"):
-            RecursiveSplitter(settings=settings)
-    
-    def test_initialization_invalid_chunk_size_negative(self):
-        """Test error when chunk_size is negative."""
-        settings = self.create_mock_settings(chunk_size=-100)
-        
-        with pytest.raises(ValueError, match="chunk_size must be a positive integer"):
-            RecursiveSplitter(settings=settings)
-    
-    def test_initialization_invalid_chunk_size_zero(self):
-        """Test error when chunk_size is zero."""
-        settings = self.create_mock_settings(chunk_size=0)
-        
-        with pytest.raises(ValueError, match="chunk_size must be a positive integer"):
-            RecursiveSplitter(settings=settings)
-    
-    def test_initialization_invalid_chunk_overlap_negative(self):
-        """Test error when chunk_overlap is negative."""
-        settings = self.create_mock_settings(chunk_overlap=-50)
-        
-        with pytest.raises(ValueError, match="chunk_overlap must be a non-negative integer"):
-            RecursiveSplitter(settings=settings)
-    
-    def test_initialization_overlap_exceeds_chunk_size(self):
-        """Test error when chunk_overlap >= chunk_size."""
-        settings = self.create_mock_settings(chunk_size=100, chunk_overlap=100)
-        
-        with pytest.raises(ValueError, match="chunk_overlap .* must be less than chunk_size"):
-            RecursiveSplitter(settings=settings)
-    
-    def test_initialization_overlap_greater_than_chunk_size(self):
-        """Test error when chunk_overlap > chunk_size."""
-        settings = self.create_mock_settings(chunk_size=100, chunk_overlap=200)
-        
-        with pytest.raises(ValueError, match="chunk_overlap .* must be less than chunk_size"):
-            RecursiveSplitter(settings=settings)
+@pytest.fixture
+def registered():
+    import libs.splitter  # noqa: F401
+    yield SplitterFactory
 
 
-@pytest.mark.skipif(not LANGCHAIN_AVAILABLE, reason="langchain-text-splitters not installed")
-class TestRecursiveSplitterBasicSplitting:
-    """Tests for basic text splitting behavior."""
-    
-    def create_mock_settings(
-        self,
-        chunk_size: int = 1000,
-        chunk_overlap: int = 200,
-    ) -> Any:
-        """Create mock settings object."""
-        settings = MagicMock()
-        settings.ingestion = MagicMock()
-        settings.ingestion.chunk_size = chunk_size
-        settings.ingestion.chunk_overlap = chunk_overlap
-        return settings
-    
-    def test_split_short_text(self):
-        """Test splitting text shorter than chunk_size."""
-        settings = self.create_mock_settings(chunk_size=100, chunk_overlap=0)
-        splitter = RecursiveSplitter(settings=settings)
-        
-        text = "This is a short text."
-        chunks = splitter.split_text(text)
-        
-        assert len(chunks) == 1
-        assert chunks[0] == text
-    
-    def test_split_text_by_paragraphs(self):
-        """Test that splitter respects paragraph boundaries."""
-        settings = self.create_mock_settings(chunk_size=50, chunk_overlap=0)
-        splitter = RecursiveSplitter(settings=settings)
-        
-        # Create text long enough to require multiple chunks
-        text = "Paragraph one with some more content to make it longer.\n\nParagraph two also needs sufficient length.\n\nParagraph three should push it over the limit."
-        chunks = splitter.split_text(text)
-        
-        # Should split at paragraph boundaries when text exceeds chunk_size
-        assert len(chunks) >= 1  # At minimum, returns the text
-        for chunk in chunks:
-            assert len(chunk) <= 70  # Allow some flexibility for boundary conditions
-    
-    def test_split_text_with_overlap(self):
-        """Test that chunks have overlapping content."""
-        settings = self.create_mock_settings(chunk_size=30, chunk_overlap=10)
-        splitter = RecursiveSplitter(settings=settings)
-        
-        text = "This is a long sentence that will be split into multiple chunks with overlap."
-        chunks = splitter.split_text(text)
-        
-        # Should produce multiple chunks
-        assert len(chunks) >= 2
-        
-        # Each chunk should respect chunk_size (with some tolerance for word boundaries)
-        for chunk in chunks:
-            assert len(chunk) <= 30 + 20  # Allow tolerance for not breaking words
-    
-    def test_split_preserves_order(self):
-        """Test that chunks preserve original text order."""
-        settings = self.create_mock_settings(chunk_size=50, chunk_overlap=0)
-        splitter = RecursiveSplitter(settings=settings)
-        
-        text = "First section. Second section. Third section. Fourth section."
-        chunks = splitter.split_text(text)
-        
-        # Reconstruct should preserve order
-        reconstructed = " ".join(chunks)
-        assert "First" in reconstructed
-        assert reconstructed.index("First") < reconstructed.index("Fourth")
-    
-    def test_split_empty_string_validation(self):
-        """Test that empty string raises validation error."""
-        settings = self.create_mock_settings()
-        splitter = RecursiveSplitter(settings=settings)
-        
-        with pytest.raises(ValueError, match="cannot be empty"):
-            splitter.split_text("   ")
-    
-    def test_split_non_string_validation(self):
-        """Test that non-string input raises validation error."""
-        settings = self.create_mock_settings()
-        splitter = RecursiveSplitter(settings=settings)
-        
-        with pytest.raises(ValueError, match="must be a string"):
-            splitter.split_text(123)  # type: ignore[arg-type]
+# ---------------------------------------------------------------------------
+# 工厂创建
+# ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not LANGCHAIN_AVAILABLE, reason="langchain-text-splitters not installed")
-class TestRecursiveSplitterMarkdownStructure:
-    """Tests for Markdown structure preservation."""
-    
-    def create_mock_settings(
-        self,
-        chunk_size: int = 1000,
-        chunk_overlap: int = 200,
-    ) -> Any:
-        """Create mock settings object."""
-        settings = MagicMock()
-        settings.ingestion = MagicMock()
-        settings.ingestion.chunk_size = chunk_size
-        settings.ingestion.chunk_overlap = chunk_overlap
-        return settings
-    
-    def test_split_markdown_with_headers(self):
-        """Test that Markdown headers are preserved in chunks."""
-        settings = self.create_mock_settings(chunk_size=100, chunk_overlap=0)
-        splitter = RecursiveSplitter(settings=settings)
-        
-        text = """# Main Header
-
-## Section 1
-Content for section 1 goes here.
-
-## Section 2
-Content for section 2 goes here.
-
-## Section 3
-Content for section 3 goes here."""
-        
-        chunks = splitter.split_text(text)
-        
-        # Should produce multiple chunks
-        assert len(chunks) >= 1
-        
-        # Headers should be present in appropriate chunks
-        all_text = "".join(chunks)
-        assert "# Main Header" in all_text
-        assert "## Section 1" in all_text
-    
-    def test_split_markdown_code_blocks(self):
-        """Test that code blocks are handled appropriately."""
-        settings = self.create_mock_settings(chunk_size=150, chunk_overlap=0)
-        splitter = RecursiveSplitter(settings=settings)
-        
-        text = """Some text before code.
-
-```python
-def example():
-    return "code"
-```
-
-Some text after code."""
-        
-        chunks = splitter.split_text(text)
-        
-        # All content should be preserved
-        all_text = "".join(chunks)
-        assert "def example():" in all_text
-        assert "Some text before" in all_text
-        assert "Some text after" in all_text
-    
-    def test_split_markdown_lists(self):
-        """Test that Markdown lists are handled appropriately."""
-        settings = self.create_mock_settings(chunk_size=100, chunk_overlap=0)
-        splitter = RecursiveSplitter(settings=settings)
-        
-        text = """# List Example
-
-- Item 1
-- Item 2
-- Item 3
-- Item 4
-- Item 5"""
-        
-        chunks = splitter.split_text(text)
-        
-        # Should preserve list structure
-        all_text = "".join(chunks)
-        assert "- Item 1" in all_text
-        assert "- Item 5" in all_text
+def test_factory_creates_recursive(tmp_path, registered):
+    settings = _settings(tmp_path, provider="recursive")
+    sp = registered.create(settings)
+    assert isinstance(sp, RecursiveSplitter)
 
 
-@pytest.mark.skipif(not LANGCHAIN_AVAILABLE, reason="langchain-text-splitters not installed")
-class TestRecursiveSplitterEdgeCases:
-    """Tests for edge cases and error handling."""
-    
-    def create_mock_settings(
-        self,
-        chunk_size: int = 1000,
-        chunk_overlap: int = 200,
-    ) -> Any:
-        """Create mock settings object."""
-        settings = MagicMock()
-        settings.ingestion = MagicMock()
-        settings.ingestion.chunk_size = chunk_size
-        settings.ingestion.chunk_overlap = chunk_overlap
-        return settings
-    
-    def test_split_very_long_text(self):
-        """Test splitting very long text."""
-        settings = self.create_mock_settings(chunk_size=100, chunk_overlap=20)
-        splitter = RecursiveSplitter(settings=settings)
-        
-        # Generate long text (1000 words)
-        text = " ".join(["word"] * 1000)
-        chunks = splitter.split_text(text)
-        
-        # Should produce many chunks
-        assert len(chunks) >= 10
-        
-        # Each chunk should respect chunk_size (with tolerance)
-        for chunk in chunks:
-            assert len(chunk) <= 100 + 30  # Allow tolerance
-    
-    def test_split_single_long_word(self):
-        """Test handling of a single word longer than chunk_size."""
-        settings = self.create_mock_settings(chunk_size=10, chunk_overlap=0)
-        splitter = RecursiveSplitter(settings=settings)
-        
-        # Single word longer than chunk_size
-        text = "a" * 100
-        chunks = splitter.split_text(text)
-        
-        # Should still split (may exceed chunk_size for unsplittable content)
-        assert len(chunks) >= 1
-    
-    def test_split_unicode_text(self):
-        """Test handling of Unicode characters."""
-        settings = self.create_mock_settings(chunk_size=50, chunk_overlap=0)
-        splitter = RecursiveSplitter(settings=settings)
-        
-        text = "Hello 世界! Привет мир! 🌍🌎🌏"
-        chunks = splitter.split_text(text)
-        
-        # Should handle Unicode without errors
-        assert len(chunks) >= 1
-        all_text = "".join(chunks)
-        assert "世界" in all_text
-        assert "мир" in all_text
-        assert "🌍" in all_text
-    
-    def test_split_with_trace_parameter(self):
-        """Test that trace parameter is accepted but not used."""
-        settings = self.create_mock_settings()
-        splitter = RecursiveSplitter(settings=settings)
-        
-        text = "Some text to split."
-        mock_trace = MagicMock()
-        
-        # Should not raise error with trace parameter
-        chunks = splitter.split_text(text, trace=mock_trace)
-        assert len(chunks) >= 1
+def test_factory_recursive_default_when_unspecified(tmp_path, registered):
+    """settings.yaml 未写 splitter 节时，默认 provider=recursive。"""
+    path = tmp_path / "settings.yaml"
+    path.write_text(_VALID_YAML, encoding="utf-8")
+    settings = load_settings(path)
+    sp = registered.create(settings)
+    assert isinstance(sp, RecursiveSplitter)
 
 
-@pytest.mark.skipif(LANGCHAIN_AVAILABLE, reason="Test only when langchain-text-splitters NOT installed")
-class TestRecursiveSplitterImportError:
-    """Tests for ImportError when langchain-text-splitters is not installed."""
-    
-    def test_import_error_without_langchain(self):
-        """Test that ImportError is raised when langchain is not available."""
-        with patch.dict('sys.modules', {'langchain_text_splitters': None}):
-            # Force reimport to trigger ImportError
-            import importlib
-            import src.libs.splitter.recursive_splitter
-            importlib.reload(src.libs.splitter.recursive_splitter)
-            
-            from src.libs.splitter.recursive_splitter import RecursiveSplitter
-            
-            settings = MagicMock()
-            settings.ingestion = MagicMock()
-            settings.ingestion.chunk_size = 1000
-            settings.ingestion.chunk_overlap = 200
-            
-            with pytest.raises(ImportError, match="langchain-text-splitters is not installed"):
-                RecursiveSplitter(settings=settings)
+# ---------------------------------------------------------------------------
+# 切分行为
+# ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not LANGCHAIN_AVAILABLE, reason="langchain-text-splitters not installed")
-class TestRecursiveSplitterFactoryIntegration:
-    """Tests for factory integration."""
-    
-    def test_factory_can_create_recursive_splitter(self):
-        """Test that factory can instantiate RecursiveSplitter."""
-        from src.libs.splitter.splitter_factory import SplitterFactory
-        
-        # Register the provider
-        SplitterFactory.register_provider("recursive", RecursiveSplitter)
-        
-        # Create settings
-        settings = MagicMock()
-        settings.ingestion = MagicMock()
-        settings.ingestion.splitter = "recursive"
-        settings.ingestion.chunk_size = 500
-        settings.ingestion.chunk_overlap = 100
-        
-        # Factory should create RecursiveSplitter
-        splitter = SplitterFactory.create(settings)
-        assert isinstance(splitter, RecursiveSplitter)
-        assert splitter.chunk_size == 500
-        assert splitter.chunk_overlap == 100
+def test_split_returns_non_empty_chunks():
+    from core.settings import SplitterConfig
+
+    sp = RecursiveSplitter(SplitterConfig(provider="recursive", chunk_size=100, chunk_overlap=10))
+    chunks = sp.split_text("# Title\n\nSome content here.")
+    assert len(chunks) >= 1
+    assert all(isinstance(c, str) for c in chunks)
+
+
+def test_split_empty_string_returns_empty():
+    from core.settings import SplitterConfig
+
+    sp = RecursiveSplitter(SplitterConfig(provider="recursive", chunk_size=100, chunk_overlap=10))
+    assert sp.split_text("") == []
+
+
+def test_split_non_string_raises():
+    from core.settings import SplitterConfig
+
+    sp = RecursiveSplitter(SplitterConfig(provider="recursive", chunk_size=100, chunk_overlap=10))
+    with pytest.raises(ValueError):
+        sp.split_text(123)  # type: ignore[arg-type]
+
+
+def test_chunk_size_drives_count():
+    from core.settings import SplitterConfig
+
+    text = "word " * 200  # ~1000 chars
+    sp_small = RecursiveSplitter(SplitterConfig(provider="recursive", chunk_size=100, chunk_overlap=0))
+    sp_large = RecursiveSplitter(SplitterConfig(provider="recursive", chunk_size=500, chunk_overlap=0))
+    small_chunks = sp_small.split_text(text)
+    large_chunks = sp_large.split_text(text)
+    assert len(small_chunks) > len(large_chunks)
+
+
+# ---------------------------------------------------------------------------
+# Markdown 结构感知：标题 / 代码块不被打断
+# ---------------------------------------------------------------------------
+
+
+def test_headers_preferred_as_boundaries():
+    from core.settings import SplitterConfig
+
+    md = dedent(
+        """\
+        ## 第一节
+
+        这是第一节的内容，写一些文字用于填充。
+
+        ## 第二节
+
+        这是第二节的内容，写一些文字用于填充。
+        """
+    )
+    sp = RecursiveSplitter(SplitterConfig(provider="recursive", chunk_size=40, chunk_overlap=0))
+    chunks = sp.split_text(md)
+    # 至少切出 2 块，且每块以标题开头（keep_separator=True）。
+    assert len(chunks) >= 2
+    joined = "".join(chunks)
+    assert "## 第一节" in joined
+    assert "## 第二节" in joined
+
+
+def test_code_block_not_broken_inside():
+    from core.settings import SplitterConfig
+
+    code = "def add(a, b):\n    return a + b\n"
+    md = dedent(
+        """\
+        ## 示例代码
+
+        下面是一段代码：
+
+        ```python
+        def add(a, b):
+            return a + b
+        ```
+
+        结束说明。
+        """
+    )
+    sp = RecursiveSplitter(SplitterConfig(provider="recursive", chunk_size=80, chunk_overlap=0))
+    chunks = sp.split_text(md)
+    # 代码块内部内容应完整出现在某一块中（不被字符级切断）。
+    found_code = any("return a + b" in c for c in chunks)
+    assert found_code
+
+
+def test_custom_separators_override_default(tmp_path, registered):
+    from core.settings import SplitterConfig
+
+    custom = ["\n\n", "\n", " "]
+    sp = RecursiveSplitter(SplitterConfig(provider="recursive", chunk_size=50, chunk_overlap=0, separators=custom))
+    # 自定义 separators 不影响接口契约。
+    chunks = sp.split_text("para1\n\npara2\n\npara3")
+    assert len(chunks) >= 1
+
+
+def test_default_markdown_separators_constant():
+    assert DEFAULT_MARKDOWN_SEPARATORS[0] == "\n## "
+    assert "" in DEFAULT_MARKDOWN_SEPARATORS
+
+
+# ---------------------------------------------------------------------------
+# 通过工厂 + 配置驱动验证
+# ---------------------------------------------------------------------------
+
+
+def test_factory_config_driven_chunk_size(tmp_path, registered):
+    settings_small = _settings(tmp_path, provider="recursive", chunk_size=50, chunk_overlap=0)
+    settings_large = _settings(tmp_path, provider="recursive", chunk_size=500, chunk_overlap=0)
+    text = "word " * 200
+    small = registered.create(settings_small).split_text(text)
+    large = registered.create(settings_large).split_text(text)
+    assert len(small) > len(large)

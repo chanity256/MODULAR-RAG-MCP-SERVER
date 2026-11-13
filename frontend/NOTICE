@@ -1,0 +1,7 @@
+Modular RAG MCP Server - frontend
+
+Portions of this directory (lib/api.ts, lib/theme.ts, components/ThemeScript.tsx,
+components/Sidebar.tsx, Tailwind/Next configuration) are derived from the `web/`
+directory of sirchmunk (https://github.com/modelscope/sirchmunk), licensed under the
+Apache License, Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0).
+Files derived from it carry a header noting the modifications made.

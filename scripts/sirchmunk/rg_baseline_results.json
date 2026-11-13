@@ -1,0 +1,197 @@
+{
+  "generated_at": "2026-10-06 11:03:20",
+  "fixture": "/Users/wanghaonan/Desktop/Project/Job-Search/reference/MODULAR-RAG-MCP-SERVER/tests/fixtures/agentic/golden_questions.json",
+  "corpus_root": "/Users/wanghaonan/Desktop/Project/Job-Search/reference/MODULAR-RAG-MCP-SERVER",
+  "exclude_globs": [
+    "tests/fixtures/**"
+  ],
+  "method": "deterministic tokenization (no LLM) + rg -il, source-level match >=50% of expected_sources",
+  "overall": {
+    "hit": 6,
+    "total": 6
+  },
+  "by_category": {
+    "identifier": {
+      "hit": 2,
+      "total": 2
+    },
+    "format": {
+      "hit": 2,
+      "total": 2
+    },
+    "multihop": {
+      "hit": 2,
+      "total": 2
+    }
+  },
+  "results": [
+    {
+      "id": "Q1",
+      "category": "identifier",
+      "query": "Where is the BM25Indexer IDF formula implemented and what is the exact k1/b defaults?",
+      "expected_sources": [
+        "src/ingestion/storage/bm25_indexer.py"
+      ],
+      "keywords": [
+        "where",
+        "bm25indexer",
+        "idf",
+        "formula",
+        "implemented",
+        "exact",
+        "k1",
+        "b",
+        "defaults"
+      ],
+      "elapsed_ms": 19.9,
+      "hit": true,
+      "matched_sources": [
+        "src/ingestion/storage/bm25_indexer.py"
+      ],
+      "missing_sources": [],
+      "matched_ratio": 1.0,
+      "rg_file_count": 195
+    },
+    {
+      "id": "Q2",
+      "category": "identifier",
+      "query": "Which file defines the MCP JSON-RPC error code mapping for -32602?",
+      "expected_sources": [
+        "src/mcp_server/protocol_handler.py"
+      ],
+      "keywords": [
+        "file",
+        "defines",
+        "mcp",
+        "json-rpc",
+        "error",
+        "code",
+        "mapping",
+        "32602"
+      ],
+      "elapsed_ms": 9.0,
+      "hit": true,
+      "matched_sources": [
+        "src/mcp_server/protocol_handler.py"
+      ],
+      "missing_sources": [],
+      "matched_ratio": 1.0,
+      "rg_file_count": 176
+    },
+    {
+      "id": "Q3",
+      "category": "format",
+      "query": "According to the README run manual, which command starts the Streamlit Dashboard?",
+      "expected_sources": [
+        "README.md"
+      ],
+      "keywords": [
+        "readme",
+        "run",
+        "manual",
+        "command",
+        "starts",
+        "streamlit",
+        "dashboard"
+      ],
+      "elapsed_ms": 8.3,
+      "hit": true,
+      "matched_sources": [
+        "README.md"
+      ],
+      "missing_sources": [],
+      "matched_ratio": 1.0,
+      "rg_file_count": 108
+    },
+    {
+      "id": "Q4",
+      "category": "format",
+      "query": "List the tool names registered by the MCP server and their one-line purposes from the docs.",
+      "expected_sources": [
+        "README.md",
+        "DEV_SPEC.md"
+      ],
+      "keywords": [
+        "list",
+        "tool",
+        "names",
+        "registered",
+        "mcp",
+        "server",
+        "one-line",
+        "purposes",
+        "docs"
+      ],
+      "elapsed_ms": 8.0,
+      "hit": true,
+      "matched_sources": [
+        "README.md",
+        "DEV_SPEC.md"
+      ],
+      "missing_sources": [],
+      "matched_ratio": 1.0,
+      "rg_file_count": 162
+    },
+    {
+      "id": "Q5",
+      "category": "multihop",
+      "query": "How does a chunk id produced by DocumentChunker flow into the BM25 index and the vector store upsert?",
+      "expected_sources": [
+        "src/ingestion/chunking/document_chunker.py",
+        "src/ingestion/storage/bm25_indexer.py",
+        "src/ingestion/storage/vector_upserter.py"
+      ],
+      "keywords": [
+        "chunk",
+        "id",
+        "documentchunker",
+        "bm25",
+        "index",
+        "vector",
+        "store",
+        "upsert"
+      ],
+      "elapsed_ms": 7.5,
+      "hit": true,
+      "matched_sources": [
+        "src/ingestion/chunking/document_chunker.py",
+        "src/ingestion/storage/bm25_indexer.py",
+        "src/ingestion/storage/vector_upserter.py"
+      ],
+      "missing_sources": [],
+      "matched_ratio": 1.0,
+      "rg_file_count": 184
+    },
+    {
+      "id": "Q6",
+      "category": "multihop",
+      "query": "Trace how an uploaded image reference travels from PdfLoader extraction to the MCP multimodal response.",
+      "expected_sources": [
+        "src/libs/loader/pdf_loader.py",
+        "src/ingestion/storage/image_storage.py",
+        "src/core/response/multimodal_assembler.py"
+      ],
+      "keywords": [
+        "trace",
+        "uploaded",
+        "image",
+        "reference",
+        "pdfloader",
+        "extraction",
+        "mcp",
+        "multimodal",
+        "response"
+      ],
+      "elapsed_ms": 7.8,
+      "hit": true,
+      "matched_sources": [
+        "src/libs/loader/pdf_loader.py",
+        "src/ingestion/storage/image_storage.py",
+        "src/core/response/multimodal_assembler.py"
+      ],
+      "missing_sources": [],
+      "matched_ratio": 1.0,
+      "rg_file_count": 158
+    }
+  ]
+}

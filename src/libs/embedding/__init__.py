@@ -1,22 +1,18 @@
-"""
-Embedding Module.
+"""Embedding 抽象层包。
 
-This package contains embedding service abstractions and implementations:
-- Base embedding class
-- Embedding factory
-- Provider implementations (OpenAI, Azure, Ollama)
+导入本包即触发各 provider 的注册（``openai`` / ``azure``）。
 """
 
-from src.libs.embedding.azure_embedding import AzureEmbedding
-from src.libs.embedding.base_embedding import BaseEmbedding
-from src.libs.embedding.embedding_factory import EmbeddingFactory
-from src.libs.embedding.ollama_embedding import OllamaEmbedding
-from src.libs.embedding.openai_embedding import OpenAIEmbedding
+from libs.embedding.base_embedding import BaseEmbedding
+from libs.embedding.embedding_factory import EmbeddingFactory
 
-__all__ = [
-    "BaseEmbedding",
-    "EmbeddingFactory",
-    "OpenAIEmbedding",
-    "AzureEmbedding",
-    "OllamaEmbedding",
-]
+# 触发 provider 注册。
+from libs.embedding import azure_embedding as _azure_embedding  # noqa: F401
+from libs.embedding import ollama_embedding as _ollama_embedding  # noqa: F401
+from libs.embedding import openai_embedding as _openai_embedding  # noqa: F401
+
+_azure_embedding.register_azure_provider()
+_ollama_embedding.register_ollama_provider()
+_openai_embedding.register_openai_provider()
+
+__all__ = ["BaseEmbedding", "EmbeddingFactory"]

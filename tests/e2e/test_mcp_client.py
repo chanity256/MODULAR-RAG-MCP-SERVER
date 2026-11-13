@@ -1,17 +1,16 @@
-"""E2E tests simulating an MCP client against the real server over stdio.
+"""E2E：MCP Client 侧调用模拟（阶段 I1）。
 
-Launches ``src.mcp_server.server`` as a subprocess and drives the full
-JSON-RPC / MCP lifecycle:
+以子进程启动真实 MCP server（stdio transport），从 client 视角
+完整走一遍：``initialize`` → ``notifications/initialized`` →
+``tools/list`` → ``tools/call``（query_knowledge_hub 返回 citations、
+list_collections 返回集合）→ ``shutdown``。
 
-    initialize → notifications/initialized → tools/list → tools/call
-
-Each test validates the **wire-level** JSON-RPC contract so that any
-breaking change in the server, protocol handler, or registered tools
-is caught by CI.
-
-Usage::
-
-    pytest tests/e2e/test_mcp_client.py -v
+离线策略（零网络）：
+- 子进程 cwd 为临时 workspace，``config/settings.yaml`` 指向本地
+  Chroma/BM25 产物（测试预置真实数据）。
+- embedding ``base_url`` 指向本机关闭端口（连接即刻拒绝）→ Dense 路
+  按 D5 降级策略退到 Sparse（BM25）路，仍返回真实检索结果与 citations。
+- rerank backend=none（跳过精排）。
 """
 
 from __future__ import annotations
@@ -20,505 +19,211 @@ import json
 import os
 import subprocess
 import sys
-import threading
-import time
+from collections import Counter
+from dataclasses import replace
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from textwrap import dedent
 
 import pytest
 
-PROJECT_ROOT = Path(__file__).parent.parent.parent
+from ingestion.embedding import SparseDocStats
+from ingestion.embedding.sparse_encoder import default_tokenize
+from ingestion.storage import BM25Indexer
+from libs.vector_store.base_vector_store import VectorRecord
+from libs.vector_store.chroma_store import ChromaStore
 
-# ── Helpers ───────────────────────────────────────────────────────────
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+SRC_DIR = PROJECT_ROOT / "src"
 
+_COLLECTION = "e2e_docs"
 
-def _start_server() -> subprocess.Popen:
-    """Start the MCP server subprocess with stdio transport.
+_CORPUS = {
+    "doc_bm_0000_a1": (
+        "bm25 inverted index scoring with term frequency",
+        {"collection": _COLLECTION, "source_path": "bm25_guide.pdf", "page": 1},
+    ),
+    "doc_az_0000_b2": (
+        "azure openai configuration endpoint and api key",
+        {"collection": _COLLECTION, "source_path": "azure_setup.pdf", "page": 3},
+    ),
+    "doc_in_0000_c3": (
+        "incremental ingestion file hash sha256 skip",
+        {"collection": _COLLECTION, "source_path": "ingest_guide.pdf", "page": 2},
+    ),
+}
 
-    Returns:
-        Running subprocess with stdin/stdout/stderr pipes.
+_SETTINGS_YAML = dedent(
+    """\
+    llm:
+      provider: azure
+      model: gpt-4o
+    embedding:
+      provider: openai
+      model: text-embedding-3-small
+      base_url: http://127.0.0.1:1   # 关闭端口：Dense 路快速失败 → 降级 Sparse
+    vision_llm:
+      provider: azure
+      model: gpt-4o
+    vector_store:
+      backend: chroma
+      persist_path: ./data/db/chroma
+      collection: e2e_docs
+    retrieval:
+      sparse_backend: bm25
+      fusion_algorithm: rrf
+      top_k_dense: 10
+      top_k_sparse: 10
+      top_k_final: 5
+    rerank:
+      backend: none
+    evaluation:
+      backends: [custom]
+    observability:
+      enabled: true
+      log_file: ./logs/traces.jsonl
     """
-    env = os.environ.copy()
-    env["PYTHONIOENCODING"] = "utf-8"
-    return subprocess.Popen(
-        [sys.executable, "-m", "src.mcp_server.server"],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        cwd=str(PROJECT_ROOT),
-        env=env,
+)
+
+
+def _seed_workspace(tmp_path: Path) -> None:
+    """预置离线检索产物：Chroma 向量 + BM25 索引 + server 配置。"""
+    from core.settings import load_settings
+
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "settings.yaml").write_text(_SETTINGS_YAML, encoding="utf-8")
+    settings = load_settings(tmp_path / "config" / "settings.yaml")
+    # 测试进程 cwd 是仓库根：persist_path 必须转绝对路径，
+    # 否则向量会误写入仓库 data/db/chroma（子进程 cwd=tmp 不受影响）。
+    settings = replace(
+        settings,
+        vector_store=replace(settings.vector_store, persist_path=str(tmp_path / "data" / "db" / "chroma")),
     )
 
+    store = ChromaStore(settings.vector_store)
+    records, stats = [], []
+    for chunk_id, (text, metadata) in _CORPUS.items():
+        # Dense 路会被降级，向量内容不影响 Sparse 命中，仅需可入库。
+        vector = [float(len(text) % 97) / 97.0] * 8
+        records.append(VectorRecord(id=chunk_id, vector=vector, text=text, metadata=dict(metadata)))
+        tokens = default_tokenize(text)
+        stats.append(SparseDocStats(chunk_id=chunk_id, term_freqs=dict(Counter(tokens)), length=len(tokens)))
+    store.upsert(records)
 
-def _send_jsonrpc(
-    proc: subprocess.Popen,
-    messages: List[Dict[str, Any]],
-    expected_responses: int,
-    timeout: float = 15.0,
-) -> List[Dict[str, Any]]:
-    """Send JSON-RPC messages and collect the expected number of responses.
-
-    Uses a background thread to read stdout so that the ``timeout`` is
-    always respected even when ``readline()`` blocks.
-
-    Args:
-        proc: Subprocess with stdin/stdout pipes.
-        messages: List of JSON-RPC requests / notifications.
-        expected_responses: How many JSON-RPC *responses* (with ``id``) to wait for.
-        timeout: Max seconds to wait.
-
-    Returns:
-        Parsed JSON-RPC response dicts (only entries with ``id``).
-    """
-    assert proc.stdin is not None
-    assert proc.stdout is not None
-
-    for msg in messages:
-        proc.stdin.write(json.dumps(msg) + "\n")
-        proc.stdin.flush()
-
-    responses: List[Dict[str, Any]] = []
-    stop_event = threading.Event()
-
-    def _reader() -> None:
-        """Read stdout lines in a daemon thread so timeout can interrupt."""
-        while not stop_event.is_set():
-            line = proc.stdout.readline()  # type: ignore[union-attr]
-            if not line:
-                break
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                data = json.loads(stripped)
-            except json.JSONDecodeError:
-                continue
-            if "id" in data and ("result" in data or "error" in data):
-                responses.append(data)
-
-    reader_thread = threading.Thread(target=_reader, daemon=True)
-    reader_thread.start()
-
-    # Wait until we have enough responses *or* timeout expires
-    deadline = time.time() + timeout
-    while len(responses) < expected_responses and time.time() < deadline:
-        time.sleep(0.1)
-
-    stop_event.set()
-    return responses
-
-
-def _find(responses: List[Dict[str, Any]], req_id: int) -> Optional[Dict[str, Any]]:
-    """Find a response by request id."""
-    for r in responses:
-        if r.get("id") == req_id:
-            return r
-    return None
-
-
-def _terminate(proc: subprocess.Popen) -> None:
-    """Terminate the server subprocess gracefully."""
-    proc.terminate()
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait()
-
-
-# ── Fixtures ──────────────────────────────────────────────────────────
-
-INIT_REQUEST: Dict[str, Any] = {
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "initialize",
-    "params": {
-        "protocolVersion": "2025-06-18",
-        "clientInfo": {"name": "e2e-pytest-client", "version": "1.0.0"},
-        "capabilities": {},
-    },
-}
-
-INITIALIZED_NOTIFICATION: Dict[str, Any] = {
-    "jsonrpc": "2.0",
-    "method": "notifications/initialized",
-}
+    indexer = BM25Indexer(index_path=tmp_path / "data" / "db" / "bm25" / "index.json")
+    indexer.build(stats)
+    indexer.save()
 
 
 @pytest.fixture()
-def mcp_server():
-    """Yield a running MCP server subprocess; tear down after test."""
-    proc = _start_server()
+def server(tmp_path: Path):
+    _seed_workspace(tmp_path)
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(SRC_DIR) + os.pathsep + env.get("PYTHONPATH", "")
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "mcp_server.server"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+        cwd=str(tmp_path),  # load_settings() 读 cwd 相对 config/settings.yaml
+        text=True,
+    )
     yield proc
-    _terminate(proc)
+    if proc.poll() is None:  # pragma: no cover - 兜底清理
+        proc.terminate()
+        proc.wait(timeout=5)
 
 
-# ── Tests ─────────────────────────────────────────────────────────────
+def _rpc(proc: subprocess.Popen, message: dict, *, expect_response: bool = True) -> dict | None:
+    assert proc.stdin is not None and proc.stdout is not None
+    proc.stdin.write(json.dumps(message) + "\n")
+    proc.stdin.flush()
+    if not expect_response:
+        return None
+    return json.loads(proc.stdout.readline())
 
 
-class TestMCPClientE2E:
-    """E2E test suite simulating a complete MCP client session."""
+def test_mcp_client_full_walkthrough(server):
+    """I1 验收：完整走通 query_knowledge_hub 并返回 citations。"""
+    # 1) initialize 握手。
+    msg = _rpc(
+        server,
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": "2025-06-18", "capabilities": {}},
+        },
+    )
+    assert msg["result"]["protocolVersion"] == "2025-06-18"
+    assert "tools" in msg["result"]["capabilities"]
 
-    # ------------------------------------------------------------------
-    # 1. Lifecycle: initialize → tools/list
-    # ------------------------------------------------------------------
+    # 2) initialized 通知（无响应）。
+    _rpc(
+        server,
+        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        expect_response=False,
+    )
 
-    @pytest.mark.e2e
-    def test_initialize_and_tools_list(self, mcp_server: subprocess.Popen) -> None:
-        """Server responds to initialize and tools/list with all 3 registered tools."""
-        messages = [
-            INIT_REQUEST,
-            INITIALIZED_NOTIFICATION,
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/list",
-                "params": {},
+    # 3) tools/list：三个 tool 齐全。
+    msg = _rpc(server, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+    assert [t["name"] for t in msg["result"]["tools"]] == [
+        "query_knowledge_hub",
+        "list_collections",
+        "get_document_summary",
+    ]
+
+    # 4) tools/call query_knowledge_hub：Dense 降级 Sparse 后仍返回真实结果。
+    msg = _rpc(
+        server,
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": "query_knowledge_hub",
+                "arguments": {"query": "bm25 scoring term frequency", "top_k": 3},
             },
-        ]
+        },
+    )
+    assert "error" not in msg, msg
+    result = msg["result"]
+    assert not result.get("isError", False)
+    content = result["content"]
+    assert content[0]["type"] == "text"
+    assert "[1]" in content[0]["text"]
+    citations = result["structuredContent"]["citations"]
+    assert citations, "expected citations from sparse-degraded retrieval"
+    assert citations[0]["chunk_id"] == "doc_bm_0000_a1"
+    assert citations[0]["source"] == "bm25_guide.pdf"
 
-        responses = _send_jsonrpc(mcp_server, messages, expected_responses=2)
+    # 5) tools/call list_collections。
+    msg = _rpc(
+        server,
+        {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "list_collections", "arguments": {}}},
+    )
+    assert "error" not in msg, msg
+    collections = msg["result"]["structuredContent"]["collections"]
+    assert any(c["name"] == _COLLECTION for c in collections)
 
-        # -- initialize ------------------------------------------------
-        init_resp = _find(responses, 1)
-        assert init_resp is not None, f"Missing initialize response. Got: {responses}"
-        assert "result" in init_resp
-        assert "serverInfo" in init_resp["result"]
-        assert "capabilities" in init_resp["result"]
-        assert init_resp["result"]["capabilities"].get("tools") is not None
+    # 6) shutdown 干净退出（无响应；此前响应已逐行读取，剩余 stdout 应为空）。
+    _rpc(server, {"jsonrpc": "2.0", "id": 5, "method": "shutdown"}, expect_response=False)
+    server.stdin.close()
+    stdout, _stderr = server.communicate(timeout=15)
+    assert server.returncode == 0
+    # shutdown 不产生响应，且无任何日志污染 stdout。
+    assert [ln for ln in stdout.splitlines() if ln.strip()] == []
 
-        # -- tools/list ------------------------------------------------
-        tools_resp = _find(responses, 2)
-        assert tools_resp is not None, f"Missing tools/list response. Got: {responses}"
-        assert "result" in tools_resp
-        tools = tools_resp["result"]["tools"]
-        assert isinstance(tools, list)
 
-        tool_names = {t["name"] for t in tools}
-        assert "query_knowledge_hub" in tool_names
-        assert "list_collections" in tool_names
-        assert "get_document_summary" in tool_names
-
-        # Each tool must declare a valid inputSchema
-        for tool in tools:
-            assert "name" in tool
-            assert "description" in tool
-            assert "inputSchema" in tool
-            schema = tool["inputSchema"]
-            assert schema.get("type") == "object"
-            assert "properties" in schema
-
-    # ------------------------------------------------------------------
-    # 2. tools/call – query_knowledge_hub (protocol round-trip)
-    # ------------------------------------------------------------------
-
-    @pytest.mark.e2e
-    def test_tools_call_query_knowledge_hub(
-        self, mcp_server: subprocess.Popen
-    ) -> None:
-        """tools/call for query_knowledge_hub returns well-formed CallToolResult.
-
-        Even when there is no indexed data, the tool should return a valid
-        (possibly empty) result or a graceful error — never a protocol-level
-        failure.
-        """
-        messages = [
-            INIT_REQUEST,
-            INITIALIZED_NOTIFICATION,
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {
-                    "name": "query_knowledge_hub",
-                    "arguments": {
-                        "query": "What is Azure OpenAI?",
-                        "top_k": 3,
-                    },
-                },
-            },
-        ]
-
-        responses = _send_jsonrpc(mcp_server, messages, expected_responses=2, timeout=60.0)
-
-        init_resp = _find(responses, 1)
-        assert init_resp is not None, "Missing initialize response"
-
-        call_resp = _find(responses, 2)
-        assert call_resp is not None, f"Missing tools/call response. Got: {responses}"
-        assert "result" in call_resp, f"Expected result in response: {call_resp}"
-
-        result = call_resp["result"]
-        # MCP CallToolResult must have a ``content`` list
-        assert "content" in result
-        assert isinstance(result["content"], list)
-        assert len(result["content"]) >= 1
-
-        # Each content block must have ``type`` and ``text`` (or ``data`` for images)
-        for block in result["content"]:
-            assert "type" in block
-            assert block["type"] in ("text", "image", "resource")
-
-        # If ``isError`` is present, it must be a boolean
-        if "isError" in result:
-            assert isinstance(result["isError"], bool)
-
-    # ------------------------------------------------------------------
-    # 3. tools/call – list_collections
-    # ------------------------------------------------------------------
-
-    @pytest.mark.e2e
-    def test_tools_call_list_collections(
-        self, mcp_server: subprocess.Popen
-    ) -> None:
-        """tools/call for list_collections returns a valid collection listing."""
-        messages = [
-            INIT_REQUEST,
-            INITIALIZED_NOTIFICATION,
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {
-                    "name": "list_collections",
-                    "arguments": {"include_stats": True},
-                },
-            },
-        ]
-
-        responses = _send_jsonrpc(mcp_server, messages, expected_responses=2, timeout=15.0)
-
-        call_resp = _find(responses, 2)
-        assert call_resp is not None, f"Missing tools/call response. Got: {responses}"
-        assert "result" in call_resp
-
-        result = call_resp["result"]
-        assert "content" in result
-        assert isinstance(result["content"], list)
-        assert len(result["content"]) >= 1
-
-        # First content block should be text with collection info (or empty message)
-        first = result["content"][0]
-        assert first["type"] == "text"
-        assert isinstance(first.get("text", ""), str)
-
-    # ------------------------------------------------------------------
-    # 4. tools/call – get_document_summary (non-existent doc → graceful)
-    # ------------------------------------------------------------------
-
-    @pytest.mark.e2e
-    def test_tools_call_get_document_summary_missing(
-        self, mcp_server: subprocess.Popen
-    ) -> None:
-        """get_document_summary with invalid doc_id returns a well-formed error."""
-        messages = [
-            INIT_REQUEST,
-            INITIALIZED_NOTIFICATION,
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {
-                    "name": "get_document_summary",
-                    "arguments": {
-                        "doc_id": "nonexistent_doc_id_12345",
-                    },
-                },
-            },
-        ]
-
-        responses = _send_jsonrpc(mcp_server, messages, expected_responses=2, timeout=15.0)
-
-        call_resp = _find(responses, 2)
-        assert call_resp is not None, f"Missing tools/call response. Got: {responses}"
-        assert "result" in call_resp
-
-        result = call_resp["result"]
-        assert "content" in result
-        assert isinstance(result["content"], list)
-        assert len(result["content"]) >= 1
-
-        # Tool should signal an error through isError or error text
-        first_text = result["content"][0].get("text", "")
-        is_error = result.get("isError", False)
-        # Either isError flag is set OR the text contains an error message
-        assert is_error or "not found" in first_text.lower() or "error" in first_text.lower(), (
-            f"Expected an error indication for missing doc. Got isError={is_error}, text={first_text!r}"
-        )
-
-    # ------------------------------------------------------------------
-    # 5. tools/call – unknown tool returns error
-    # ------------------------------------------------------------------
-
-    @pytest.mark.e2e
-    def test_tools_call_unknown_tool(
-        self, mcp_server: subprocess.Popen
-    ) -> None:
-        """Calling a non-existent tool returns an error response, not a crash."""
-        messages = [
-            INIT_REQUEST,
-            INITIALIZED_NOTIFICATION,
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {
-                    "name": "nonexistent_tool",
-                    "arguments": {},
-                },
-            },
-        ]
-
-        responses = _send_jsonrpc(mcp_server, messages, expected_responses=2, timeout=15.0)
-
-        call_resp = _find(responses, 2)
-        assert call_resp is not None, f"Missing tools/call response. Got: {responses}"
-        assert "result" in call_resp
-
-        result = call_resp["result"]
-        assert "content" in result
-        assert result.get("isError") is True or "error" in result["content"][0].get("text", "").lower()
-
-    # ------------------------------------------------------------------
-    # 6. Full session: list tools → call query → verify citations format
-    # ------------------------------------------------------------------
-
-    @pytest.mark.e2e
-    def test_full_session_query_with_citations_format(
-        self, mcp_server: subprocess.Popen
-    ) -> None:
-        """Complete client session: init → list → query, validating citations structure.
-
-        The response text from query_knowledge_hub should either:
-        - Contain citation markers (e.g. [1], [2]) when results exist, OR
-        - Return a "no results" message when no data is indexed.
-        Either way the protocol contract must be satisfied.
-        """
-        messages = [
-            INIT_REQUEST,
-            INITIALIZED_NOTIFICATION,
-            # Step 1: discover tools
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/list",
-                "params": {},
-            },
-            # Step 2: call query_knowledge_hub
-            {
-                "jsonrpc": "2.0",
-                "id": 3,
-                "method": "tools/call",
-                "params": {
-                    "name": "query_knowledge_hub",
-                    "arguments": {
-                        "query": "RAG pipeline architecture",
-                        "top_k": 5,
-                    },
-                },
-            },
-        ]
-
-        responses = _send_jsonrpc(mcp_server, messages, expected_responses=3, timeout=60.0)
-
-        # Validate tools/list
-        tools_resp = _find(responses, 2)
-        assert tools_resp is not None, "Missing tools/list response"
-        tool_names = {t["name"] for t in tools_resp["result"]["tools"]}
-        assert "query_knowledge_hub" in tool_names
-
-        # Validate query response
-        query_resp = _find(responses, 3)
-        assert query_resp is not None, f"Missing query response. Got: {responses}"
-        assert "result" in query_resp
-
-        result = query_resp["result"]
-        assert "content" in result
-        assert isinstance(result["content"], list)
-        assert len(result["content"]) >= 1
-
-        # Collect all text content
-        all_text = " ".join(
-            block.get("text", "")
-            for block in result["content"]
-            if block.get("type") == "text"
-        )
-        assert len(all_text) > 0, "Response should contain non-empty text content"
-
-        # The response should either have citation markers or indicate no results
-        has_citations = "[1]" in all_text or "**Sources**" in all_text or "citation" in all_text.lower()
-        has_no_results = (
-            "no results" in all_text.lower()
-            or "no relevant" in all_text.lower()
-            or "no documents" in all_text.lower()
-            or "not found" in all_text.lower()
-            or "0 result" in all_text.lower()
-            or result.get("isError") is True
-        )
-        assert has_citations or has_no_results, (
-            f"Expected citations or 'no results' indication in response text: {all_text[:300]}"
-        )
-
-    # ------------------------------------------------------------------
-    # 7. Multiple sequential calls in the same session
-    # ------------------------------------------------------------------
-
-    @pytest.mark.e2e
-    def test_multiple_tool_calls_same_session(
-        self, mcp_server: subprocess.Popen
-    ) -> None:
-        """Server handles multiple tools/call invocations in one session."""
-        messages = [
-            INIT_REQUEST,
-            INITIALIZED_NOTIFICATION,
-            # Call 1: list_collections
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {
-                    "name": "list_collections",
-                    "arguments": {"include_stats": False},
-                },
-            },
-            # Call 2: query_knowledge_hub
-            {
-                "jsonrpc": "2.0",
-                "id": 3,
-                "method": "tools/call",
-                "params": {
-                    "name": "query_knowledge_hub",
-                    "arguments": {"query": "test query", "top_k": 2},
-                },
-            },
-            # Call 3: get_document_summary (expect graceful error)
-            {
-                "jsonrpc": "2.0",
-                "id": 4,
-                "method": "tools/call",
-                "params": {
-                    "name": "get_document_summary",
-                    "arguments": {"doc_id": "does_not_exist"},
-                },
-            },
-        ]
-
-        responses = _send_jsonrpc(mcp_server, messages, expected_responses=4, timeout=60.0)
-
-        # All four responses (init + 3 tool calls) should arrive
-        for req_id in (1, 2, 3, 4):
-            resp = _find(responses, req_id)
-            assert resp is not None, f"Missing response for id={req_id}. Got: {responses}"
-            assert "result" in resp, f"Response id={req_id} missing 'result': {resp}"
-
-        # Each tool call result should have valid content
-        for req_id in (2, 3, 4):
-            resp = _find(responses, req_id)
-            assert resp is not None
-            content = resp["result"]["content"]
-            assert isinstance(content, list)
-            assert len(content) >= 1
-            assert all("type" in block for block in content)
+def test_mcp_client_empty_query_returns_32602(server):
+    """Client 传非法参数得到结构化 -32602 错误（校验先于检索栈）。"""
+    msg = _rpc(
+        server,
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "query_knowledge_hub", "arguments": {"query": ""}},
+        },
+    )
+    assert msg["error"]["code"] == -32602

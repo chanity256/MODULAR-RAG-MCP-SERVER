@@ -1,57 +1,48 @@
-"""Trace collector – receives finished TraceContext and persists them.
+"""TraceCollector（F1）：收集完成的 TraceContext 并持久化。
 
-The collector is the bridge between in-memory TraceContext objects and
-the on-disk JSON Lines log used by the Dashboard.  It is intentionally
-decoupled from the logging module so that trace persistence remains
-predictable and testable.
+``collect(trace)``：
+1. 若 trace 未 ``finish()`` 则先补调（保证总耗时/结束时间存在）；
+2. 追加到内存列表（供测试/立即读取）；
+3. 经 ``observability.logger.write_trace`` 追加到 trace 日志（遗留路径；生产写入走 ``core.trace.persist``）。
+
+写入失败（如目录只读）不抛出——trace 持久化属于旁路可观测性，
+不允许影响主链路。
 """
 
-import json
-import logging
-from pathlib import Path
-from typing import Optional
+from __future__ import annotations
 
-from src.core.settings import resolve_path
-from src.core.trace.trace_context import TraceContext
+from typing import Any, Callable
 
-logger = logging.getLogger(__name__)
+from core.trace.trace_context import TraceContext
+from observability.logger import get_logger, write_trace
 
-# Default absolute path for traces file (CWD-independent)
-_DEFAULT_TRACES_PATH = resolve_path("logs/traces.jsonl")
+__all__ = ["TraceCollector"]
 
 
 class TraceCollector:
-    """Collects finished traces and appends them to a JSON Lines file.
+    """收集 TraceContext 并触发 JSONL 持久化。"""
 
-    Args:
-        traces_path: File path for the ``traces.jsonl`` output.
-            Parent directories are created automatically.
-    """
-
-    def __init__(self, traces_path: str | Path = _DEFAULT_TRACES_PATH) -> None:
-        self._path = Path(traces_path)
-        self._path.parent.mkdir(parents=True, exist_ok=True)
+    def __init__(
+        self,
+        writer: Callable[[dict[str, Any]], None] | None = None,
+    ) -> None:
+        """
+        Args:
+            writer: 持久化函数（默认 ``write_trace``）；测试可注入假写入器。
+        """
+        self._writer = writer or write_trace
+        self._logger = get_logger("modular-rag.trace-collector")
+        self.traces: list[dict[str, Any]] = []
 
     def collect(self, trace: TraceContext) -> None:
-        """Persist a single trace as one JSON line.
-
-        If the trace has not been finished yet, ``finish()`` is called
-        automatically so the output always contains timing data.
-
-        Args:
-            trace: A populated :class:`TraceContext`.
-        """
-        if trace.finished_at is None:
-            trace.finish()
-
-        line = json.dumps(trace.to_dict(), ensure_ascii=False)
+        """收集一个 trace（自动 finish + 持久化），失败仅告警。"""
+        trace.finish()
+        data = trace.to_dict()
+        self.traces.append(data)
         try:
-            with self._path.open("a", encoding="utf-8") as fh:
-                fh.write(line + "\n")
-        except OSError:
-            logger.exception("Failed to write trace %s", trace.trace_id)
+            self._writer(data)
+        except Exception as exc:  # 持久化失败不影响主链路
+            self._logger.warning("trace persistence failed: %s: %s", type(exc).__name__, exc)
 
-    @property
-    def path(self) -> Path:
-        """Return the resolved path of the traces file."""
-        return self._path
+    def __len__(self) -> int:
+        return len(self.traces)

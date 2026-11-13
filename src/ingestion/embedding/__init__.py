@@ -1,14 +1,19 @@
-"""
-Embedding Module.
+"""Ingestion Embedding 模块（阶段 C8+）。
 
-This package contains embedding components:
-- Dense encoder
-- Sparse encoder (BM25)
-- Batch processor
+- ``DenseEncoder``：chunks 文本批量稠密向量化（包装 ``BaseEmbedding``）。
+- ``SparseEncoder``：BM25 词频统计（``SparseDocStats``，供 C11 索引）。
+- ``BatchProcessor``：批处理编排（顺序稳定 + 每批耗时记录）。
 """
 
-from src.ingestion.embedding.dense_encoder import DenseEncoder
-from src.ingestion.embedding.sparse_encoder import SparseEncoder
-from src.ingestion.embedding.batch_processor import BatchProcessor, BatchResult
+from ingestion.embedding.batch_processor import BatchProcessor
+from ingestion.embedding.dense_encoder import DenseEncoder, DenseEncodingError
+from ingestion.embedding.sparse_encoder import SparseDocStats, SparseEncoder, default_tokenize
 
-__all__ = ["DenseEncoder", "SparseEncoder", "BatchProcessor", "BatchResult"]
+__all__ = [
+    "BatchProcessor",
+    "DenseEncoder",
+    "DenseEncodingError",
+    "SparseDocStats",
+    "SparseEncoder",
+    "default_tokenize",
+]

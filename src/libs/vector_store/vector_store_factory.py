@@ -1,114 +1,66 @@
-"""Factory for creating VectorStore provider instances.
+"""VectorStore 工厂（阶段 B4）。
 
-This module implements the Factory Pattern to instantiate the appropriate
-VectorStore provider based on configuration, enabling configuration-driven selection
-of different backends without code changes.
+根据 ``Settings.vector_store.backend`` 动态实例化对应的 ``BaseVectorStore`` 实现。
+
+注册机制与其它工厂一致：
+- 各后端实现通过 ``VectorStoreFactory.register(backend)`` 装饰器登记构造函数。
+- 工厂在 ``create`` 时按 ``settings.vector_store.backend`` 路由。
+- 未知 backend 抛出可读错误（不泄露敏感配置）。
+
+阶段 B4 仅定义工厂与注册机制；真实实现见 B7.6（ChromaStore）。
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, Callable
 
-from src.libs.vector_store.base_vector_store import BaseVectorStore
+from core.settings import Settings, VectorStoreConfig
+from libs.vector_store.base_vector_store import BaseVectorStore
 
-if TYPE_CHECKING:
-    from src.core.settings import Settings
+__all__ = ["VectorStoreFactory", "VectorStoreBackendError"]
+
+
+class VectorStoreBackendError(RuntimeError):
+    """VectorStore backend 路由/构造错误。"""
 
 
 class VectorStoreFactory:
-    """Factory for creating VectorStore provider instances.
-    
-    This factory reads the provider configuration from settings and instantiates
-    the corresponding VectorStore implementation. Supported providers will be added
-    in subsequent tasks (B7.6 and beyond).
-    
-    Design Principles Applied:
-    - Factory Pattern: Centralizes object creation logic.
-    - Config-Driven: Provider selection based on settings.yaml.
-    - Fail-Fast: Raises clear errors for unknown providers.
-    """
-    
-    # Registry of supported providers (to be populated in B7.x tasks)
-    _PROVIDERS: dict[str, type[BaseVectorStore]] = {}
-    
+    """VectorStore 工厂：按配置 backend 路由到具体实现。"""
+
+    # backend 名 -> 构造函数 (vs_config: VectorStoreConfig, **kwargs) -> BaseVectorStore
+    _registry: dict[str, Callable[..., BaseVectorStore]] = {}
+
     @classmethod
-    def register_provider(cls, name: str, provider_class: type[BaseVectorStore]) -> None:
-        """Register a new VectorStore provider implementation.
-        
-        This method allows provider implementations to register themselves
-        with the factory, supporting extensibility.
-        
-        Args:
-            name: The provider identifier (e.g., 'chroma', 'qdrant', 'milvus').
-            provider_class: The BaseVectorStore subclass implementing the provider.
-        
+    def register(cls, backend: str) -> Callable[[Callable[..., BaseVectorStore]], Callable[..., BaseVectorStore]]:
+        """装饰器：注册一个 backend 的构造函数。"""
+
+        def decorator(ctor: Callable[..., BaseVectorStore]) -> Callable[..., BaseVectorStore]:
+            cls._registry[backend] = ctor
+            return ctor
+
+        return decorator
+
+    @classmethod
+    def is_registered(cls, backend: str) -> bool:
+        return backend in cls._registry
+
+    @classmethod
+    def available_backends(cls) -> list[str]:
+        return sorted(cls._registry)
+
+    @classmethod
+    def create(cls, settings: Settings, **kwargs: Any) -> BaseVectorStore:
+        """根据 ``settings.vector_store.backend`` 创建 ``BaseVectorStore`` 实例。
+
         Raises:
-            ValueError: If provider_class doesn't inherit from BaseVectorStore.
+            VectorStoreBackendError: backend 未注册时。
         """
-        if not issubclass(provider_class, BaseVectorStore):
-            raise ValueError(
-                f"Provider class {provider_class.__name__} must inherit from BaseVectorStore"
+        vs_config: VectorStoreConfig = settings.vector_store
+        backend = vs_config.backend
+        ctor = cls._registry.get(backend)
+        if ctor is None:
+            raise VectorStoreBackendError(
+                f"unknown vector_store backend: {backend!r}. "
+                f"registered: {cls.available_backends() or '(none)'}."
             )
-        cls._PROVIDERS[name.lower()] = provider_class
-    
-    @classmethod
-    def create(cls, settings: Settings, **override_kwargs: Any) -> BaseVectorStore:
-        """Create a VectorStore instance based on configuration.
-        
-        Args:
-            settings: The application settings containing VectorStore configuration.
-            **override_kwargs: Optional parameters to override config values.
-        
-        Returns:
-            An instance of the configured VectorStore provider.
-        
-        Raises:
-            ValueError: If the configured provider is not supported.
-            AttributeError: If required configuration fields are missing.
-        
-        Example:
-            >>> settings = Settings.load('config/settings.yaml')
-            >>> vector_store = VectorStoreFactory.create(settings)
-            >>> vector_store.upsert([{'id': 'doc1', 'vector': [0.1, 0.2]}])
-        """
-        # Extract provider name from settings
-        try:
-            provider_name = settings.vector_store.provider.lower()
-        except AttributeError as e:
-            raise ValueError(
-                "Missing required configuration: settings.vector_store.provider. "
-                "Please ensure 'vector_store.provider' is specified in settings.yaml"
-            ) from e
-        
-        # Look up provider class in registry
-        provider_class = cls._PROVIDERS.get(provider_name)
-        
-        if provider_class is None:
-            available = ", ".join(sorted(cls._PROVIDERS.keys())) if cls._PROVIDERS else "none"
-            raise ValueError(
-                f"Unsupported VectorStore provider: '{provider_name}'. "
-                f"Available providers: {available}. "
-                f"Provider implementations will be added in task B7.6 and beyond."
-            )
-        
-        # Instantiate the provider
-        # Provider classes should accept settings and optional kwargs
-        try:
-            return provider_class(settings=settings, **override_kwargs)
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to instantiate VectorStore provider '{provider_name}': {e}"
-            ) from e
-    
-    @classmethod
-    def list_providers(cls) -> list[str]:
-        """List all registered provider names.
-        
-        Returns:
-            Sorted list of provider names.
-        
-        Example:
-            >>> VectorStoreFactory.list_providers()
-            ['chroma', 'milvus', 'qdrant']
-        """
-        return sorted(cls._PROVIDERS.keys())
+        return ctor(vs_config, **kwargs)

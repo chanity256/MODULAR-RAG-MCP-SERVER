@@ -1,262 +1,148 @@
-"""Unit tests for LLM Factory.
+"""``LLMFactory`` 路由逻辑测试（阶段 B1）。
 
-Tests the factory pattern implementation, provider routing logic,
-and error handling for the LLM abstraction layer.
+用测试内 stub 的 Fake provider 验证工厂按 ``settings.llm.provider`` 路由，
+不依赖真实网络/SDK。
 """
+
+from __future__ import annotations
+
+from dataclasses import replace
+from textwrap import dedent
+from pathlib import Path
 
 import pytest
 
-from src.core.settings import load_settings
-from src.libs.llm.base_llm import BaseLLM, ChatResponse, Message
-from src.libs.llm.llm_factory import LLMFactory
+from core.settings import load_settings
+from libs.llm.base_llm import BaseLLM, ChatMessage, ChatResponse
+from libs.llm.llm_factory import LLMFactory, LLMProviderError
+
+# 供测试的最小合法配置（provider=azure）。
+_VALID_YAML = dedent(
+    """\
+    llm:
+      provider: azure
+      model: gpt-4o
+    embedding:
+      provider: openai
+      model: text-embedding-3-small
+    vision_llm:
+      provider: azure
+      model: gpt-4o
+    vector_store:
+      backend: chroma
+    retrieval:
+      sparse_backend: bm25
+      fusion_algorithm: rrf
+    rerank:
+      backend: none
+    evaluation:
+      backends: [custom]
+    """
+)
 
 
-def create_test_config(provider="fake", **overrides):
-    """Helper to create complete test configuration."""
-    base_config = {
-        "llm": {
-            "provider": provider,
-            "model": "fake-model",
-            "temperature": 0.0,
-            "max_tokens": 1000,
-        },
-        "embedding": {
-            "provider": "fake",
-            "model": "fake-emb",
-            "dimensions": 768,
-        },
-        "vector_store": {
-            "provider": "fake",
-            "persist_directory": "./data/db",
-            "collection_name": "test",
-        },
-        "retrieval": {
-            "dense_top_k": 10,
-            "sparse_top_k": 10,
-            "fusion_top_k": 5,
-            "rrf_k": 60,
-        },
-        "rerank": {
-            "enabled": False,
-            "provider": "none",
-            "model": "test",
-            "top_k": 5,
-        },
-        "evaluation": {
-            "enabled": False,
-            "provider": "custom",
-            "metrics": ["hit_rate"],
-        },
-        "observability": {
-            "log_level": "INFO",
-            "trace_enabled": False,
-            "trace_file": "./logs/traces.jsonl",
-            "structured_logging": False,
-        },
-        "ingestion": {
-            "chunk_size": 1000,
-            "chunk_overlap": 200,
-            "splitter": "recursive",
-            "batch_size": 100,
-        },
-    }
-    
-    # Apply overrides
-    for key, value in overrides.items():
-        if "." in key:
-            section, field = key.split(".", 1)
-            if section in base_config:
-                base_config[section][field] = value
-        else:
-            base_config[key] = value
-    
-    # Convert to YAML string
-    import yaml
-    return yaml.dump(base_config)
+def _settings(tmp_path: Path, provider: str | None = None) -> "Settings":
+    path = tmp_path / "settings.yaml"
+    path.write_text(_VALID_YAML, encoding="utf-8")
+    settings = load_settings(path)
+    if provider is not None:
+        settings = replace(settings, llm=replace(settings.llm, provider=provider))
+    return settings
 
 
-class FakeLLM(BaseLLM):
-    """Mock LLM implementation for testing."""
-    
-    def __init__(self, settings, **kwargs):
-        self.settings = settings
+# ---------------------------------------------------------------------------
+# Fake providers（测试内 stub）
+# ---------------------------------------------------------------------------
+
+
+class _FakeLLM(BaseLLM):
+    def __init__(self, llm_config, marker: str = "fake", **kwargs):
+        self.llm_config = llm_config
+        self.marker = marker
         self.kwargs = kwargs
-    
-    def chat(self, messages, trace=None, **kwargs):
-        """Return deterministic test response."""
-        self.validate_messages(messages)
-        return ChatResponse(
-            content="fake response",
-            model="fake-model",
-            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
-        )
+
+    def chat(self, messages, *, trace=None, **kwargs):
+        return ChatResponse(content=f"[{self.marker}] {self.llm_config.model}", model=self.llm_config.model)
 
 
-class TestLLMFactory:
-    """Test suite for LLMFactory."""
-    
-    def setup_method(self):
-        """Clear provider registry before each test."""
-        LLMFactory._PROVIDERS.clear()
-    
-    def test_register_provider_success(self):
-        """Test successful provider registration."""
-        LLMFactory.register_provider("fake", FakeLLM)
-        assert "fake" in LLMFactory._PROVIDERS
-        assert LLMFactory._PROVIDERS["fake"] == FakeLLM
-    
-    def test_register_provider_case_insensitive(self):
-        """Test provider registration normalizes to lowercase."""
-        LLMFactory.register_provider("FAKE", FakeLLM)
-        assert "fake" in LLMFactory._PROVIDERS
-        assert "FAKE" not in LLMFactory._PROVIDERS
-    
-    def test_register_provider_invalid_class(self):
-        """Test registration rejects non-BaseLLM classes."""
-        class NotAnLLM:
-            pass
-        
-        with pytest.raises(ValueError, match="must inherit from BaseLLM"):
-            LLMFactory.register_provider("invalid", NotAnLLM)
-    
-    def test_create_success(self, tmp_path):
-        """Test successful LLM creation from settings."""
-        # Register test provider
-        LLMFactory.register_provider("fake", FakeLLM)
-        
-        # Create minimal config
-        config_file = tmp_path / "settings.yaml"
-        config_file.write_text(create_test_config(provider="fake"))
-        
-        settings = load_settings(str(config_file))
-        llm = LLMFactory.create(settings)
-        
-        assert isinstance(llm, FakeLLM)
-        assert llm.settings == settings
-    
-    def test_create_provider_case_insensitive(self, tmp_path):
-        """Test factory handles provider name case-insensitively."""
-        LLMFactory.register_provider("fake", FakeLLM)
-        
-        config_file = tmp_path / "settings.yaml"
-        config_file.write_text(create_test_config(provider="FAKE"))
-        
-        settings = load_settings(str(config_file))
-        llm = LLMFactory.create(settings)
-        
-        assert isinstance(llm, FakeLLM)
-    
-    def test_create_unknown_provider(self, tmp_path):
-        """Test factory raises clear error for unknown provider."""
-        config_file = tmp_path / "settings.yaml"
-        config_file.write_text(create_test_config(provider="unknown_provider"))
-        
-        settings = load_settings(str(config_file))
-        
-        with pytest.raises(ValueError) as exc_info:
-            LLMFactory.create(settings)
-        
-        error_msg = str(exc_info.value)
-        assert "unknown_provider" in error_msg
-        assert "Unsupported LLM provider" in error_msg
-        assert "Available providers" in error_msg
-    
-    def test_create_missing_provider_config(self, tmp_path):
-        """Test factory raises error when provider config is missing."""
-        config_file = tmp_path / "settings.yaml"
-        # Create config without provider field
-        config_text = create_test_config(provider="fake")
-        # Remove provider line
-        config_text = "\n".join(
-            line for line in config_text.split("\n")
-            if "provider:" not in line or "embedding:" in line or "vector_store:" in line
-            or "rerank:" in line or "evaluation:" in line
-        )
-        config_file.write_text(config_text)
-        
-        with pytest.raises(Exception):  # Either SettingsError or ValueError
-            settings = load_settings(str(config_file))
-            LLMFactory.create(settings)
-    
-    def test_list_providers_empty(self):
-        """Test listing providers when none registered."""
-        assert LLMFactory.list_providers() == []
-    
-    def test_list_providers_sorted(self):
-        """Test providers are listed in sorted order."""
-        LLMFactory.register_provider("zebra", FakeLLM)
-        LLMFactory.register_provider("alpha", FakeLLM)
-        LLMFactory.register_provider("beta", FakeLLM)
-        
-        providers = LLMFactory.list_providers()
-        assert providers == ["alpha", "beta", "zebra"]
+def _make_fake(marker: str):
+    def ctor(llm_config, **kwargs):
+        return _FakeLLM(llm_config, marker=marker, **kwargs)
+    return ctor
 
 
-class TestBaseLLM:
-    """Test suite for BaseLLM validation logic."""
-    
-    def test_validate_messages_success(self):
-        """Test validation passes for valid messages."""
-        llm = FakeLLM(settings=None)
-        messages = [
-            Message(role="system", content="You are helpful"),
-            Message(role="user", content="Hello"),
-            Message(role="assistant", content="Hi there"),
-        ]
-        
-        # Should not raise
-        llm.validate_messages(messages)
-    
-    def test_validate_messages_empty_list(self):
-        """Test validation rejects empty message list."""
-        llm = FakeLLM(settings=None)
-        
-        with pytest.raises(ValueError, match="Messages list cannot be empty"):
-            llm.validate_messages([])
-    
-    def test_validate_messages_invalid_role(self):
-        """Test validation rejects invalid roles."""
-        llm = FakeLLM(settings=None)
-        messages = [Message(role="invalid_role", content="test")]
-        
-        with pytest.raises(ValueError, match="invalid role 'invalid_role'"):
-            llm.validate_messages(messages)
-    
-    def test_validate_messages_empty_content(self):
-        """Test validation rejects empty content."""
-        llm = FakeLLM(settings=None)
-        messages = [Message(role="user", content="   ")]
-        
-        with pytest.raises(ValueError, match="empty content"):
-            llm.validate_messages(messages)
-    
-    def test_validate_messages_not_message_instance(self):
-        """Test validation rejects non-Message objects."""
-        llm = FakeLLM(settings=None)
-        messages = [{"role": "user", "content": "test"}]
-        
-        with pytest.raises(ValueError, match="not a Message instance"):
-            llm.validate_messages(messages)
+@pytest.fixture
+def clean_registry():
+    """每个用例前后清理 ``LLMFactory`` 注册表，避免跨用例污染。"""
+    saved = dict(LLMFactory._registry)
+    LLMFactory._registry.clear()
+    yield LLMFactory
+    LLMFactory._registry.clear()
+    LLMFactory._registry.update(saved)
 
 
-class TestFakeLLMIntegration:
-    """Integration tests for FakeLLM mock."""
-    
-    def test_chat_returns_expected_response(self):
-        """Test FakeLLM chat returns proper ChatResponse."""
-        llm = FakeLLM(settings=None)
-        messages = [Message(role="user", content="test")]
-        
-        response = llm.chat(messages)
-        
-        assert isinstance(response, ChatResponse)
-        assert response.content == "fake response"
-        assert response.model == "fake-model"
-        assert response.usage["total_tokens"] == 15
-    
-    def test_chat_validates_messages(self):
-        """Test FakeLLM validates messages before processing."""
-        llm = FakeLLM(settings=None)
-        
-        with pytest.raises(ValueError, match="Messages list cannot be empty"):
-            llm.chat([])
+# ---------------------------------------------------------------------------
+# 路由测试
+# ---------------------------------------------------------------------------
+
+
+def test_register_and_route_to_fake(tmp_path, clean_registry):
+    clean_registry.register("azure")(_make_fake("azure"))
+    settings = _settings(tmp_path, provider="azure")
+    llm = clean_registry.create(settings)
+    assert isinstance(llm, _FakeLLM)
+    assert llm.marker == "azure"
+    resp = llm.chat([ChatMessage("user", "hi")])
+    assert resp.content == "[azure] gpt-4o"
+    assert resp.model == "gpt-4o"
+
+
+def test_route_to_different_provider(tmp_path, clean_registry):
+    clean_registry.register("ollama")(_make_fake("ollama"))
+    settings = _settings(tmp_path, provider="ollama")
+    llm = clean_registry.create(settings)
+    assert llm.marker == "ollama"
+
+
+def test_unknown_provider_raises(tmp_path, clean_registry):
+    settings = _settings(tmp_path, provider="nonexistent")
+    with pytest.raises(LLMProviderError) as exc_info:
+        clean_registry.create(settings)
+    assert "nonexistent" in str(exc_info.value)
+
+
+def test_unknown_provider_error_lists_registered(tmp_path, clean_registry):
+    clean_registry.register("azure")(_make_fake("azure"))
+    settings = _settings(tmp_path, provider="bad")
+    with pytest.raises(LLMProviderError) as exc_info:
+        clean_registry.create(settings)
+    msg = str(exc_info.value)
+    assert "bad" in msg
+    assert "azure" in msg  # 错误信息列出已注册 provider
+
+
+def test_kwargs_passthrough_to_ctor(tmp_path, clean_registry):
+    clean_registry.register("azure")(_make_fake("azure"))
+    settings = _settings(tmp_path, provider="azure")
+    llm = clean_registry.create(settings, extra_flag=True)
+    assert llm.kwargs["extra_flag"] is True
+
+
+def test_is_registered_and_available_providers(clean_registry):
+    assert not clean_registry.is_registered("azure")
+    clean_registry.register("azure")(_make_fake("azure"))
+    assert clean_registry.is_registered("azure")
+    assert "azure" in clean_registry.available_providers()
+
+
+def test_chat_text_helper(tmp_path, clean_registry):
+    clean_registry.register("azure")(_make_fake("azure"))
+    settings = _settings(tmp_path, provider="azure")
+    llm = clean_registry.create(settings)
+    text = llm.chat_text("hello", system="be concise")
+    assert text.startswith("[azure]")
+
+
+def test_chat_message_to_dict():
+    msg = ChatMessage("system", "you are helpful")
+    assert msg.to_dict() == {"role": "system", "content": "you are helpful"}

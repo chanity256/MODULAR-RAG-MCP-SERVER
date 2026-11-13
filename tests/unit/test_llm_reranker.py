@@ -1,481 +1,351 @@
-"""Tests for LLM-based Reranker implementation."""
+"""LLM Reranker 单元测试（阶段 B7.7，mock LLM）。
 
-import json
+通过注入 mock LLM 验证：
+- backend=llm 时 RerankerFactory 可创建。
+- 正常重排：LLM 返回 JSON 数组，候选按新顺序返回，score 按排名递减。
+- 解析鲁棒性：LLM 返回带额外文本的响应仍可提取 JSON 数组。
+- 失败回退：LLM 异常 / 空响应 / 无 JSON 数组 / 全部越界 → 回退原序 + last_fallback=True。
+- 候选截断：超过 top_m 的候选被截取。
+- 未覆盖候选追加到末尾。
+- prompt 模板可注入（不依赖文件）。
+- 空候选返回空列表。
+"""
+
+from __future__ import annotations
+
+from dataclasses import replace
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, Mock, mock_open, patch
+from textwrap import dedent
 
 import pytest
 
-from src.core.settings import LLMSettings, RerankSettings, Settings
-from src.libs.llm.base_llm import BaseLLM, ChatResponse, Message
-from src.libs.reranker.llm_reranker import LLMRerankError, LLMReranker
+from core.settings import load_settings
+from libs.llm.base_llm import BaseLLM, ChatResponse
+from libs.reranker.base_reranker import RerankCandidate
+from libs.reranker.llm_reranker import LLMReranker, RerankerParseError, register_llm_provider
+from libs.reranker.reranker_factory import RerankerFactory
+
+_VALID_YAML = dedent(
+    """\
+    llm:
+      provider: azure
+      model: gpt-4o
+    embedding:
+      provider: openai
+      model: text-embedding-3-small
+    vision_llm:
+      provider: azure
+      model: gpt-4o
+    vector_store:
+      backend: chroma
+    retrieval:
+      sparse_backend: bm25
+      fusion_algorithm: rrf
+    rerank:
+      backend: none
+    evaluation:
+      backends: [custom]
+    """
+)
+
+_PROMPT_TEMPLATE = "Query: {query}\nCandidates:\n{candidates}\nOutput ranked indices as JSON array."
 
 
-class MockLLM(BaseLLM):
-    """Mock LLM for testing."""
-    
-    def __init__(self, response_content: str = "[]"):
-        self.response_content = response_content
-        self.call_count = 0
-        self.last_messages: Optional[List[Message]] = None
-    
-    def chat(
-        self,
-        messages: List[Message],
-        trace: Optional[Any] = None,
-        **kwargs: Any,
-    ) -> ChatResponse:
-        self.call_count += 1
-        self.last_messages = messages
-        return ChatResponse(
-            content=self.response_content,
-            model="mock-model",
-            usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20}
-        )
+def _settings(tmp_path: Path, **rerank_overrides):
+    path = tmp_path / "settings.yaml"
+    path.write_text(_VALID_YAML, encoding="utf-8")
+    settings = load_settings(path)
+    if rerank_overrides:
+        settings = replace(settings, rerank=replace(settings.rerank, **rerank_overrides))
+    return settings
+
+
+class _MockLLM(BaseLLM):
+    """可注入的 mock LLM，返回预设响应。"""
+
+    def __init__(self, response: str = "[0, 1, 2]", *, raise_exc: Exception | None = None):
+        self._response = response
+        self._raise = raise_exc
+        self.last_prompt: str | None = None
+
+    def chat(self, messages, *, trace=None, **kwargs):
+        # chat_text 会调用 chat，提取最后一条 user 消息内容
+        if self._raise is not None:
+            raise self._raise
+        self.last_prompt = messages[-1].content if messages else ""
+        return ChatResponse(content=self._response, model="mock")
 
 
 @pytest.fixture
-def mock_settings():
-    """Create mock settings for testing."""
-    return Mock(spec=Settings)
+def registered():
+    import libs.reranker  # noqa: F401
+    yield RerankerFactory
 
 
-@pytest.fixture
-def sample_prompt():
-    """Sample rerank prompt template."""
-    return """You are an AI assistant specialized in evaluating relevance.
-Given a query and passages, score each passage on relevance (0-3).
-Output JSON format with passage_id and score."""
+# ---------------------------------------------------------------------------
+# 工厂创建
+# ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def sample_candidates():
-    """Sample candidate list for reranking."""
-    return [
-        {"id": "chunk_1", "text": "Python is a programming language.", "score": 0.8},
-        {"id": "chunk_2", "text": "Machine learning uses neural networks.", "score": 0.75},
-        {"id": "chunk_3", "text": "RAG combines retrieval and generation.", "score": 0.9},
+def test_factory_creates_llm_reranker(tmp_path, registered):
+    settings = _settings(tmp_path, backend="llm")
+    reranker = registered.create(settings, llm=_MockLLM(), prompt_template=_PROMPT_TEMPLATE)
+    assert isinstance(reranker, LLMReranker)
+
+
+def test_factory_llm_requires_llm_kwarg(tmp_path, registered):
+    settings = _settings(tmp_path, backend="llm")
+    with pytest.raises(ValueError, match="llm"):
+        registered.create(settings, prompt_template=_PROMPT_TEMPLATE)
+
+
+def test_llm_registered_in_factory(registered):
+    assert "llm" in RerankerFactory.available_backends()
+
+
+# ---------------------------------------------------------------------------
+# 正常重排
+# ---------------------------------------------------------------------------
+
+
+def test_basic_rerank_reorders_candidates():
+    cfg = replace(load_settings.__self__ if False else None) if False else None  # unused
+    from core.settings import RerankConfig
+
+    rc = RerankConfig(backend="llm")
+    candidates = [
+        RerankCandidate(id="a", text="apple", score=0.9),
+        RerankCandidate(id="b", text="banana", score=0.8),
+        RerankCandidate(id="c", text="cherry", score=0.7),
     ]
+    mock = _MockLLM("[2, 0, 1]")
+    reranker = LLMReranker(rc, mock, prompt_template=_PROMPT_TEMPLATE)
+    result = reranker.rerank("fruit", candidates)
+    assert len(result) == 3
+    assert result[0].id == "c"  # index 2
+    assert result[1].id == "a"  # index 0
+    assert result[2].id == "b"  # index 1
 
 
-class TestLLMRerankerInit:
-    """Test LLMReranker initialization."""
-    
-    def test_init_with_defaults(self, mock_settings, sample_prompt, tmp_path):
-        """Test initialization with default parameters."""
-        # Create temp prompt file
-        prompt_file = tmp_path / "rerank.txt"
-        prompt_file.write_text(sample_prompt)
-        
-        mock_llm = MockLLM()
-        reranker = LLMReranker(
-            settings=mock_settings,
-            prompt_path=str(prompt_file),
-            llm=mock_llm
-        )
-        
-        assert reranker.settings == mock_settings
-        assert reranker.llm == mock_llm
-        assert reranker.prompt_template == sample_prompt
-    
-    def test_init_missing_prompt_file(self, mock_settings):
-        """Test initialization fails with missing prompt file."""
-        mock_llm = MockLLM()
-        
-        with pytest.raises(LLMRerankError, match="Failed to load rerank prompt"):
-            LLMReranker(
-                settings=mock_settings,
-                prompt_path="/nonexistent/path/rerank.txt",
-                llm=mock_llm
-            )
-    
-    def test_load_prompt_template(self, mock_settings, sample_prompt, tmp_path):
-        """Test prompt template loading."""
-        prompt_file = tmp_path / "custom_prompt.txt"
-        prompt_file.write_text(sample_prompt)
-        
-        mock_llm = MockLLM()
-        reranker = LLMReranker(
-            settings=mock_settings,
-            prompt_path=str(prompt_file),
-            llm=mock_llm
-        )
-        
-        assert sample_prompt in reranker.prompt_template
+def test_rerank_scores_decreasing_by_rank():
+    from core.settings import RerankConfig
+
+    rc = RerankConfig(backend="llm")
+    candidates = [
+        RerankCandidate(id="a", text="a", score=0.5),
+        RerankCandidate(id="b", text="b", score=0.4),
+        RerankCandidate(id="c", text="c", score=0.3),
+    ]
+    mock = _MockLLM("[1, 2, 0]")
+    reranker = LLMReranker(rc, mock, prompt_template=_PROMPT_TEMPLATE)
+    result = reranker.rerank("query", candidates)
+    scores = [r.score for r in result]
+    # score 应递减
+    assert scores == sorted(scores, reverse=True)
+    assert scores[0] > scores[-1]
 
 
-class TestLLMRerankerPromptBuilding:
-    """Test prompt building functionality."""
-    
-    def test_build_rerank_prompt(self, mock_settings, sample_prompt, sample_candidates, tmp_path):
-        """Test prompt construction with query and candidates."""
-        prompt_file = tmp_path / "rerank.txt"
-        prompt_file.write_text(sample_prompt)
-        
-        mock_llm = MockLLM()
-        reranker = LLMReranker(
-            settings=mock_settings,
-            prompt_path=str(prompt_file),
-            llm=mock_llm
-        )
-        
-        query = "What is RAG?"
-        prompt = reranker._build_rerank_prompt(query, sample_candidates)
-        
-        # Check that prompt contains expected elements
-        assert sample_prompt in prompt
-        assert query in prompt
-        assert "chunk_1" in prompt
-        assert "chunk_2" in prompt
-        assert "chunk_3" in prompt
-        assert "Python is a programming language" in prompt
-    
-    def test_build_prompt_with_missing_text(self, mock_settings, sample_prompt, tmp_path):
-        """Test prompt building with candidates missing text field."""
-        prompt_file = tmp_path / "rerank.txt"
-        prompt_file.write_text(sample_prompt)
-        
-        mock_llm = MockLLM()
-        reranker = LLMReranker(
-            settings=mock_settings,
-            prompt_path=str(prompt_file),
-            llm=mock_llm
-        )
-        
-        candidates = [
-            {"id": "chunk_1", "content": "Alternative field name"},
-            {"id": "chunk_2"},  # Missing both text and content
-        ]
-        
-        query = "test query"
-        prompt = reranker._build_rerank_prompt(query, candidates)
-        
-        assert "Alternative field name" in prompt
-        assert "chunk_1" in prompt
-        assert "chunk_2" in prompt
+def test_rerank_preserves_text_and_metadata():
+    from core.settings import RerankConfig
+
+    rc = RerankConfig(backend="llm")
+    candidates = [
+        RerankCandidate(id="x", text="hello world", score=0.5, metadata={"page": 1}),
+    ]
+    mock = _MockLLM("[0]")
+    reranker = LLMReranker(rc, mock, prompt_template=_PROMPT_TEMPLATE)
+    result = reranker.rerank("query", candidates)
+    assert result[0].text == "hello world"
+    assert result[0].metadata == {"page": 1}
 
 
-class TestLLMRerankerResponseParsing:
-    """Test LLM response parsing and validation."""
-    
-    def test_parse_valid_json_response(self, mock_settings, sample_prompt, tmp_path):
-        """Test parsing valid JSON response."""
-        prompt_file = tmp_path / "rerank.txt"
-        prompt_file.write_text(sample_prompt)
-        
-        mock_llm = MockLLM()
-        reranker = LLMReranker(
-            settings=mock_settings,
-            prompt_path=str(prompt_file),
-            llm=mock_llm
-        )
-        
-        response = json.dumps([
-            {"passage_id": "chunk_1", "score": 2, "reasoning": "Relevant"},
-            {"passage_id": "chunk_2", "score": 1, "reasoning": "Partial match"},
-        ])
-        
-        parsed = reranker._parse_llm_response(response)
-        
-        assert len(parsed) == 2
-        assert parsed[0]["passage_id"] == "chunk_1"
-        assert parsed[0]["score"] == 2
-        assert parsed[1]["passage_id"] == "chunk_2"
-        assert parsed[1]["score"] == 1
-    
-    def test_parse_json_with_markdown_wrapper(self, mock_settings, sample_prompt, tmp_path):
-        """Test parsing JSON wrapped in markdown code blocks."""
-        prompt_file = tmp_path / "rerank.txt"
-        prompt_file.write_text(sample_prompt)
-        
-        mock_llm = MockLLM()
-        reranker = LLMReranker(
-            settings=mock_settings,
-            prompt_path=str(prompt_file),
-            llm=mock_llm
-        )
-        
-        response = """```json
-[
-    {"passage_id": "chunk_1", "score": 3},
-    {"passage_id": "chunk_2", "score": 1}
-]
-```"""
-        
-        parsed = reranker._parse_llm_response(response)
-        
-        assert len(parsed) == 2
-        assert parsed[0]["score"] == 3
-    
-    def test_parse_invalid_json(self, mock_settings, sample_prompt, tmp_path):
-        """Test error handling for invalid JSON."""
-        prompt_file = tmp_path / "rerank.txt"
-        prompt_file.write_text(sample_prompt)
-        
-        mock_llm = MockLLM()
-        reranker = LLMReranker(
-            settings=mock_settings,
-            prompt_path=str(prompt_file),
-            llm=mock_llm
-        )
-        
-        with pytest.raises(LLMRerankError, match="not valid JSON"):
-            reranker._parse_llm_response("This is not JSON")
-    
-    def test_parse_non_array_response(self, mock_settings, sample_prompt, tmp_path):
-        """Test error handling for non-array response."""
-        prompt_file = tmp_path / "rerank.txt"
-        prompt_file.write_text(sample_prompt)
-        
-        mock_llm = MockLLM()
-        reranker = LLMReranker(
-            settings=mock_settings,
-            prompt_path=str(prompt_file),
-            llm=mock_llm
-        )
-        
-        with pytest.raises(LLMRerankError, match="Expected JSON array"):
-            reranker._parse_llm_response('{"key": "value"}')
-    
-    def test_parse_missing_passage_id(self, mock_settings, sample_prompt, tmp_path):
-        """Test error handling for missing passage_id field."""
-        prompt_file = tmp_path / "rerank.txt"
-        prompt_file.write_text(sample_prompt)
-        
-        mock_llm = MockLLM()
-        reranker = LLMReranker(
-            settings=mock_settings,
-            prompt_path=str(prompt_file),
-            llm=mock_llm
-        )
-        
-        response = json.dumps([{"score": 2}])
-        
-        with pytest.raises(LLMRerankError, match="missing required field 'passage_id'"):
-            reranker._parse_llm_response(response)
-    
-    def test_parse_missing_score(self, mock_settings, sample_prompt, tmp_path):
-        """Test error handling for missing score field."""
-        prompt_file = tmp_path / "rerank.txt"
-        prompt_file.write_text(sample_prompt)
-        
-        mock_llm = MockLLM()
-        reranker = LLMReranker(
-            settings=mock_settings,
-            prompt_path=str(prompt_file),
-            llm=mock_llm
-        )
-        
-        response = json.dumps([{"passage_id": "chunk_1"}])
-        
-        with pytest.raises(LLMRerankError, match="missing required field 'score'"):
-            reranker._parse_llm_response(response)
-    
-    def test_parse_non_numeric_score(self, mock_settings, sample_prompt, tmp_path):
-        """Test error handling for non-numeric score."""
-        prompt_file = tmp_path / "rerank.txt"
-        prompt_file.write_text(sample_prompt)
-        
-        mock_llm = MockLLM()
-        reranker = LLMReranker(
-            settings=mock_settings,
-            prompt_path=str(prompt_file),
-            llm=mock_llm
-        )
-        
-        response = json.dumps([{"passage_id": "chunk_1", "score": "high"}])
-        
-        with pytest.raises(LLMRerankError, match="score must be numeric"):
-            reranker._parse_llm_response(response)
+# ---------------------------------------------------------------------------
+# 解析鲁棒性
+# ---------------------------------------------------------------------------
 
 
-class TestLLMRerankerReranking:
-    """Test end-to-end reranking functionality."""
-    
-    def test_rerank_success(self, mock_settings, sample_prompt, sample_candidates, tmp_path):
-        """Test successful reranking with valid LLM response."""
-        prompt_file = tmp_path / "rerank.txt"
-        prompt_file.write_text(sample_prompt)
-        
-        # Mock LLM returns reranked scores
-        llm_response = json.dumps([
-            {"passage_id": "chunk_3", "score": 3, "reasoning": "Most relevant"},
-            {"passage_id": "chunk_1", "score": 2, "reasoning": "Partially relevant"},
-            {"passage_id": "chunk_2", "score": 1, "reasoning": "Less relevant"},
-        ])
-        
-        mock_llm = MockLLM(response_content=llm_response)
-        reranker = LLMReranker(
-            settings=mock_settings,
-            prompt_path=str(prompt_file),
-            llm=mock_llm
-        )
-        
-        query = "What is RAG?"
-        reranked = reranker.rerank(query, sample_candidates)
-        
-        # Check order (should be chunk_3, chunk_1, chunk_2 by score)
-        assert len(reranked) == 3
-        assert reranked[0]["id"] == "chunk_3"
-        assert reranked[0]["rerank_score"] == 3
-        assert reranked[1]["id"] == "chunk_1"
-        assert reranked[1]["rerank_score"] == 2
-        assert reranked[2]["id"] == "chunk_2"
-        assert reranked[2]["rerank_score"] == 1
-        
-        # Check LLM was called
-        assert mock_llm.call_count == 1
-    
-    def test_rerank_single_candidate(self, mock_settings, sample_prompt, tmp_path):
-        """Test reranking with single candidate (no-op)."""
-        prompt_file = tmp_path / "rerank.txt"
-        prompt_file.write_text(sample_prompt)
-        
-        mock_llm = MockLLM()
-        reranker = LLMReranker(
-            settings=mock_settings,
-            prompt_path=str(prompt_file),
-            llm=mock_llm
-        )
-        
-        candidates = [{"id": "chunk_1", "text": "Only one", "score": 0.9}]
-        query = "test"
-        
-        reranked = reranker.rerank(query, candidates)
-        
-        # Should return as-is without calling LLM
-        assert len(reranked) == 1
-        assert reranked[0]["id"] == "chunk_1"
-        assert mock_llm.call_count == 0
-    
-    def test_rerank_invalid_query(self, mock_settings, sample_prompt, sample_candidates, tmp_path):
-        """Test error handling for invalid query."""
-        prompt_file = tmp_path / "rerank.txt"
-        prompt_file.write_text(sample_prompt)
-        
-        mock_llm = MockLLM()
-        reranker = LLMReranker(
-            settings=mock_settings,
-            prompt_path=str(prompt_file),
-            llm=mock_llm
-        )
-        
-        with pytest.raises(ValueError, match="Query cannot be empty"):
-            reranker.rerank("   ", sample_candidates)
-    
-    def test_rerank_invalid_candidates(self, mock_settings, sample_prompt, tmp_path):
-        """Test error handling for invalid candidates."""
-        prompt_file = tmp_path / "rerank.txt"
-        prompt_file.write_text(sample_prompt)
-        
-        mock_llm = MockLLM()
-        reranker = LLMReranker(
-            settings=mock_settings,
-            prompt_path=str(prompt_file),
-            llm=mock_llm
-        )
-        
-        with pytest.raises(ValueError, match="Candidates list cannot be empty"):
-            reranker.rerank("test query", [])
-    
-    def test_rerank_llm_failure(self, mock_settings, sample_prompt, sample_candidates, tmp_path):
-        """Test error handling when LLM call fails."""
-        prompt_file = tmp_path / "rerank.txt"
-        prompt_file.write_text(sample_prompt)
-        
-        # Mock LLM that raises exception
-        class FailingLLM(BaseLLM):
-            def chat(self, messages, trace=None, **kwargs):
-                raise RuntimeError("LLM service unavailable")
-        
-        reranker = LLMReranker(
-            settings=mock_settings,
-            prompt_path=str(prompt_file),
-            llm=FailingLLM()
-        )
-        
-        with pytest.raises(LLMRerankError, match="LLM call failed"):
-            reranker.rerank("test query", sample_candidates)
-    
-    def test_rerank_malformed_response(self, mock_settings, sample_prompt, sample_candidates, tmp_path):
-        """Test error handling for malformed LLM response."""
-        prompt_file = tmp_path / "rerank.txt"
-        prompt_file.write_text(sample_prompt)
-        
-        mock_llm = MockLLM(response_content="This is not valid JSON")
-        reranker = LLMReranker(
-            settings=mock_settings,
-            prompt_path=str(prompt_file),
-            llm=mock_llm
-        )
-        
-        with pytest.raises(LLMRerankError, match="not valid JSON"):
-            reranker.rerank("test query", sample_candidates)
-    
-    def test_rerank_preserves_original_fields(self, mock_settings, sample_prompt, tmp_path):
-        """Test that reranking preserves original candidate fields."""
-        prompt_file = tmp_path / "rerank.txt"
-        prompt_file.write_text(sample_prompt)
-        
-        llm_response = json.dumps([
-            {"passage_id": "chunk_1", "score": 3},
-            {"passage_id": "chunk_2", "score": 2},
-        ])
-        
-        mock_llm = MockLLM(response_content=llm_response)
-        reranker = LLMReranker(
-            settings=mock_settings,
-            prompt_path=str(prompt_file),
-            llm=mock_llm
-        )
-        
-        candidates = [
-            {"id": "chunk_1", "text": "Text 1", "score": 0.8, "metadata": {"key": "value"}},
-            {"id": "chunk_2", "text": "Text 2", "score": 0.9, "metadata": {"key": "value2"}},
-        ]
-        
-        reranked = reranker.rerank("test", candidates)
-        
-        # Check original fields preserved
-        assert reranked[0]["text"] == "Text 1"
-        assert reranked[0]["score"] == 0.8
-        assert reranked[0]["metadata"]["key"] == "value"
-        assert reranked[0]["rerank_score"] == 3
-        
-        assert reranked[1]["text"] == "Text 2"
-        assert reranked[1]["score"] == 0.9
-        assert reranked[1]["metadata"]["key"] == "value2"
-        assert reranked[1]["rerank_score"] == 2
+def test_parse_extracts_json_array_with_extra_text():
+    from core.settings import RerankConfig
+
+    rc = RerankConfig(backend="llm")
+    candidates = [RerankCandidate(id=str(i), text=f"text_{i}") for i in range(3)]
+    mock = _MockLLM("Sure, here is the ranking:\n[2, 0, 1]\nHope this helps!")
+    reranker = LLMReranker(rc, mock, prompt_template=_PROMPT_TEMPLATE)
+    result = reranker.rerank("query", candidates)
+    assert [r.id for r in result] == ["2", "0", "1"]
 
 
-class TestLLMRerankerIntegration:
-    """Integration tests for LLM Reranker."""
-    
-    def test_rerank_with_trace_context(self, mock_settings, sample_prompt, sample_candidates, tmp_path):
-        """Test reranking with trace context passed through."""
-        prompt_file = tmp_path / "rerank.txt"
-        prompt_file.write_text(sample_prompt)
-        
-        llm_response = json.dumps([
-            {"passage_id": "chunk_1", "score": 3},
-            {"passage_id": "chunk_2", "score": 2},
-        ])
-        
-        mock_llm = MockLLM(response_content=llm_response)
-        reranker = LLMReranker(
-            settings=mock_settings,
-            prompt_path=str(prompt_file),
-            llm=mock_llm
-        )
-        
-        mock_trace = Mock()
-        candidates = [
-            {"id": "chunk_1", "text": "Test 1"},
-            {"id": "chunk_2", "text": "Test 2"}
-        ]
-        
-        reranker.rerank("query", candidates, trace=mock_trace)
-        
-        # Verify LLM was called with multiple candidates
-        assert mock_llm.call_count == 1
+def test_parse_handles_whitespace_in_array():
+    from core.settings import RerankConfig
+
+    rc = RerankConfig(backend="llm")
+    candidates = [RerankCandidate(id=str(i), text=f"t{i}") for i in range(3)]
+    mock = _MockLLM("[ 2 ,  0 , 1 ]")
+    reranker = LLMReranker(rc, mock, prompt_template=_PROMPT_TEMPLATE)
+    result = reranker.rerank("query", candidates)
+    assert [r.id for r in result] == ["2", "0", "1"]
+
+
+def test_partial_coverage_appends_remaining():
+    """LLM 只返回部分索引时，未覆盖候选追加到末尾（保持原序）。"""
+    from core.settings import RerankConfig
+
+    rc = RerankConfig(backend="llm")
+    candidates = [RerankCandidate(id=str(i), text=f"t{i}") for i in range(4)]
+    mock = _MockLLM("[3, 1]")  # 只排了 2 个
+    reranker = LLMReranker(rc, mock, prompt_template=_PROMPT_TEMPLATE)
+    result = reranker.rerank("query", candidates)
+    assert len(result) == 4
+    assert result[0].id == "3"
+    assert result[1].id == "1"
+    # 剩余 0, 2 保持原序
+    assert result[2].id == "0"
+    assert result[3].id == "2"
+
+
+# ---------------------------------------------------------------------------
+# 失败回退
+# ---------------------------------------------------------------------------
+
+
+def test_llm_exception_falls_back_to_original_order():
+    from core.settings import RerankConfig
+
+    rc = RerankConfig(backend="llm")
+    candidates = [RerankCandidate(id=str(i), text=f"t{i}") for i in range(3)]
+    mock = _MockLLM(raise_exc=RuntimeError("LLM timeout"))
+    reranker = LLMReranker(rc, mock, prompt_template=_PROMPT_TEMPLATE)
+    result = reranker.rerank("query", candidates)
+    assert [r.id for r in result] == ["0", "1", "2"]  # 原序
+    assert reranker.last_fallback is True
+
+
+def test_no_json_array_falls_back():
+    from core.settings import RerankConfig
+
+    rc = RerankConfig(backend="llm")
+    candidates = [RerankCandidate(id="a", text="a"), RerankCandidate(id="b", text="b")]
+    mock = _MockLLM("I think both are relevant.")
+    reranker = LLMReranker(rc, mock, prompt_template=_PROMPT_TEMPLATE)
+    result = reranker.rerank("query", candidates)
+    assert [r.id for r in result] == ["a", "b"]  # 原序
+    assert reranker.last_fallback is True
+
+
+def test_all_indices_out_of_range_falls_back():
+    from core.settings import RerankConfig
+
+    rc = RerankConfig(backend="llm")
+    candidates = [RerankCandidate(id="a", text="a"), RerankCandidate(id="b", text="b")]
+    mock = _MockLLM("[99, 100]")  # 全部越界
+    reranker = LLMReranker(rc, mock, prompt_template=_PROMPT_TEMPLATE)
+    result = reranker.rerank("query", candidates)
+    assert len(result) == 2
+    assert reranker.last_fallback is True
+
+
+def test_duplicate_indices_ignored():
+    from core.settings import RerankConfig
+
+    rc = RerankConfig(backend="llm")
+    candidates = [RerankCandidate(id=str(i), text=f"t{i}") for i in range(3)]
+    mock = _MockLLM("[0, 0, 1]")  # 重复 0
+    reranker = LLMReranker(rc, mock, prompt_template=_PROMPT_TEMPLATE)
+    result = reranker.rerank("query", candidates)
+    assert result[0].id == "0"
+    assert result[1].id == "1"
+    assert result[2].id == "2"  # 剩余
+
+
+# ---------------------------------------------------------------------------
+# top_m 截断
+# ---------------------------------------------------------------------------
+
+
+def test_top_m_truncates_candidates():
+    from core.settings import RerankConfig
+
+    rc = RerankConfig(backend="llm", top_m=2)
+    candidates = [RerankCandidate(id=str(i), text=f"t{i}") for i in range(5)]
+    mock = _MockLLM("[1, 0]")
+    reranker = LLMReranker(rc, mock, prompt_template=_PROMPT_TEMPLATE)
+    result = reranker.rerank("query", candidates)
+    assert len(result) == 2  # 只处理 top_m=2 个
+    assert result[0].id == "1"
+    assert result[1].id == "0"
+
+
+# ---------------------------------------------------------------------------
+# prompt 构建
+# ---------------------------------------------------------------------------
+
+
+def test_prompt_contains_query_and_candidates():
+    from core.settings import RerankConfig
+
+    rc = RerankConfig(backend="llm")
+    candidates = [RerankCandidate(id="a", text="apple"), RerankCandidate(id="b", text="banana")]
+    mock = _MockLLM("[0, 1]")
+    reranker = LLMReranker(rc, mock, prompt_template=_PROMPT_TEMPLATE)
+    reranker.rerank("fruit query", candidates)
+    assert "fruit query" in mock.last_prompt
+    assert "apple" in mock.last_prompt
+    assert "banana" in mock.last_prompt
+    assert "[0]" in mock.last_prompt
+    assert "[1]" in mock.last_prompt
+
+
+def test_prompt_loaded_from_file(tmp_path):
+    """prompt 从文件读取（使用真实 rerank.txt 或临时文件）。"""
+    from core.settings import RerankConfig
+
+    prompt_file = tmp_path / "rerank.txt"
+    prompt_file.write_text("Q: {query}\nC: {candidates}\nOut: [indices]", encoding="utf-8")
+    rc = RerankConfig(backend="llm")
+    mock = _MockLLM("[0]")
+    reranker = LLMReranker(rc, mock, prompt_path=str(prompt_file))
+    result = reranker.rerank("q", [RerankCandidate(id="a", text="a")])
+    assert result[0].id == "a"
+
+
+def test_missing_prompt_file_raises():
+    from core.settings import RerankConfig
+
+    rc = RerankConfig(backend="llm")
+    with pytest.raises(FileNotFoundError):
+        LLMReranker(rc, _MockLLM(), prompt_path="/nonexistent/rerank.txt")
+
+
+# ---------------------------------------------------------------------------
+# 边界
+# ---------------------------------------------------------------------------
+
+
+def test_empty_candidates_returns_empty():
+    from core.settings import RerankConfig
+
+    rc = RerankConfig(backend="llm")
+    mock = _MockLLM("[0]")
+    reranker = LLMReranker(rc, mock, prompt_template=_PROMPT_TEMPLATE)
+    result = reranker.rerank("query", [])
+    assert result == []
+
+
+def test_single_candidate():
+    from core.settings import RerankConfig
+
+    rc = RerankConfig(backend="llm")
+    mock = _MockLLM("[0]")
+    reranker = LLMReranker(rc, mock, prompt_template=_PROMPT_TEMPLATE)
+    result = reranker.rerank("query", [RerankCandidate(id="only", text="text")])
+    assert len(result) == 1
+    assert result[0].id == "only"
+
+
+def test_non_list_candidates_raises():
+    from core.settings import RerankConfig
+
+    rc = RerankConfig(backend="llm")
+    reranker = LLMReranker(rc, _MockLLM(), prompt_template=_PROMPT_TEMPLATE)
+    with pytest.raises(ValueError):
+        reranker.rerank("query", "not a list")  # type: ignore[arg-type]

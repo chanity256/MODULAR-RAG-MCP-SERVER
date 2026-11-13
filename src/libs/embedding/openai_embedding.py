@@ -1,204 +1,185 @@
-"""OpenAI Embedding implementation.
+"""OpenAI-Compatible Embedding 实现（阶段 B7.3）。
 
-This module provides the OpenAI Embedding implementation that works with
-the standard OpenAI Embeddings API.
+覆盖 OpenAI 官方 API 与 Azure OpenAI 服务的 Embedding 调用。
+
+设计要点：
+- ``OpenAICompatibleEmbedding`` 为基类，封装请求构建 / 响应解析 / 可读错误。
+- 通过 **可注入的 ``transport``** 抽象 HTTP 边界（同 LLM 实现），测试注入 fake transport。
+- 空输入 / 超长输入有明确行为（报错或截断，由配置 ``on_too_long`` 决定）。
+- Azure 实现复用本基类的核心逻辑，仅覆盖 URL / headers 构建。
 """
 
 from __future__ import annotations
 
-import os
-from typing import Any, List, Optional
+import json
+import urllib.error
+import urllib.request
+from typing import Any, Callable, Sequence
 
-from src.libs.embedding.base_embedding import BaseEmbedding
+from core.settings import EmbeddingConfig
+from libs.embedding.base_embedding import BaseEmbedding
+
+__all__ = ["EmbeddingRequestError", "OpenAICompatibleEmbedding", "OpenAIEmbedding", "register_openai_provider"]
+
+Transport = Callable[..., dict[str, Any]]
 
 
-class OpenAIEmbeddingError(RuntimeError):
-    """Raised when OpenAI Embeddings API call fails."""
+class EmbeddingRequestError(RuntimeError):
+    """Embedding HTTP 请求错误，包含 provider 与错误类型。"""
+
+    def __init__(self, provider: str, message: str, *, status: int | None = None, body: Any = None):
+        self.provider = provider
+        self.status = status
+        self.body = body
+        parts = [f"[{provider}]"]
+        if status is not None:
+            parts.append(f"status={status}")
+        parts.append(message)
+        super().__init__(" ".join(parts))
 
 
-class OpenAIEmbedding(BaseEmbedding):
-    """OpenAI Embedding provider implementation.
-    
-    This class implements the BaseEmbedding interface for OpenAI's Embeddings API.
-    It supports text-embedding-3-small, text-embedding-3-large, and older models
-    like text-embedding-ada-002.
-    
-    Attributes:
-        api_key: The API key for authentication.
-        model: The model identifier to use.
-        dimensions: Optional dimension reduction (only for text-embedding-3-*).
-        base_url: The base URL for the API (default: OpenAI's endpoint).
-    
-    Example:
-        >>> from src.core.settings import load_settings
-        >>> settings = load_settings('config/settings.yaml')
-        >>> embedding = OpenAIEmbedding(settings)
-        >>> vectors = embedding.embed(["hello world", "test"])
-    """
-    
-    DEFAULT_BASE_URL = "https://api.openai.com/v1"
-    
-    def __init__(
-        self,
-        settings: Any,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        **kwargs: Any,
-    ) -> None:
-        """Initialize the OpenAI Embedding provider.
-        
-        Args:
-            settings: Application settings containing Embedding configuration.
-            api_key: Optional API key override (falls back to settings.embedding.api_key or env var).
-            base_url: Optional base URL override.
-            **kwargs: Additional configuration overrides.
-        
-        Raises:
-            ValueError: If API key is not provided and not found in environment.
-        
-        Note:
-            When azure_endpoint is present in settings, the provider automatically
-            constructs the Azure-compatible OpenAI URL and uses api-key auth.
-        """
-        self.model = settings.embedding.model
-        
-        # Extract optional dimensions setting
-        self.dimensions = getattr(settings.embedding, 'dimensions', None)
-        
-        # API key: explicit > settings > env var
-        self.api_key = (
-            api_key
-            or getattr(settings.embedding, 'api_key', None)
-            or os.environ.get("OPENAI_API_KEY")
-        )
-        if not self.api_key:
-            raise ValueError(
-                "OpenAI API key not provided. Set in settings.yaml (embedding.api_key), "
-                "OPENAI_API_KEY environment variable, or pass api_key parameter."
-            )
-        
-        # Azure-compatible mode detection
-        azure_endpoint = getattr(settings.embedding, 'azure_endpoint', None)
-        self.api_version = getattr(settings.embedding, 'api_version', None)
-        self._use_azure_auth = False
-        
-        if base_url:
-            self.base_url = base_url
-        elif azure_endpoint:
-            # Azure-compatible mode: construct deployment-based URL
-            deployment = getattr(settings.embedding, 'deployment_name', None) or self.model
-            self.base_url = f"{azure_endpoint.rstrip('/')}/openai/deployments/{deployment}"
-            self._use_azure_auth = True
-            if not self.api_version:
-                self.api_version = "2024-02-15-preview"
-        else:
-            settings_base_url = getattr(settings.embedding, 'base_url', None)
-            self.base_url = settings_base_url if settings_base_url else self.DEFAULT_BASE_URL
-        
-        # Store any additional kwargs for future use
-        self._extra_config = kwargs
-    
+def _default_transport(url: str, headers: dict[str, str], body: dict[str, Any], *, timeout: float | None = None) -> dict[str, Any]:
+    data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - 受控的 provider URL
+            raw = resp.read().decode("utf-8")
+            status = resp.status
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace")
+        status = exc.code
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = {"raw": raw}
+        raise EmbeddingRequestError("unknown", f"HTTP error: {raw[:200]}", status=status, body=parsed) from exc
+    except urllib.error.URLError as exc:
+        raise EmbeddingRequestError("unknown", f"network error: {exc.reason}") from exc
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise EmbeddingRequestError("unknown", f"non-JSON response: {raw[:200]}", status=status) from exc
+
+
+class OpenAICompatibleEmbedding(BaseEmbedding):
+    """OpenAI 兼容 Embedding 基类。"""
+
+    provider = "openai-compatible"
+
+    def __init__(self, emb_config: EmbeddingConfig, *, transport: Transport | None = None, **kwargs: Any):
+        self.emb_config = emb_config
+        self._transport: Transport = transport or _default_transport
+        self._timeout: float | None = kwargs.pop("timeout", None)
+        self._extra_kwargs = kwargs
+
+    # -- 子类覆盖点 -------------------------------------------------------
+
+    def _build_url(self) -> str:
+        base = self.emb_config.base_url or "https://api.openai.com/v1"
+        return f"{base.rstrip('/')}/embeddings"
+
+    def _build_headers(self) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        api_key = self.emb_config.api_key
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        return headers
+
+    # -- 输入预处理 -------------------------------------------------------
+
+    def _prepare_texts(self, texts: Sequence[str]) -> list[str]:
+        if not isinstance(texts, (list, tuple)):
+            raise EmbeddingRequestError(self.provider, f"texts must be a list, got {type(texts).__name__}")
+        if len(texts) == 0:
+            raise EmbeddingRequestError(self.provider, "texts must be non-empty")
+        out: list[str] = []
+        max_len = self.emb_config.extra.get("max_input_length")
+        on_too_long = self.emb_config.extra.get("on_too_long", "error")
+        for i, t in enumerate(texts):
+            if not isinstance(t, str):
+                raise EmbeddingRequestError(self.provider, f"texts[{i}] must be str, got {type(t).__name__}")
+            if t == "":
+                raise EmbeddingRequestError(self.provider, f"texts[{i}] must be non-empty string")
+            if max_len is not None and len(t) > max_len:
+                if on_too_long == "truncate":
+                    t = t[:max_len]
+                else:
+                    raise EmbeddingRequestError(
+                        self.provider, f"texts[{i}] length {len(t)} exceeds max_input_length={max_len}"
+                    )
+            out.append(t)
+        return out
+
+    # -- 主流程 -----------------------------------------------------------
+
     def embed(
         self,
-        texts: List[str],
-        trace: Optional[Any] = None,
+        texts: Sequence[str],
+        *,
+        trace: Any | None = None,
         **kwargs: Any,
-    ) -> List[List[float]]:
-        """Generate embeddings for a batch of texts using OpenAI API.
-        
-        Args:
-            texts: List of text strings to embed. Must not be empty.
-            trace: Optional TraceContext for observability (reserved for Stage F).
-            **kwargs: Override parameters (dimensions, etc.).
-        
-        Returns:
-            List of embedding vectors, where each vector is a list of floats.
-            The length of the outer list matches len(texts).
-        
-        Raises:
-            ValueError: If texts list is empty or contains invalid entries.
-            OpenAIEmbeddingError: If API call fails.
-        """
-        # Validate input
-        self.validate_texts(texts)
-        
-        # Import OpenAI client (lazy import to avoid dependency at module level)
-        try:
-            from openai import OpenAI
-        except ImportError as e:
-            raise RuntimeError(
-                "OpenAI Python package not installed. "
-                "Install with: pip install openai"
-            ) from e
-        
-        # Initialize OpenAI client
-        client_kwargs = {
-            "api_key": self.api_key,
-            "base_url": self.base_url,
+    ) -> list[list[float]]:
+        prepared = self._prepare_texts(texts)
+        body: dict[str, Any] = {
+            "model": kwargs.pop("model", self.emb_config.model),
+            "input": prepared,
         }
-        # Azure-compatible mode: add api-version query param and api-key header
-        if self._use_azure_auth and self.api_version:
-            client_kwargs["default_query"] = {"api-version": self.api_version}
-            client_kwargs["default_headers"] = {"api-key": self.api_key}
-        
-        client = OpenAI(**client_kwargs)
-        
-        # Prepare API call parameters
-        api_params = {
-            "input": texts,
-            "model": self.model,
-        }
-        
-        # Add dimensions if specified (only for text-embedding-3-* models)
-        # text-embedding-ada-002 does NOT support the dimensions parameter
-        dimensions = kwargs.get("dimensions", self.dimensions)
-        if dimensions is not None and self.model.startswith("text-embedding-3"):
-            api_params["dimensions"] = dimensions
-        
-        # Call OpenAI API
+        if self.emb_config.dimensions is not None:
+            body["dimensions"] = self.emb_config.dimensions
+        body.update(kwargs)
+
+        url = self._build_url()
+        headers = self._build_headers()
         try:
-            response = client.embeddings.create(**api_params)
-        except Exception as e:
-            raise OpenAIEmbeddingError(
-                f"OpenAI Embeddings API call failed: {e}"
-            ) from e
-        
-        # Extract embeddings from response
-        # Response format: response.data is a list of objects with .embedding attribute
-        try:
-            embeddings = [item.embedding for item in response.data]
-        except (AttributeError, KeyError) as e:
-            raise OpenAIEmbeddingError(
-                f"Failed to parse OpenAI Embeddings API response: {e}"
-            ) from e
-        
-        # Verify output matches input length
-        if len(embeddings) != len(texts):
-            raise OpenAIEmbeddingError(
-                f"Output length mismatch: expected {len(texts)}, got {len(embeddings)}"
+            resp = self._transport(url, headers, body, timeout=self._timeout)
+        except EmbeddingRequestError as exc:
+            raise EmbeddingRequestError(
+                self.provider, str(exc).replace("[unknown] ", ""), status=exc.status, body=exc.body
+            ) from exc
+
+        return self._parse_response(resp, expected=len(prepared))
+
+    def _parse_response(self, resp: dict[str, Any], *, expected: int) -> list[list[float]]:
+        if not isinstance(resp, dict):
+            raise EmbeddingRequestError(self.provider, f"response must be a JSON object, got {type(resp).__name__}")
+        if "error" in resp:
+            err = resp["error"]
+            msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+            raise EmbeddingRequestError(self.provider, f"API error: {msg}", body=resp)
+        data = resp.get("data")
+        if not isinstance(data, list) or not data:
+            raise EmbeddingRequestError(self.provider, f"invalid response: missing 'data', got {str(resp)[:200]}", body=resp)
+        indexed: list[tuple[int, list[float]]] = []
+        for item in data:
+            if not isinstance(item, dict) or "embedding" not in item or "index" not in item:
+                raise EmbeddingRequestError(self.provider, f"invalid data item: {str(item)[:200]}", body=resp)
+            vec = item["embedding"]
+            if not isinstance(vec, list):
+                raise EmbeddingRequestError(self.provider, f"embedding must be a list, got {type(vec).__name__}")
+            indexed.append((int(item["index"]), [float(x) for x in vec]))
+        indexed.sort(key=lambda pair: pair[0])
+        vectors = [v for _, v in indexed]
+        if len(vectors) != expected:
+            raise EmbeddingRequestError(
+                self.provider, f"response count {len(vectors)} != input count {expected}", body=resp
             )
-        
-        return embeddings
-    
-    def get_dimension(self) -> Optional[int]:
-        """Get the embedding dimension for the configured model.
-        
-        Returns:
-            The embedding dimension, or None if not deterministic.
-        
-        Note:
-            For text-embedding-3-* models with custom dimensions, returns
-            the configured dimension. For other models, returns their default.
-        """
-        # If dimensions explicitly configured, return it
-        if self.dimensions is not None:
-            return self.dimensions
-        
-        # Model-specific defaults
-        model_dimensions = {
-            "text-embedding-3-small": 1536,
-            "text-embedding-3-large": 3072,
-            "text-embedding-ada-002": 1536,
-        }
-        
-        return model_dimensions.get(self.model)
+        return vectors
+
+
+class OpenAIEmbedding(OpenAICompatibleEmbedding):
+    """OpenAI 原生 Embedding 实现。"""
+
+    provider = "openai"
+
+    def _build_url(self) -> str:
+        base = self.emb_config.base_url or "https://api.openai.com/v1"
+        return f"{base.rstrip('/')}/embeddings"
+
+
+def register_openai_provider() -> None:
+    """向 ``EmbeddingFactory`` 注册 OpenAI provider。"""
+    from libs.embedding.embedding_factory import EmbeddingFactory
+
+    @EmbeddingFactory.register("openai")
+    def _ctor(emb_config: EmbeddingConfig, **kwargs: Any) -> OpenAIEmbedding:
+        return OpenAIEmbedding(emb_config, **kwargs)

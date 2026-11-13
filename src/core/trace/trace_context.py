@@ -1,132 +1,104 @@
-"""Trace context for observability across pipeline stages.
+"""TraceContext：Ingestion / Query 链路统一的追踪上下文（F1 增强版）。
 
-Provides trace_id, trace_type (query/ingestion), per-stage timing,
-finish() lifecycle, and to_dict() serialisation for JSON Lines output.
+在 C5 最小版基础上补充：
+- ``trace_type``：``"query"`` / ``"ingestion"``，区分链路类型。
+- ``record_stage`` 自动附带 ``elapsed_ms``（距上一阶段记录的耗时，毫秒）。
+- ``finish()``：标记 trace 结束并计算总耗时（幂等）。
+- ``elapsed_ms(stage_name?)``：指定阶段或总耗时。
+- ``to_dict()``：JSON 可序列化，含 trace_id/trace_type/started_at/
+  finished_at/total_elapsed_ms/stages。
 """
+
+from __future__ import annotations
 
 import time
 import uuid
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any
+
+__all__ = ["TRACE_TYPE_INGESTION", "TRACE_TYPE_QUERY", "TraceContext"]
+
+#: 合法的 trace 类型。
+TRACE_TYPE_QUERY = "query"
+TRACE_TYPE_INGESTION = "ingestion"
+_VALID_TRACE_TYPES = (TRACE_TYPE_QUERY, TRACE_TYPE_INGESTION)
 
 
-@dataclass
 class TraceContext:
-    """Request-scoped trace context that records pipeline stages and timing.
+    """请求级追踪上下文（显式调用模式，低侵入）。"""
 
-    Attributes:
-        trace_id: Unique identifier for this trace.
-        trace_type: Either ``"query"`` or ``"ingestion"``.
-        started_at: ISO-8601 timestamp when the trace was created.
-        finished_at: ISO-8601 timestamp when ``finish()`` was called, or None.
-        stages: Ordered list of recorded stage dicts.
-        metadata: Arbitrary key/value pairs attached to the trace.
-    """
-
-    trace_type: Literal["query", "ingestion"] = "query"
-    trace_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    started_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    finished_at: Optional[str] = field(default=None)
-    stages: List[Dict[str, Any]] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-    # internal monotonic clock for accurate elapsed calculation
-    _start_mono: float = field(default_factory=time.monotonic, repr=False)
-    _finish_mono: Optional[float] = field(default=None, repr=False)
-    _stage_timings: Dict[str, float] = field(default_factory=dict, repr=False)
-
-    # ---- recording ---------------------------------------------------
-
-    def record_stage(
+    def __init__(
         self,
-        stage_name: str,
-        data: Dict[str, Any],
-        elapsed_ms: Optional[float] = None,
+        trace_id: str | None = None,
+        trace_type: str = TRACE_TYPE_QUERY,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
-        """Record data from a pipeline stage.
+        if trace_type not in _VALID_TRACE_TYPES:
+            raise ValueError(
+                f"trace_type must be one of {_VALID_TRACE_TYPES}, got {trace_type!r}"
+            )
+        self.trace_id = trace_id or uuid.uuid4().hex
+        self.trace_type = trace_type
+        self.metadata: dict[str, Any] = dict(metadata or {})
+        self.stages: list[dict[str, Any]] = []
+        self.started_at: str = datetime.now(timezone.utc).isoformat()
+        self.finished_at: str | None = None
+        self.total_elapsed_ms: float | None = None
+        self._t0 = time.perf_counter()
+        self._last_mark = self._t0
+
+    def record_stage(self, stage: str, **data: Any) -> None:
+        """记录一个处理阶段（后写入的排在列表尾部）。
+
+        自动注入 ``elapsed_ms``（距上一阶段记录的时间差）；调用方显式
+        传入的 ``elapsed_ms`` 优先（组件自测更精确）。
+        """
+        now = time.perf_counter()
+        elapsed = round((now - self._last_mark) * 1000, 3)
+        record: dict[str, Any] = {"stage": stage, "elapsed_ms": elapsed}
+        record.update(data)
+        self.stages.append(record)
+        self._last_mark = now
+
+    def get_stage(self, stage: str) -> dict[str, Any] | None:
+        """返回最近一次同名阶段记录（无则 None）。"""
+        for record in reversed(self.stages):
+            if record.get("stage") == stage:
+                return record
+        return None
+
+    def elapsed_ms(self, stage_name: str | None = None) -> float:
+        """获取耗时（毫秒，3 位小数）。
 
         Args:
-            stage_name: Name of the stage (e.g. ``"dense_retrieval"``).
-            data: Stage-specific payload (method, provider, details …).
-            elapsed_ms: Pre-computed elapsed time in ms.  If *None* the
-                caller should measure externally, or leave it to the
-                ``stage_timer`` context-manager.
+            stage_name: 指定阶段名时返回该阶段记录的 ``elapsed_ms``
+                （无该阶段抛 ``KeyError``）；``None`` 返回总耗时
+                （已 ``finish()`` 返回总耗时，否则返回至今耗时）。
         """
-        entry: Dict[str, Any] = {
-            "stage": stage_name,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "data": data,
-        }
-        if elapsed_ms is not None:
-            entry["elapsed_ms"] = round(elapsed_ms, 2)
-            self._stage_timings[stage_name] = elapsed_ms
-        self.stages.append(entry)
-
-    # ---- lifecycle ----------------------------------------------------
+        if stage_name is None:
+            if self.total_elapsed_ms is not None:
+                return self.total_elapsed_ms
+            return round((time.perf_counter() - self._t0) * 1000, 3)
+        record = self.get_stage(stage_name)
+        if record is None:
+            raise KeyError(f"stage {stage_name!r} not recorded")
+        return float(record.get("elapsed_ms", 0.0))
 
     def finish(self) -> None:
-        """Mark the trace as finished and record wall-clock end time."""
-        self._finish_mono = time.monotonic()
+        """标记 trace 结束并计算总耗时（幂等，重复调用无副作用）。"""
+        if self.total_elapsed_ms is not None:
+            return
+        self.total_elapsed_ms = round((time.perf_counter() - self._t0) * 1000, 3)
         self.finished_at = datetime.now(timezone.utc).isoformat()
 
-    # ---- timing helpers -----------------------------------------------
-
-    def elapsed_ms(self, stage_name: Optional[str] = None) -> float:
-        """Return elapsed time in milliseconds.
-
-        Args:
-            stage_name: If given, return the elapsed time recorded for
-                that stage.  If *None*, return the total trace elapsed
-                time (start → finish, or start → now if not yet
-                finished).
-
-        Returns:
-            Elapsed milliseconds.
-
-        Raises:
-            KeyError: If *stage_name* was provided but not found.
-        """
-        if stage_name is not None:
-            if stage_name not in self._stage_timings:
-                raise KeyError(f"Stage '{stage_name}' has no recorded timing")
-            return self._stage_timings[stage_name]
-
-        end = self._finish_mono if self._finish_mono is not None else time.monotonic()
-        return (end - self._start_mono) * 1000.0
-
-    # ---- serialisation ------------------------------------------------
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Serialise the trace to a plain dict suitable for ``json.dumps``.
-
-        Returns:
-            Dictionary with all trace data.
-        """
+    def to_dict(self) -> dict[str, Any]:
+        """序列化为可直接 ``json.dumps()`` 的字典。"""
         return {
             "trace_id": self.trace_id,
             "trace_type": self.trace_type,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
-            "total_elapsed_ms": round(self.elapsed_ms(), 2),
-            "stages": list(self.stages),
+            "total_elapsed_ms": self.total_elapsed_ms,
             "metadata": dict(self.metadata),
+            "stages": [dict(s) for s in self.stages],
         }
-
-    # ---- backwards-compat helper used in C5 / C6 -----------------------
-
-    def get_stage_data(self, stage_name: str) -> Optional[Dict[str, Any]]:
-        """Retrieve recorded data for a specific stage.
-
-        Searches stages list (last-write-wins for duplicate names).
-
-        Args:
-            stage_name: Name of the stage to retrieve.
-
-        Returns:
-            The ``data`` dict of the matching stage, or *None*.
-        """
-        for entry in reversed(self.stages):
-            if entry.get("stage") == stage_name:
-                return entry.get("data")
-        return None

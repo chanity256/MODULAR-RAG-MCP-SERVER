@@ -241,7 +241,7 @@ $$HitRate@K = \frac{\text{Top-K 结果中至少命中一条 Golden Answer 的查
 三层金字塔：
 - **Unit（单元测试）**：1198+ 个，只测业务逻辑，用 `unittest.mock.patch` 替换 LLM 客户端返回预设响应，避免真实 API 调用
 - **Integration（集成测试）**：验证模块间协作（Ingestion Pipeline / Chroma 存储读写），使用真实组件
-- **E2E（端到端测试）**：`test_mcp_client.py` 启动真实 MCP Server 子进程，发送 JSON-RPC 消息验证完整链路；`test_dashboard_smoke.py` 用 Streamlit AppTest 无头渲染验证
+- **E2E（端到端测试）**：`test_mcp_client.py` 启动真实 MCP Server 子进程，发送 JSON-RPC 消息验证完整链路；`tests/e2e_web/` 用假后端做 Web UI 启动冒烟（原 Streamlit AppTest 冒烟已随 Streamlit 退役移除）
 
 ---
 

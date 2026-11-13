@@ -1,23 +1,14 @@
-"""
-Splitter Module.
+"""Splitter 抽象层包。
 
-This package contains text splitter abstractions and implementations:
-- Base splitter class
-- Splitter factory
-- Implementations (Recursive, Semantic, FixedLength)
+导入本包即触发默认 ``recursive`` provider 的注册。
 """
 
-from src.libs.splitter.base_splitter import BaseSplitter
-from src.libs.splitter.splitter_factory import SplitterFactory
+from libs.splitter.base_splitter import BaseSplitter
+from libs.splitter.splitter_factory import SplitterFactory
 
-# Import concrete implementations (they auto-register with factory)
-try:
-    from src.libs.splitter.recursive_splitter import RecursiveSplitter
-except ImportError:
-    RecursiveSplitter = None  # type: ignore[assignment, misc]
+# 触发 provider 注册。
+from libs.splitter import recursive_splitter as _recursive_splitter  # noqa: F401
 
-__all__ = [
-    "BaseSplitter",
-    "SplitterFactory",
-    "RecursiveSplitter",
-]
+_recursive_splitter.register_recursive_provider()
+
+__all__ = ["BaseSplitter", "SplitterFactory"]

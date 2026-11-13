@@ -1,265 +1,211 @@
-"""LLM-based Reranker implementation.
+"""LLM Reranker 实现（阶段 B7.7）。
 
-This module implements reranking using Large Language Models to evaluate
-the relevance of candidate passages to a given query. It reads prompts from
-config/prompts/rerank.txt and structures LLM outputs for downstream processing.
+读取 ``config/prompts/rerank.txt`` 构造 prompt，调用 LLM 对候选集重排，
+解析 LLM 返回的排序编号列表（JSON 数组），按新顺序返回候选。
+
+设计要点：
+- LLM 实例通过依赖注入传入（测试中注入 mock LLM，生产中由调用方创建）。
+- prompt 模板可通过 ``prompt_template`` 参数注入（测试中替代），或从文件读取。
+- 输出严格结构化：LLM 应返回 JSON 数组（如 ``[2, 0, 1]``），解析失败时回退到原序。
+- 失败时返回可回退信号：``fallback=True`` 标记，候选保持原序。
+- 候选数超过 ``top_m`` 时截取前 ``top_m`` 条送入 LLM，减少 token 消耗。
 """
 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Sequence
 
-from src.core.settings import resolve_path
-from src.libs.llm.base_llm import BaseLLM, Message
-from src.libs.llm.llm_factory import LLMFactory
-from src.libs.reranker.base_reranker import BaseReranker
+from core.settings import RerankConfig
+from libs.llm.base_llm import BaseLLM
+from libs.reranker.base_reranker import BaseReranker, RerankCandidate
+
+__all__ = ["LLMReranker", "RerankerParseError", "register_llm_provider"]
+
+_DEFAULT_PROMPT_PATH = "config/prompts/rerank.txt"
 
 
-class LLMRerankError(RuntimeError):
-    """Raised when LLM reranking fails."""
+class RerankerParseError(RuntimeError):
+    """LLM Reranker 响应解析错误。"""
+
+    def __init__(self, message: str, *, raw: str | None = None, fallback: bool = False):
+        self.raw = raw
+        self.fallback = fallback
+        super().__init__(message)
+
+
+def _load_prompt_template(path: str | Path | None = None) -> str:
+    """从文件加载 prompt 模板。"""
+    p = Path(path) if path else Path(_DEFAULT_PROMPT_PATH)
+    if not p.exists():
+        raise FileNotFoundError(f"rerank prompt file not found: {p}")
+    return p.read_text(encoding="utf-8")
 
 
 class LLMReranker(BaseReranker):
-    """LLM-based reranker using structured prompts.
-    
-    This implementation leverages an LLM to score and rerank candidate passages
-    based on their relevance to a query. It reads the reranking prompt from
-    a configurable file and expects structured JSON output from the LLM.
-    
-    Design Principles Applied:
-    - Pluggable: Can be swapped with other reranker implementations via factory.
-    - Config-Driven: Prompt file path and LLM settings come from configuration.
-    - Observable: Supports TraceContext for monitoring (Stage F integration).
-    - Fallback-Aware: Returns signal on failure for upstream fallback logic.
-    - Structured Output: Validates LLM output against expected schema.
-    """
-    
+    """LLM Rerank 实现：调用 LLM 对候选集重排。"""
+
     def __init__(
         self,
-        settings: Any,
-        prompt_path: Optional[str] = None,
-        llm: Optional[BaseLLM] = None,
-        **kwargs: Any
-    ) -> None:
-        """Initialize the LLM Reranker.
-        
-        Args:
-            settings: Application settings containing LLM and rerank configuration.
-            prompt_path: Optional path to rerank prompt file. If None, uses default
-                'config/prompts/rerank.txt'. Used for testing to inject custom prompts.
-            llm: Optional LLM instance. If None, creates via LLMFactory from settings.
-                Used for testing to inject mock LLMs.
-            **kwargs: Additional provider-specific parameters.
+        rerank_config: RerankConfig,
+        llm: BaseLLM,
+        *,
+        prompt_template: str | None = None,
+        prompt_path: str | Path | None = None,
+        **kwargs: Any,
+    ):
+        self.rerank_config = rerank_config
+        self._llm = llm
+        self._top_m = rerank_config.top_m
+        if prompt_template is not None:
+            self._prompt_template = prompt_template
+        else:
+            self._prompt_template = _load_prompt_template(prompt_path)
+        self._extra_kwargs = kwargs
+        self.last_fallback: bool = False  # 供调用方检查是否发生了回退
+
+    # -- prompt 构建 ------------------------------------------------------
+
+    def _format_candidates(self, candidates: Sequence[RerankCandidate]) -> str:
+        lines: list[str] = []
+        for i, c in enumerate(candidates):
+            text = c.text.strip() if c.text else ""
+            # 截断过长文本以控制 token 消耗
+            max_len = self.rerank_config.extra.get("max_candidate_chars", 500)
+            if len(text) > max_len:
+                text = text[:max_len] + "..."
+            lines.append(f"[{i}] {text}")
+        return "\n".join(lines)
+
+    def _build_prompt(self, query: str, candidates: Sequence[RerankCandidate]) -> str:
+        return self._prompt_template.format(
+            query=query,
+            candidates=self._format_candidates(candidates),
+        )
+
+    # -- 响应解析 ---------------------------------------------------------
+
+    def _parse_ranked_indices(self, content: str, *, expected: int) -> list[int]:
+        """从 LLM 响应中解析排序后的索引列表。
+
+        策略：用正则提取最后一个 JSON 数组 ``[...]``，解析为 int 列表。
         """
-        self.settings = settings
-        self.prompt_path = prompt_path or str(resolve_path("config/prompts/rerank.txt"))
-        self.llm = llm or LLMFactory.create(settings)
-        self.kwargs = kwargs
-        
-        # Load prompt template
-        try:
-            self.prompt_template = self._load_prompt_template(self.prompt_path)
-        except Exception as e:
-            raise LLMRerankError(f"Failed to load rerank prompt from {self.prompt_path}: {e}") from e
-    
-    def _load_prompt_template(self, path: str) -> str:
-        """Load the rerank prompt template from file.
-        
-        Args:
-            path: Path to the prompt template file.
-        
-        Returns:
-            The prompt template as a string.
-        
-        Raises:
-            FileNotFoundError: If prompt file doesn't exist.
-            IOError: If file can't be read.
-        """
-        prompt_file = Path(path)
-        if not prompt_file.exists():
-            raise FileNotFoundError(f"Rerank prompt file not found: {path}")
-        
-        return prompt_file.read_text(encoding="utf-8")
-    
-    def _build_rerank_prompt(self, query: str, candidates: List[Dict[str, Any]]) -> str:
-        """Build the reranking prompt with query and candidates.
-        
-        Args:
-            query: The user query string.
-            candidates: List of candidate records to rerank.
-        
-        Returns:
-            Formatted prompt string ready for LLM.
-        """
-        # Format candidates for the prompt
-        candidates_text = []
-        for i, candidate in enumerate(candidates):
-            passage_id = candidate.get("id", f"passage_{i}")
-            text = candidate.get("text", candidate.get("content", ""))
-            candidates_text.append(f"Passage ID: {passage_id}\nText: {text}\n")
-        
-        candidates_str = "\n".join(candidates_text)
-        
-        # Construct full prompt
-        full_prompt = f"{self.prompt_template}\n\nQuery: {query}\n\nPassages:\n{candidates_str}\n\nOutput your response as a JSON array of objects, one per passage."
-        
-        return full_prompt
-    
-    def _parse_llm_response(self, response_text: str) -> List[Dict[str, Any]]:
-        """Parse and validate LLM response.
-        
-        Args:
-            response_text: Raw text response from LLM.
-        
-        Returns:
-            List of parsed ranking records with passage_id and score.
-        
-        Raises:
-            LLMRerankError: If response doesn't match expected schema.
-        """
-        # Try to extract JSON from response (LLM might wrap in markdown)
-        text = response_text.strip()
-        
-        # Remove markdown code blocks if present
-        if text.startswith("```json"):
-            text = text[7:]
-        elif text.startswith("```"):
-            text = text[3:]
-        if text.endswith("```"):
-            text = text[:-3]
-        text = text.strip()
-        
-        # Parse JSON
-        try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError as e:
-            raise LLMRerankError(
-                f"LLM response is not valid JSON: {e}\nResponse: {response_text[:200]}"
-            ) from e
-        
-        # Validate structure
-        if not isinstance(parsed, list):
-            raise LLMRerankError(
-                f"Expected JSON array, got {type(parsed).__name__}\nResponse: {response_text[:200]}"
+        # 尝试提取 JSON 数组
+        arrays = re.findall(r"\[[\d\s,]+\]", content)
+        if not arrays:
+            raise RerankerParseError(
+                f"no JSON array found in LLM response: {content[:200]!r}",
+                raw=content,
+                fallback=True,
             )
-        
-        # Validate each item
-        for i, item in enumerate(parsed):
-            if not isinstance(item, dict):
-                raise LLMRerankError(
-                    f"Item {i} is not a dict (type: {type(item).__name__})"
-                )
-            if "passage_id" not in item:
-                raise LLMRerankError(f"Item {i} missing required field 'passage_id'")
-            if "score" not in item:
-                raise LLMRerankError(f"Item {i} missing required field 'score'")
-            
-            # Validate score is numeric
-            score = item["score"]
-            if not isinstance(score, (int, float)):
-                raise LLMRerankError(
-                    f"Item {i} score must be numeric, got {type(score).__name__}: {score}"
-                )
-        
-        return parsed
-    
-    def _map_results_to_candidates(
-        self,
-        parsed_results: List[Dict[str, Any]],
-        candidates: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        """Map LLM ranking results back to original candidate objects.
-        
-        Args:
-            parsed_results: Parsed LLM output with passage_id and score.
-            candidates: Original candidate list.
-        
-        Returns:
-            Reranked list of candidate objects, sorted by score descending.
-        """
-        # Create mapping from id to candidate
-        id_to_candidate = {}
-        for i, candidate in enumerate(candidates):
-            candidate_id = candidate.get("id", f"passage_{i}")
-            id_to_candidate[candidate_id] = candidate
-        
-        # Build reranked list
-        reranked = []
-        for result in parsed_results:
-            passage_id = result["passage_id"]
-            score = result["score"]
-            
-            if passage_id in id_to_candidate:
-                candidate = id_to_candidate[passage_id].copy()
-                # Update score with LLM rerank score
-                candidate["rerank_score"] = float(score)
-                reranked.append(candidate)
-        
-        # Sort by rerank score descending
-        reranked.sort(key=lambda x: x.get("rerank_score", 0), reverse=True)
-        
-        return reranked
-    
+        raw_array = arrays[-1]  # 取最后一个（最可能是答案）
+        try:
+            indices = json.loads(raw_array)
+        except json.JSONDecodeError as exc:
+            raise RerankerParseError(
+                f"failed to parse JSON array: {raw_array!r}: {exc}",
+                raw=content,
+                fallback=True,
+            ) from exc
+        if not isinstance(indices, list):
+            raise RerankerParseError(
+                f"expected a list, got {type(indices).__name__}: {raw_array!r}",
+                raw=content,
+                fallback=True,
+            )
+        # 校验每个元素
+        clean: list[int] = []
+        seen: set[int] = set()
+        for idx in indices:
+            if not isinstance(idx, int):
+                # 尝试转换为 int
+                try:
+                    idx = int(idx)
+                except (ValueError, TypeError):
+                    continue
+            if idx < 0 or idx >= expected:
+                continue  # 跳过越界索引
+            if idx in seen:
+                continue  # 跳过重复索引
+            seen.add(idx)
+            clean.append(idx)
+        if len(clean) == 0:
+            raise RerankerParseError(
+                f"no valid indices in parsed array: {raw_array!r}",
+                raw=content,
+                fallback=True,
+            )
+        return clean
+
+    # -- 主流程 ------------------------------------------------------------
+
     def rerank(
         self,
         query: str,
-        candidates: List[Dict[str, Any]],
-        trace: Optional[Any] = None,
+        candidates: Sequence[RerankCandidate],
+        *,
+        trace: Any | None = None,
         **kwargs: Any,
-    ) -> List[Dict[str, Any]]:
-        """Rerank candidates using LLM-based relevance scoring.
-        
-        Args:
-            query: The user query string.
-            candidates: List of candidate records to rerank.
-            trace: Optional TraceContext for observability.
-            **kwargs: Additional parameters (timeout, temperature, etc.).
-        
-        Returns:
-            Reranked list of candidates sorted by LLM-assigned relevance score.
-            On success, each candidate will have 'rerank_score' in metadata.
-        
-        Raises:
-            ValueError: If query or candidates are invalid.
-            LLMRerankError: If LLM call fails or response is malformed.
-        """
-        # Validate inputs
-        self.validate_query(query)
-        self.validate_candidates(candidates)
-        
-        # If only one candidate, no need to rerank
-        if len(candidates) == 1:
-            return candidates
-        
-        # Build prompt
+    ) -> list[RerankCandidate]:
+        self.last_fallback = False
+        if not isinstance(candidates, (list, tuple)):
+            raise ValueError(f"candidates must be a list, got {type(candidates).__name__}")
+        if len(candidates) == 0:
+            return []
+
+        # 截取 top_m
+        truncated = list(candidates[: self._top_m])
+
+        # 构建 prompt 并调用 LLM
+        prompt = self._build_prompt(query, truncated)
         try:
-            prompt = self._build_rerank_prompt(query, candidates)
-        except Exception as e:
-            raise LLMRerankError(f"Failed to build rerank prompt: {e}") from e
-        
-        # Call LLM
+            content = self._llm.chat_text(prompt, trace=trace, **kwargs)
+        except Exception as exc:
+            # LLM 调用失败 → 回退原序
+            self.last_fallback = True
+            return truncated
+
+        # 解析响应
         try:
-            messages = [Message(role="user", content=prompt)]
-            response = self.llm.chat(messages, trace=trace, **kwargs)
-            response_text = response.content
-        except Exception as e:
-            # Return fallback signal - let upstream decide how to handle
-            raise LLMRerankError(f"LLM call failed during reranking: {e}") from e
-        
-        # Parse response
-        try:
-            parsed_results = self._parse_llm_response(response_text)
-        except LLMRerankError:
-            raise
-        except Exception as e:
-            raise LLMRerankError(f"Failed to parse LLM rerank response: {e}") from e
-        
-        # Map back to candidates and sort
-        try:
-            reranked = self._map_results_to_candidates(parsed_results, candidates)
-        except Exception as e:
-            raise LLMRerankError(f"Failed to map LLM results to candidates: {e}") from e
-        
-        return reranked
+            ranked_indices = self._parse_ranked_indices(content, expected=len(truncated))
+        except RerankerParseError:
+            # 解析失败 → 回退原序
+            self.last_fallback = True
+            return truncated
+
+        # 按解析的索引重排，未出现在列表中的候选追加到末尾（保持原序）
+        seen: set[int] = set(ranked_indices)
+        remaining = [i for i in range(len(truncated)) if i not in seen]
+        final_order = ranked_indices + remaining
+
+        result: list[RerankCandidate] = []
+        total = len(final_order)
+        for rank, idx in enumerate(final_order):
+            c = truncated[idx]
+            # 更新 score：按新排名递减
+            new_score = 1.0 - (rank / total) if total > 0 else 0.0
+            result.append(
+                RerankCandidate(
+                    id=c.id,
+                    text=c.text,
+                    score=new_score,
+                    metadata=c.metadata,
+                )
+            )
+        return result
+
+
+def register_llm_provider() -> None:
+    """向 ``RerankerFactory`` 注册 llm backend。
+
+    注意：LLMReranker 需要一个 ``BaseLLM`` 实例，工厂通过 ``kwargs["llm"]`` 传入。
+    """
+    from libs.reranker.reranker_factory import RerankerFactory
+
+    @RerankerFactory.register("llm")
+    def _ctor(rerank_config: RerankConfig, *, llm: BaseLLM | None = None, **kwargs: Any) -> LLMReranker:
+        if llm is None:
+            raise ValueError("LLMReranker requires an 'llm' keyword argument (BaseLLM instance)")
+        return LLMReranker(rerank_config, llm=llm, **kwargs)

@@ -1,548 +1,480 @@
-"""BM25 Indexer for building and querying inverted indexes.
+"""BM25Indexer：倒排索引构建与持久化（阶段 C11）。
 
-This module implements the BM25 indexing component, responsible for:
-- Computing IDF (Inverse Document Frequency) scores
-- Building inverted index structures
-- Persisting and loading indexes from disk
-- Supporting incremental updates
+接收 ``SparseEncoder`` 的 ``SparseDocStats`` 输出（阶段 C9），在全量文档
+统计上计算 IDF 并构建倒排索引，序列化到 ``data/db/bm25/``：
 
-Design Principles:
-- Idempotent: Rebuild produces same results for same input
-- Observable: Accepts TraceContext for future integration
-- Persistent: Indexes saved to data/db/bm25/ directory
-- Deterministic: Same corpus produces same IDF scores
+- IDF 公式（spec 精确约定，自然对数）::
+
+      IDF(term) = log((N - df + 0.5) / (df + 0.5))
+
+  其中 ``N`` 为索引文档数（chunk 计数），``df`` 为包含该 term 的文档数。
+  按该公式，``df > N/2`` 的高频词 IDF 为负（不额外加 1 或截断）。
+
+- 倒排索引结构（spec 约定）::
+
+      {term: {idf, postings: [{chunk_id, tf, doc_length}]}}
+
+- BM25 打分（Okapi，参数 ``k1`` / ``b``，默认 1.5 / 0.75）::
+
+      score(D, Q) = Σ_t qtf(t) · IDF(t) · tf(t,D)·(k1+1)
+                    ─────────────────────────────────────
+                    tf(t,D) + k1·(1 − b + b·|D|/avgdl)
+
+  ``qtf`` 为关键词在查询中出现的次数；``|D|`` 取 posting 的
+  ``doc_length``，``avgdl = total_length / num_docs``。
+
+更新与持久化：
+- ``build(stats)``：清空重建（rebuild）；
+- ``add(stats)``：增量更新，同 ``chunk_id`` 视为替换（旧 postings 移除，
+  ``df == 0`` 的死词项整体删除，IDF 全量重算——``N`` 变化会影响所有词）；
+- ``save(path?)`` / ``load(path?)``：JSON 序列化（``version=1``），原子写入
+  （tmp + ``os.replace``），``load`` 采纳文件中的 ``k1``/``b`` 并校验
+  ``num_docs`` / ``total_length`` 与 postings 的一致性，加载后可继续增量。
+
+空文档（``term_freqs={}``）不进入倒排索引、不计入 ``N``（无 term 可匹配，
+对打分无影响，保证 build/add/save/load 往返一致）。
 """
+
+from __future__ import annotations
 
 import json
 import math
 import os
+import time
+from collections import Counter
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Any, Sequence
+
+from core.settings import Settings
+from core.trace.trace_context import TraceContext
+from ingestion.embedding import SparseDocStats
+from observability.logger import get_logger
+
+__all__ = [
+    "Posting",
+    "TermEntry",
+    "BM25Index",
+    "BM25Indexer",
+    "BM25IndexError",
+    "DEFAULT_INDEX_PATH",
+    "DEFAULT_K1",
+    "DEFAULT_B",
+    "INDEX_VERSION",
+]
+
+#: 默认索引文件路径（spec 约定 data/db/bm25/ 目录）。
+DEFAULT_INDEX_PATH = "data/db/bm25/index.json"
+
+#: BM25 默认参数（Okapi 常用值）。
+DEFAULT_K1 = 1.5
+DEFAULT_B = 0.75
+
+#: 索引序列化格式版本。
+INDEX_VERSION = 1
+
+
+class BM25IndexError(RuntimeError):
+    """索引输入/持久化契约被破坏（属于需要暴露的 bug，而非可降级故障）。"""
+
+
+@dataclass
+class Posting:
+    """倒排表条目：某 term 在某 chunk 中的一次出现。"""
+
+    chunk_id: str
+    tf: int
+    doc_length: int
+
+    def to_dict(self) -> dict[str, Any]:
+        """可 JSON 序列化 dict。"""
+        return {"chunk_id": self.chunk_id, "tf": self.tf, "doc_length": self.doc_length}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Posting":
+        """从 dict 反序列化（容忍多余键；缺 chunk_id 视为损坏）。"""
+        if not isinstance(data, dict) or "chunk_id" not in data:
+            raise BM25IndexError(f"invalid posting entry: {data!r}")
+        try:
+            return cls(
+                chunk_id=str(data["chunk_id"]),
+                tf=int(data.get("tf", 0)),
+                doc_length=int(data.get("doc_length", 0)),
+            )
+        except (TypeError, ValueError) as exc:
+            raise BM25IndexError(f"invalid posting entry: {data!r} ({exc})") from exc
+
+
+@dataclass
+class TermEntry:
+    """单 term 的索引项：IDF + 倒排表（spec 结构 {idf, postings}）。"""
+
+    idf: float
+    postings: list[Posting] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        """可 JSON 序列化 dict。"""
+        return {
+            "idf": self.idf,
+            "postings": [posting.to_dict() for posting in self.postings],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "TermEntry":
+        """从 dict 反序列化（容忍多余键）。"""
+        if not isinstance(data, dict):
+            raise BM25IndexError(f"invalid term entry: {data!r}")
+        raw_postings = data.get("postings") or []
+        if not isinstance(raw_postings, list):
+            raise BM25IndexError(f"invalid postings for term entry: {data!r}")
+        try:
+            idf = float(data.get("idf", 0.0))
+        except (TypeError, ValueError) as exc:
+            raise BM25IndexError(f"invalid idf in term entry: {data!r} ({exc})") from exc
+        return cls(idf=idf, postings=[Posting.from_dict(p) for p in raw_postings])
+
+
+@dataclass
+class BM25Index:
+    """倒排索引数据结构（可序列化、可增量维护）。"""
+
+    k1: float = DEFAULT_K1
+    b: float = DEFAULT_B
+    num_docs: int = 0
+    total_length: int = 0
+    terms: dict[str, TermEntry] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.k1, (int, float)) or isinstance(self.k1, bool) or self.k1 < 0:
+            raise ValueError(f"k1 must be a non-negative number, got {self.k1!r}")
+        if not isinstance(self.b, (int, float)) or isinstance(self.b, bool) or not 0.0 <= self.b <= 1.0:
+            raise ValueError(f"b must be within [0, 1], got {self.b!r}")
+
+    @property
+    def avgdl(self) -> float:
+        """平均文档长度（``total_length / num_docs``，空索引为 0.0）。"""
+        return self.total_length / self.num_docs if self.num_docs else 0.0
+
+    def __len__(self) -> int:
+        return self.num_docs
+
+    def doc_frequency(self, term: str) -> int:
+        """文档频率 ``df``（term 不在索引中返回 0）。"""
+        entry = self.terms.get(term)
+        return len(entry.postings) if entry is not None else 0
+
+    def get_postings(self, term: str) -> list[Posting]:
+        """term 的倒排表副本（term 不存在返回空列表）。"""
+        entry = self.terms.get(term)
+        return list(entry.postings) if entry is not None else []
+
+    def idf(self, term: str) -> float | None:
+        """term 的 IDF（不在索引中返回 None）。"""
+        entry = self.terms.get(term)
+        return entry.idf if entry is not None else None
+
+    def to_dict(self) -> dict[str, Any]:
+        """可 JSON 序列化 dict（version + 参数 + 统计 + 倒排表）。"""
+        return {
+            "version": INDEX_VERSION,
+            "k1": self.k1,
+            "b": self.b,
+            "num_docs": self.num_docs,
+            "total_length": self.total_length,
+            "terms": {term: entry.to_dict() for term, entry in self.terms.items()},
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "BM25Index":
+        """从 dict 反序列化（容忍多余键；结构损坏抛 ``BM25IndexError``）。"""
+        if not isinstance(data, dict):
+            raise BM25IndexError(f"invalid index payload: expected mapping, got {type(data).__name__}")
+        version = data.get("version", INDEX_VERSION)
+        if version != INDEX_VERSION:
+            raise BM25IndexError(f"unsupported index version: {version!r} (expected {INDEX_VERSION})")
+        raw_terms = data.get("terms") or {}
+        if not isinstance(raw_terms, dict):
+            raise BM25IndexError("invalid index payload: 'terms' must be a mapping")
+        try:
+            return cls(
+                k1=float(data.get("k1", DEFAULT_K1)),
+                b=float(data.get("b", DEFAULT_B)),
+                num_docs=int(data.get("num_docs", 0)),
+                total_length=int(data.get("total_length", 0)),
+                terms={str(term): TermEntry.from_dict(entry) for term, entry in raw_terms.items()},
+            )
+        except (TypeError, ValueError) as exc:
+            raise BM25IndexError(f"invalid index payload: {exc}") from exc
 
 
 class BM25Indexer:
-    """Build and query BM25 inverted indexes.
-    
-    This indexer receives term statistics from SparseEncoder and constructs
-    a queryable BM25 index with IDF scores and posting lists.
-    
-    Index Structure:
-        {
-            "metadata": {
-                "num_docs": int,
-                "avg_doc_length": float,
-                "total_terms": int
-            },
-            "index": {
-                "term": {
-                    "idf": float,
-                    "df": int,  # document frequency
-                    "postings": [
-                        {"chunk_id": str, "tf": int, "doc_length": int},
-                        ...
-                    ]
-                },
-                ...
-            }
-        }
-    
-    BM25 IDF Formula:
-        IDF(term) = log((N - df + 0.5) / (df + 0.5))
-        
-        Where:
-        - N = total number of documents
-        - df = document frequency (number of docs containing term)
-    
-    Example:
-        >>> indexer = BM25Indexer(index_dir="data/db/bm25")
-        >>> 
-        >>> # Build index from SparseEncoder output
-        >>> term_stats = [
-        ...     {"chunk_id": "1", "term_frequencies": {"hello": 2, "world": 1}, "doc_length": 3},
-        ...     {"chunk_id": "2", "term_frequencies": {"hello": 1, "python": 1}, "doc_length": 2}
-        ... ]
-        >>> indexer.build(term_stats)
-        >>> 
-        >>> # Query the index
-        >>> results = indexer.query(["hello"], top_k=2)
-        >>> len(results) <= 2  # True
+    """BM25 倒排索引器：build 重建 / add 增量 / save-load 持久化 / query 打分。
+
+    Args:
+        settings: 全局配置（保留给后续 ``ingestion.bm25`` 节使用，当前可选）。
+        index_path: 索引文件路径，默认 ``data/db/bm25/index.json``；
+            保存时父目录不存在会自动创建。
+        k1: BM25 饱和参数（≥ 0，默认 1.5）。
+        b: BM25 长度归一化参数（[0, 1]，默认 0.75）。
     """
-    
+
     def __init__(
         self,
-        index_dir: str = "data/db/bm25",
-        k1: float = 1.5,
-        b: float = 0.75,
-    ):
-        """Initialize BM25Indexer.
-        
-        Args:
-            index_dir: Directory to store index files (default: data/db/bm25)
-            k1: BM25 term frequency saturation parameter (default: 1.5)
-            b: BM25 length normalization parameter (default: 0.75)
-        
-        Raises:
-            ValueError: If k1 or b are out of valid ranges
-        """
-        if k1 <= 0:
-            raise ValueError(f"k1 must be > 0, got {k1}")
-        if not 0 <= b <= 1:
-            raise ValueError(f"b must be in [0, 1], got {b}")
-        
-        self.index_dir = Path(index_dir)
-        self.k1 = k1
-        self.b = b
-        
-        # In-memory index structure
-        self._index: Dict[str, Dict[str, Any]] = {}
-        self._metadata: Dict[str, Any] = {}
-        
-    def build(
-        self,
-        term_stats: List[Dict[str, Any]],
-        collection: str = "default",
-        trace: Optional[Any] = None,
+        settings: Settings | None = None,
+        *,
+        index_path: str | Path | None = None,
+        k1: float = DEFAULT_K1,
+        b: float = DEFAULT_B,
     ) -> None:
-        """Build BM25 index from term statistics.
-        
-        This method:
-        1. Calculates corpus-level statistics (N, avg_doc_length, DF)
-        2. Computes IDF for each term
-        3. Builds inverted index with posting lists
-        4. Persists to disk
-        
-        Args:
-            term_stats: List of statistics from SparseEncoder.encode()
-                Each item should have: chunk_id, term_frequencies, doc_length
-            collection: Collection name for organizing indexes (default: "default")
-            trace: Optional TraceContext for observability
-        
-        Raises:
-            ValueError: If term_stats is empty or has invalid structure
-        
-        Example:
-            >>> term_stats = [
-            ...     {
-            ...         "chunk_id": "doc1_chunk0",
-            ...         "term_frequencies": {"machine": 2, "learning": 1},
-            ...         "doc_length": 3
-            ...     }
-            ... ]
-            >>> indexer.build(term_stats, collection="my_docs")
-        """
-        if not term_stats:
-            raise ValueError("Cannot build index from empty term_stats")
-        
-        # Validate structure
-        self._validate_term_stats(term_stats)
-        
-        # Step 1: Calculate corpus-level statistics
-        num_docs = len(term_stats)
-        total_length = sum(stat["doc_length"] for stat in term_stats)
-        avg_doc_length = total_length / num_docs if num_docs > 0 else 0.0
-        
-        # Calculate document frequency (DF) for each term
-        doc_freq: Dict[str, int] = {}
-        for stat in term_stats:
-            for term in stat["term_frequencies"].keys():
-                doc_freq[term] = doc_freq.get(term, 0) + 1
-        
-        # Step 2: Build inverted index with IDF
-        index: Dict[str, Dict[str, Any]] = {}
-        
-        for term, df in doc_freq.items():
-            # Calculate IDF using BM25 formula
-            idf = self._calculate_idf(num_docs, df)
-            
-            # Build posting list for this term
-            postings = []
-            for stat in term_stats:
-                tf = stat["term_frequencies"].get(term, 0)
-                if tf > 0:  # Only include docs that contain this term
-                    postings.append({
-                        "chunk_id": stat["chunk_id"],
-                        "tf": tf,
-                        "doc_length": stat["doc_length"]
-                    })
-            
-            index[term] = {
-                "idf": idf,
-                "df": df,
-                "postings": postings
-            }
-        
-        # Step 3: Store metadata
-        self._metadata = {
-            "num_docs": num_docs,
-            "avg_doc_length": avg_doc_length,
-            "total_terms": len(index),
-            "collection": collection,
-        }
-        
-        self._index = index
-        
-        # Step 4: Persist to disk
-        self._save(collection)
-    
-    def load(
+        self._settings = settings
+        self._index_path = Path(index_path) if index_path is not None else Path(DEFAULT_INDEX_PATH)
+        self._index = BM25Index(k1=k1, b=b)  # __post_init__ 校验 k1/b
+        self._docs: dict[str, SparseDocStats] = {}
+        self._logger = get_logger("modular-rag.ingestion.bm25_indexer")
+
+    # ------------------------------------------------------------------
+    # 只读视图
+    # ------------------------------------------------------------------
+
+    @property
+    def index(self) -> BM25Index:
+        """当前索引（只读视图语义，外部勿直接修改）。"""
+        return self._index
+
+    @property
+    def num_docs(self) -> int:
+        return self._index.num_docs
+
+    @property
+    def avgdl(self) -> float:
+        return self._index.avgdl
+
+    @property
+    def terms(self) -> dict[str, TermEntry]:
+        return self._index.terms
+
+    def __len__(self) -> int:
+        return self._index.num_docs
+
+    # ------------------------------------------------------------------
+    # 构建：重建与增量
+    # ------------------------------------------------------------------
+
+    def build(self, stats: Sequence[SparseDocStats], *, trace: TraceContext | None = None) -> "BM25Indexer":
+        """清空后从 ``stats`` 全量重建索引。"""
+        self._index = BM25Index(k1=self._index.k1, b=self._index.b)
+        self._docs = {}
+        self._add(stats, mode="build", trace=trace)
+        return self
+
+    def add(self, stats: Sequence[SparseDocStats], *, trace: TraceContext | None = None) -> "BM25Indexer":
+        """增量更新：新 chunk 追加，同 ``chunk_id`` 替换（幂等重摄取）。"""
+        self._add(stats, mode="add", trace=trace)
+        return self
+
+    def _add(
         self,
-        collection: str = "default",
-        trace: Optional[Any] = None,
-    ) -> bool:
-        """Load index from disk.
-        
-        Args:
-            collection: Collection name to load
-            trace: Optional TraceContext for observability
-        
-        Returns:
-            True if index loaded successfully, False if not found
-        
-        Raises:
-            ValueError: If index file is corrupted
-        """
-        index_path = self._get_index_path(collection)
-        
-        if not index_path.exists():
-            return False
-        
+        stats: Sequence[SparseDocStats],
+        *,
+        mode: str,
+        trace: TraceContext | None = None,
+    ) -> None:
+        started = time.perf_counter()
+        docs, replaced = self._prepare(stats)
+        for doc in docs:
+            old = self._docs.get(doc.chunk_id)
+            if old is not None:
+                self._remove_doc(old)
+                replaced += 1
+            self._insert_doc(doc)
+        self._recompute_idf()
+        elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
+        if trace is not None and docs:
+            trace.record_stage(
+                "storage",
+                method="bm25_indexer",
+                details={
+                    "mode": mode,
+                    "docs": len(docs),
+                    "replaced": replaced,
+                    "num_docs": self._index.num_docs,
+                    "terms": len(self._index.terms),
+                    "elapsed_ms": elapsed_ms,
+                },
+            )
+        self._logger.info(
+            "bm25 index %s: %d docs (+%d replaced) -> %d docs, %d terms (%.1fms)",
+            mode, len(docs), replaced, self._index.num_docs, len(self._index.terms), elapsed_ms,
+        )
+
+    def _prepare(self, stats: Sequence[SparseDocStats]) -> tuple[list[SparseDocStats], int]:
+        """校验输入并剔除空文档；返回 (待写入 docs, 已存在的重复 chunk 数)。"""
+        if isinstance(stats, (SparseDocStats,)):
+            raise BM25IndexError("expected a sequence of SparseDocStats, got a single instance")
+        docs: list[SparseDocStats] = []
+        seen: set[str] = set()
+        replaced = 0
+        for item in stats:
+            self._validate(item)
+            if not item.term_freqs:
+                continue  # 空文档：不入索引、不计入 N
+            if item.chunk_id in seen:
+                raise BM25IndexError(f"duplicate chunk_id in input stats: {item.chunk_id!r}")
+            seen.add(item.chunk_id)
+            if item.chunk_id in self._docs:
+                replaced += 1
+            docs.append(item)
+        return docs, replaced
+
+    @staticmethod
+    def _validate(item: SparseDocStats) -> None:
+        chunk_id = getattr(item, "chunk_id", None)
+        if not isinstance(chunk_id, str) or not chunk_id:
+            raise BM25IndexError(f"chunk_id must be a non-empty string, got {chunk_id!r}")
+        length = getattr(item, "length", None)
+        if not isinstance(length, int) or isinstance(length, bool) or length < 0:
+            raise BM25IndexError(f"length must be a non-negative int, got {length!r} (chunk {chunk_id!r})")
+        term_freqs = getattr(item, "term_freqs", None)
+        if not isinstance(term_freqs, dict):
+            raise BM25IndexError(f"term_freqs must be a mapping, got {type(term_freqs).__name__} (chunk {chunk_id!r})")
+        for term, tf in term_freqs.items():
+            if not isinstance(term, str) or not term:
+                raise BM25IndexError(f"term must be a non-empty string, got {term!r} (chunk {chunk_id!r})")
+            if not isinstance(tf, int) or isinstance(tf, bool) or tf < 1:
+                raise BM25IndexError(f"term frequency must be a positive int, got {tf!r} (term {term!r})")
+
+    def _insert_doc(self, doc: SparseDocStats) -> None:
+        for term, tf in doc.term_freqs.items():
+            entry = self._index.terms.setdefault(term, TermEntry(idf=0.0))
+            entry.postings.append(Posting(chunk_id=doc.chunk_id, tf=tf, doc_length=doc.length))
+        self._index.num_docs += 1
+        self._index.total_length += doc.length
+        self._docs[doc.chunk_id] = doc
+
+    def _remove_doc(self, old: SparseDocStats) -> None:
+        for term in old.term_freqs:
+            entry = self._index.terms.get(term)
+            if entry is None:
+                continue
+            entry.postings = [p for p in entry.postings if p.chunk_id != old.chunk_id]
+            if not entry.postings:
+                del self._index.terms[term]
+        self._index.num_docs -= 1
+        self._index.total_length -= old.length
+        del self._docs[old.chunk_id]
+
+    def _recompute_idf(self) -> None:
+        """按当前 ``N`` 与各词 ``df`` 全量重算 IDF（spec 公式，自然对数）。"""
+        n = self._index.num_docs
+        for entry in self._index.terms.values():
+            df = len(entry.postings)
+            entry.idf = math.log((n - df + 0.5) / (df + 0.5))
+
+    # ------------------------------------------------------------------
+    # 持久化
+    # ------------------------------------------------------------------
+
+    def save(self, path: str | Path | None = None) -> Path:
+        """序列化索引为 JSON（tmp + ``os.replace`` 原子落盘）。"""
+        target = Path(path) if path is not None else self._index_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_name(target.name + ".tmp")
+        with tmp.open("w", encoding="utf-8") as fh:
+            json.dump(self._index.to_dict(), fh, ensure_ascii=False, indent=2)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, target)
+        self._logger.info("bm25 index saved: %s (%d docs, %d terms)", target, self._index.num_docs, len(self._index.terms))
+        return target
+
+    def load(self, path: str | Path | None = None) -> "BM25Indexer":
+        """从 JSON 载入索引（采纳文件中的 ``k1``/``b``，校验统计一致性）。"""
+        source = Path(path) if path is not None else self._index_path
+        if not source.is_file():
+            raise FileNotFoundError(f"bm25 index file not found: {source}")
         try:
-            with open(index_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            
-            # Validate structure
-            if "metadata" not in data or "index" not in data:
-                raise ValueError(f"Invalid index file structure: missing metadata or index")
-            
-            self._metadata = data["metadata"]
-            self._index = data["index"]
-            
-            return True
-            
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Corrupted index file at {index_path}: {e}")
-    
+            data = json.loads(source.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise BM25IndexError(f"failed to parse bm25 index {source}: {exc}") from exc
+        index = BM25Index.from_dict(data)
+        docs = self._docs_from(index, source)
+        self._index = index
+        self._docs = docs
+        self._logger.info("bm25 index loaded: %s (%d docs, %d terms)", source, index.num_docs, len(index.terms))
+        return self
+
+    @staticmethod
+    def _docs_from(index: BM25Index, source: Path) -> dict[str, SparseDocStats]:
+        """由倒排表反推 doc 级视图，并校验持久化统计的一致性。"""
+        docs: dict[str, SparseDocStats] = {}
+        for term, entry in index.terms.items():
+            for posting in entry.postings:
+                doc = docs.setdefault(
+                    posting.chunk_id,
+                    SparseDocStats(chunk_id=posting.chunk_id, term_freqs={}, length=posting.doc_length),
+                )
+                doc.term_freqs[term] = posting.tf
+        if len(docs) != index.num_docs:
+            raise BM25IndexError(
+                f"corrupt bm25 index {source}: num_docs={index.num_docs} but postings cover {len(docs)} chunks"
+            )
+        total = sum(doc.length for doc in docs.values())
+        if total != index.total_length:
+            raise BM25IndexError(
+                f"corrupt bm25 index {source}: total_length={index.total_length} but postings sum to {total}"
+            )
+        return docs
+
+    # ------------------------------------------------------------------
+    # 查询（D3 SparseRetriever 契约：[{chunk_id, score}]）
+    # ------------------------------------------------------------------
+
     def query(
         self,
-        query_terms: List[str],
-        top_k: int = 10,
-        trace: Optional[Any] = None,
-    ) -> List[Dict[str, Any]]:
-        """Query the index using BM25 scoring.
-        
-        Args:
-            query_terms: List of terms to search for
-            top_k: Maximum number of results to return
-            trace: Optional TraceContext for observability
-        
-        Returns:
-            List of results sorted by BM25 score (descending).
-            Each result: {"chunk_id": str, "score": float}
-        
-        Raises:
-            ValueError: If index not loaded or query_terms empty
-        
-        Example:
-            >>> indexer.load("my_docs")
-            >>> results = indexer.query(["machine", "learning"], top_k=5)
-            >>> results[0]["score"] > 0  # True if matches found
-        """
-        if not self._index:
-            raise ValueError("Index not loaded. Call load() or build() first.")
-        
-        if not query_terms:
-            raise ValueError("query_terms cannot be empty")
-        
-        # Lowercase query terms to match index (SparseEncoder lowercases during build)
-        query_terms = [t.lower() for t in query_terms]
-        
-        # Calculate BM25 scores for all documents
-        scores: Dict[str, float] = {}
-        
-        for term in query_terms:
-            if term not in self._index:
-                continue  # Term not in corpus, skip
-            
-            term_data = self._index[term]
-            idf = term_data["idf"]
-            
-            for posting in term_data["postings"]:
-                chunk_id = posting["chunk_id"]
-                tf = posting["tf"]
-                doc_length = posting["doc_length"]
-                
-                # BM25 score contribution from this term
-                term_score = self._calculate_bm25_score(
-                    tf=tf,
-                    doc_length=doc_length,
-                    avg_doc_length=self._metadata["avg_doc_length"],
-                    idf=idf
-                )
-                
-                scores[chunk_id] = scores.get(chunk_id, 0.0) + term_score
-        
-        # Sort by score descending and return top_k
-        sorted_results = sorted(
-            [{"chunk_id": cid, "score": score} for cid, score in scores.items()],
-            key=lambda x: x["score"],
-            reverse=True
-        )
-        
-        return sorted_results[:top_k]
-    
-    def rebuild(
-        self,
-        term_stats: List[Dict[str, Any]],
-        collection: str = "default",
-        trace: Optional[Any] = None,
-    ) -> None:
-        """Rebuild index from scratch (alias for build with clear intent).
-        
-        This is a convenience method that makes the intent clear when
-        replacing an existing index.
-        
-        Args:
-            term_stats: List of statistics from SparseEncoder
-            collection: Collection name
-            trace: Optional TraceContext for observability
-        """
-        self.build(term_stats, collection, trace)
+        keywords: Sequence[str],
+        top_k: int,
+        *,
+        trace: TraceContext | None = None,
+    ) -> list[dict[str, Any]]:
+        """BM25 打分并返回 top_k 结果（score 降序，同分按 chunk_id 升序）。"""
+        if not isinstance(top_k, int) or isinstance(top_k, bool) or top_k < 1:
+            raise ValueError(f"top_k must be a positive integer, got {top_k!r}")
+        qtf = Counter(k for k in keywords if isinstance(k, str) and k and k in self._index.terms)
+        if not qtf:
+            return []
+        index = self._index
+        avgdl = index.avgdl
+        scores: dict[str, float] = {}
+        for term, q in qtf.items():
+            entry = index.terms[term]
+            for posting in entry.postings:
+                norm = posting.doc_length / avgdl if avgdl > 0 else 0.0
+                denominator = posting.tf + index.k1 * (1.0 - index.b + index.b * norm)
+                contribution = entry.idf * (posting.tf * (index.k1 + 1.0)) / denominator
+                scores[posting.chunk_id] = scores.get(posting.chunk_id, 0.0) + q * contribution
+        ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
+        return [{"chunk_id": chunk_id, "score": score} for chunk_id, score in ranked[:top_k]]
 
-    def add_documents(
-        self,
-        term_stats: List[Dict[str, Any]],
-        collection: str = "default",
-        doc_id: Optional[str] = None,
-        trace: Optional[Any] = None,
-    ) -> None:
-        """Incrementally add documents to the BM25 index.
+    def remove_document(self, source: str) -> int:
+        """移除指定文档的倒排条目（阶段 G2：DocumentManager）。
 
-        Loads the existing index (if any), optionally removes old postings
-        for the given *doc_id* (to support re-ingestion), merges the new
-        term stats, recomputes IDF scores, and saves.
-
-        Args:
-            term_stats: New term statistics from SparseEncoder.encode().
-            collection: Collection name.
-            doc_id: If provided, remove existing postings whose chunk_id
-                starts with this prefix before adding new ones (idempotent
-                re-ingestion).
-            trace: Optional TraceContext.
-        """
-        if not term_stats:
-            return
-
-        self._validate_term_stats(term_stats)
-
-        # Load existing index (ignore if missing – will start fresh)
-        if not self._index:
-            self.load(collection)
-
-        # Remove stale postings for this document (re-ingest case)
-        if doc_id and self._index:
-            self.remove_document(doc_id, collection)
-
-        # Reconstruct existing term_stats from current index postings
-        existing_stats: Dict[str, Dict[str, Any]] = {}  # chunk_id -> stat
-        for term, term_data in self._index.items():
-            for posting in term_data["postings"]:
-                cid = posting["chunk_id"]
-                if cid not in existing_stats:
-                    existing_stats[cid] = {
-                        "chunk_id": cid,
-                        "term_frequencies": {},
-                        "doc_length": posting["doc_length"],
-                    }
-                existing_stats[cid]["term_frequencies"][term] = posting["tf"]
-
-        # Merge: existing + new
-        combined = list(existing_stats.values()) + list(term_stats)
-
-        # Rebuild full index from combined stats
-        self.build(combined, collection, trace)
-
-    def remove_document(
-        self,
-        doc_id: str,
-        collection: str = "default",
-    ) -> bool:
-        """Remove all postings for a document from the BM25 index.
-
-        Loads the index (if not already loaded), removes any postings
-        whose ``chunk_id`` starts with *doc_id*, recalculates statistics,
-        and re-saves the index.
-
-        Args:
-            doc_id: Document identifier (or prefix).  All postings whose
-                ``chunk_id`` starts with this value are removed.
-            collection: Collection name.
+        ``source`` 按 chunk_id 前缀匹配：C4 确定性 ID 为
+        ``{doc_id}_{index:04d}_{hash8}``，而 ``doc_id`` 即文档 SHA256。
+        同时兼容直接传入单个 ``chunk_id``。
 
         Returns:
-            ``True`` if any postings were removed, ``False`` otherwise.
+            实际移除的 chunk 数。不存在时返回 0（无副作用）。
         """
-        if not self._index:
-            if not self.load(collection):
-                return False
-
-        removed_any = False
-        terms_to_delete: list[str] = []
-
-        for term, term_data in self._index.items():
-            original_len = len(term_data["postings"])
-            term_data["postings"] = [
-                p for p in term_data["postings"]
-                if not p["chunk_id"].startswith(doc_id)
-            ]
-            if len(term_data["postings"]) < original_len:
-                removed_any = True
-            # Mark empty terms for cleanup
-            if not term_data["postings"]:
-                terms_to_delete.append(term)
-            else:
-                term_data["df"] = len(term_data["postings"])
-
-        # Remove empty terms
-        for term in terms_to_delete:
-            del self._index[term]
-
-        if removed_any:
-            # Recalculate global metadata
-            all_chunk_ids: set[str] = set()
-            total_length = 0
-            for td in self._index.values():
-                for p in td["postings"]:
-                    all_chunk_ids.add(p["chunk_id"])
-                    total_length += p["doc_length"]
-
-            num_docs = len(all_chunk_ids)
-            avg_doc_length = total_length / num_docs if num_docs else 0.0
-
-            # Recalculate IDF values
-            for td in self._index.values():
-                td["idf"] = self._calculate_idf(num_docs, td["df"])
-
-            self._metadata = {
-                "num_docs": num_docs,
-                "avg_doc_length": avg_doc_length,
-                "total_terms": len(self._index),
-                "collection": collection,
-            }
-            self._save(collection)
-
-        return removed_any
-    
-    # ===== Private Helper Methods =====
-    
-    def _calculate_idf(self, num_docs: int, df: int) -> float:
-        """Calculate IDF using BM25 formula.
-        
-        Formula: IDF(term) = log((N - df + 0.5) / (df + 0.5))
-        
-        Args:
-            num_docs: Total number of documents in corpus
-            df: Document frequency (number of docs containing term)
-        
-        Returns:
-            IDF score (can be negative for very common terms)
-        """
-        return math.log((num_docs - df + 0.5) / (df + 0.5))
-    
-    def _calculate_bm25_score(
-        self,
-        tf: int,
-        doc_length: int,
-        avg_doc_length: float,
-        idf: float
-    ) -> float:
-        """Calculate BM25 score for a single term in a document.
-        
-        Formula: score = IDF * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (doc_length / avg_doc_length)))
-        
-        Args:
-            tf: Term frequency in document
-            doc_length: Length of document (number of terms)
-            avg_doc_length: Average document length in corpus
-            idf: IDF score for this term
-        
-        Returns:
-            BM25 score contribution
-        """
-        # Avoid division by zero
-        if avg_doc_length == 0:
-            avg_doc_length = 1.0
-        
-        # BM25 formula
-        numerator = tf * (self.k1 + 1)
-        denominator = tf + self.k1 * (1 - self.b + self.b * (doc_length / avg_doc_length))
-        
-        return idf * (numerator / denominator)
-    
-    def _validate_term_stats(self, term_stats: List[Dict[str, Any]]) -> None:
-        """Validate term_stats structure.
-        
-        Raises:
-            ValueError: If structure is invalid
-        """
-        for i, stat in enumerate(term_stats):
-            if not isinstance(stat, dict):
-                raise ValueError(f"term_stats[{i}] must be a dict, got {type(stat)}")
-            
-            required_fields = ["chunk_id", "term_frequencies", "doc_length"]
-            for field in required_fields:
-                if field not in stat:
-                    raise ValueError(f"term_stats[{i}] missing required field: {field}")
-            
-            if not isinstance(stat["term_frequencies"], dict):
-                raise ValueError(
-                    f"term_stats[{i}]['term_frequencies'] must be dict, "
-                    f"got {type(stat['term_frequencies'])}"
-                )
-            
-            if not isinstance(stat["doc_length"], int) or stat["doc_length"] < 0:
-                raise ValueError(
-                    f"term_stats[{i}]['doc_length'] must be non-negative int, "
-                    f"got {stat['doc_length']}"
-                )
-    
-    def _get_index_path(self, collection: str) -> Path:
-        """Get file path for index file.
-        
-        Args:
-            collection: Collection name
-        
-        Returns:
-            Path to index file
-        """
-        return self.index_dir / f"{collection}_bm25.json"
-    
-    def _save(self, collection: str) -> None:
-        """Save index to disk.
-        
-        Args:
-            collection: Collection name
-        """
-        # Ensure directory exists
-        self.index_dir.mkdir(parents=True, exist_ok=True)
-        
-        index_path = self._get_index_path(collection)
-        
-        # Prepare data
-        data = {
-            "metadata": self._metadata,
-            "index": self._index
-        }
-        
-        # Write atomically (write to temp file, then rename)
-        temp_path = index_path.with_suffix('.tmp')
-        try:
-            with open(temp_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-            
-            # Atomic rename
-            temp_path.replace(index_path)
-            
-        except Exception as e:
-            # Clean up temp file if write failed
-            if temp_path.exists():
-                temp_path.unlink()
-            raise
+        if not isinstance(source, str) or not source:
+            raise ValueError(f"source must be a non-empty string, got {source!r}")
+        to_remove = [
+            chunk_id
+            for chunk_id in list(self._docs)
+            if chunk_id == source or chunk_id.startswith(f"{source}_")
+        ]
+        for chunk_id in to_remove:
+            self._remove_doc(self._docs[chunk_id])
+        if to_remove:
+            self._recompute_idf()
+            self._logger.info("bm25 removed %d chunks for source=%s", len(to_remove), source)
+        return len(to_remove)

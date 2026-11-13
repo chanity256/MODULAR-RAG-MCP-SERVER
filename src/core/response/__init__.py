@@ -1,26 +1,6 @@
-"""
-Response Module.
+"""响应构建模块（阶段 E3+）：引用生成 / 响应组装 / 多模态内容（E6）。"""
 
-This package contains response building components:
-- Response builder
-- Citation generator
-- Multimodal assembler
-"""
+from core.response.citation_generator import Citation, CitationGenerator
+from core.response.response_builder import EMPTY_RESULT_MESSAGE, ResponseBuilder
 
-from src.core.response.citation_generator import Citation, CitationGenerator
-from src.core.response.multimodal_assembler import (
-    ImageContent,
-    ImageReference,
-    MultimodalAssembler,
-)
-from src.core.response.response_builder import MCPToolResponse, ResponseBuilder
-
-__all__ = [
-    "Citation",
-    "CitationGenerator",
-    "ImageContent",
-    "ImageReference",
-    "MCPToolResponse",
-    "MultimodalAssembler",
-    "ResponseBuilder",
-]
+__all__ = ["Citation", "CitationGenerator", "EMPTY_RESULT_MESSAGE", "ResponseBuilder"]

@@ -1,313 +1,245 @@
-"""Reciprocal Rank Fusion (RRF) for combining multiple retrieval results.
+"""RRF Fusion：排名倒数融合（阶段 D4）。
 
-This module implements the RRF fusion algorithm that combines ranking lists from
-Dense and Sparse retrievers into a unified ranking. RRF is a simple yet effective
-rank aggregation method that doesn't require score normalization.
+把 Dense / Sparse 两路召回的**排名**融合为统一排序（spec 3.1.2）：
 
-Reference:
-    Cormack, G. V., Clarke, C. L., & Buettcher, S. (2009).
-    "Reciprocal rank fusion outperforms condorcet and individual rank learning methods."
-    SIGIR '09.
+- **公式**（不依赖各路分数的绝对值，只看排名）::
+
+      Score(id) = Σ_routes 1 / (k + Rank_route(id))
+
+  ``Rank`` 从 1 开始计数；``k`` 为平滑常数（默认 60，spec
+  ``retrieval.rrf_k`` 可配），抑制单一模态缺陷导致的漏召回。
+- **确定性**：同分（float 精确相等）按 ``chunk_id`` 升序打破平局；
+  同一输入重复调用产出完全相同的结果。
+- **payload 语义**：融合结果只重排与重打分，``text`` / ``metadata``
+  取该 chunk **首次出现**路由的载荷（dense 先于 sparse——dense 路
+  已过 Pre-filter，载荷更可信）。
+- **纯函数核心**：:func:`rrf_fuse_rankings` 只吃 id 排名列表，便于
+  独立单测融合数学；:class:`RRFFusion` 在其上组装 ``RetrievalResult``。
+- **N 路融合**（S2.1）：:meth:`RRFFusion.fuse_routes` 支持任意路由名
+  （如 dense/sparse/agentic），payload 优先级固定 dense > sparse >
+  agentic（与 dict 传入顺序无关）；两路 :meth:`RRFFusion.fuse` 内部
+  委托 N 路实现，仅 trace details 字段形态保持旧契约。
+- **trace 打点**：``fusion`` 阶段（method=rrf，details 含 k/dense/sparse/
+  fused/elapsed_ms，对齐 F3 约定）。
 """
 
 from __future__ import annotations
 
-import logging
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Sequence
 
-from src.core.types import RetrievalResult
+from core.settings import Settings
+from core.trace.trace_context import TraceContext
+from core.types import RetrievalResult
 
-logger = logging.getLogger(__name__)
+__all__ = ["RRFFusion", "rrf_fuse_rankings", "DEFAULT_RRF_K", "ROUTE_PRIORITY"]
+
+#: 默认 RRF 平滑常数（spec retrieval.rrf_k 缺省值）。
+DEFAULT_RRF_K = 60
+
+#: 路由优先级（payload 归属：同 chunk 多路命中时取排序靠前路由的载荷）。
+#: 规范固定 dense > sparse > agentic，**与 dict 传入顺序无关**；
+#: 未登记的路由名按传入顺序排在已知路由之后。
+ROUTE_PRIORITY: tuple[str, ...] = ("dense", "sparse", "agentic")
+
+# 内部引用别名（fuse_routes 排序用）。
+_ROUTE_PRIORITY = ROUTE_PRIORITY
+
+
+def rrf_fuse_rankings(
+    rankings: Sequence[Sequence[str]],
+    k: int = DEFAULT_RRF_K,
+) -> list[tuple[str, float]]:
+    """纯函数：多路排名列表 → ``(chunk_id, rrf_score)`` 融合排名。
+
+    Args:
+        rankings: 每路的 id 排名列表（位置即排名，从 1 开始）；
+            同一路内重复 id 只按首次出现的排名计一次。
+        k: 平滑常数（≥ 0）。
+
+    Returns:
+        按 score 降序的 ``(chunk_id, score)`` 列表；同分按 chunk_id
+        升序（确定性输出）。
+    """
+    if not isinstance(k, int) or isinstance(k, bool) or k < 0:
+        raise ValueError(f"k must be a non-negative integer, got {k!r}")
+    scores: dict[str, float] = {}
+    for ranking in rankings:
+        seen_in_route: set[str] = set()
+        for rank, chunk_id in enumerate(ranking, start=1):
+            if chunk_id in seen_in_route:
+                continue
+            seen_in_route.add(chunk_id)
+            scores[chunk_id] = scores.get(chunk_id, 0.0) + 1.0 / (k + rank)
+    ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
+    return ranked
 
 
 class RRFFusion:
-    """Reciprocal Rank Fusion (RRF) for combining multiple ranking lists.
-    
-    RRF combines rankings from multiple sources using the formula:
-        RRF_score(d) = Σ 1 / (k + rank(d))
-    
-    where:
-        - d is a document (chunk)
-        - k is a smoothing constant (typically 60)
-        - rank(d) is the 1-based rank of document d in a ranking list
-    
-    Key Properties:
-    - Deterministic: Same inputs always produce same output ordering
-    - Score-agnostic: Uses only rank positions, not raw scores
-    - No normalization needed: Works with heterogeneous score scales
-    - Handles missing documents: Documents in only one list still contribute
-    
-    Design Principles Applied:
-    - Config-Driven: k parameter configurable (default: 60)
-    - Type-Safe: Returns standardized RetrievalResult objects
-    - Deterministic: Stable sorting with tie-breaking on chunk_id
-    - Observable: Logging for debugging fusion process
-    
-    Attributes:
-        k: Smoothing constant for RRF formula (default: 60).
-           Higher k gives more weight to lower-ranked documents.
-    
-    Example:
-        >>> fusion = RRFFusion(k=60)
-        >>> dense_results = [
-        ...     RetrievalResult(chunk_id="a", score=0.9, text="...", metadata={}),
-        ...     RetrievalResult(chunk_id="b", score=0.8, text="...", metadata={}),
-        ... ]
-        >>> sparse_results = [
-        ...     RetrievalResult(chunk_id="b", score=5.2, text="...", metadata={}),
-        ...     RetrievalResult(chunk_id="c", score=4.1, text="...", metadata={}),
-        ... ]
-        >>> fused = fusion.fuse([dense_results, sparse_results], top_k=5)
+    """RRF 融合器：Dense + Sparse 两路 ``RetrievalResult`` → 统一排名。
+
+    Args:
+        settings: 全局配置；``k`` 未显式给出时读取
+            ``settings.retrieval.rrf_k``（配置驱动，yaml 可调）。
+        k: 显式平滑常数，优先于 ``settings.retrieval.rrf_k``。
     """
-    
-    # Default smoothing constant as recommended in the original RRF paper
-    DEFAULT_K = 60
-    
-    def __init__(self, k: int = DEFAULT_K) -> None:
-        """Initialize RRF fusion with configurable smoothing constant.
-        
-        Args:
-            k: Smoothing constant for RRF formula (default: 60).
-               - Must be a positive integer
-               - Higher values reduce the importance of rank differences
-               - Common values: 60 (original paper), 20, 100
-        
-        Raises:
-            ValueError: If k is not a positive integer.
-        """
-        if not isinstance(k, int) or k <= 0:
-            raise ValueError(f"k must be a positive integer, got {k}")
-        
-        self.k = k
-        logger.info(f"RRFFusion initialized with k={k}")
-    
+
+    def __init__(self, settings: Settings | None = None, *, k: int | None = None) -> None:
+        if k is None:
+            k = settings.retrieval.rrf_k if settings is not None else DEFAULT_RRF_K
+        if not isinstance(k, int) or isinstance(k, bool) or k < 0:
+            raise ValueError(f"k must be a non-negative integer, got {k!r}")
+        self._k = k
+
+    @property
+    def k(self) -> int:
+        """当前平滑常数。"""
+        return self._k
+
+    # ------------------------------------------------------------------
+    # 对外接口
+    # ------------------------------------------------------------------
+
     def fuse(
         self,
-        ranking_lists: List[List[RetrievalResult]],
-        top_k: Optional[int] = None,
-        trace: Optional[Any] = None,
-    ) -> List[RetrievalResult]:
-        """Fuse multiple ranking lists using Reciprocal Rank Fusion.
-        
+        dense: Sequence[RetrievalResult],
+        sparse: Sequence[RetrievalResult],
+        *,
+        top_k: int | None = None,
+        trace: TraceContext | None = None,
+    ) -> list[RetrievalResult]:
+        """融合两路召回结果（Dense + Sparse，S2.1 起内部委托 :meth:`fuse_routes`）。
+
         Args:
-            ranking_lists: List of ranking lists, each containing RetrievalResult
-                           objects sorted by relevance (descending).
-                           Typically [dense_results, sparse_results].
-            top_k: Maximum number of results to return. If None, returns all.
-            trace: Optional TraceContext for observability (reserved for Stage F).
-        
+            dense: Dense 路结果（假定已按相关性降序）。
+            sparse: Sparse 路结果（假定已按 BM25 分数降序）。
+            top_k: 可选截断（正整数）；``None`` 保留全部融合结果。
+            trace: 可选追踪上下文，记录 ``fusion`` 阶段。
+
         Returns:
-            List of RetrievalResult objects, sorted by fused RRF score (descending).
-            The score field contains the RRF score, not the original retrieval score.
-            Text and metadata are preserved from the first occurrence of each chunk.
-        
+            融合后的 ``RetrievalResult`` 列表（rrf score 降序、同分按
+            chunk_id 升序）；``score`` 为 RRF 融合分数（保留 6 位小数），
+            ``text`` / ``metadata`` 取首次出现路由的载荷。
+
         Raises:
-            ValueError: If ranking_lists is empty.
-        
+            TypeError: ``dense`` / ``sparse`` 非列表/元组。
+            ValueError: ``top_k`` 给定但非正整数。
+
         Note:
-            - Documents appearing in multiple lists get contributions from all
-            - Documents appearing in only one list still receive RRF score
-            - Tie-breaking: When RRF scores are equal, sort by chunk_id for stability
-        
-        Example:
-            >>> fusion = RRFFusion(k=60)
-            >>> fused = fusion.fuse([dense_results, sparse_results], top_k=10)
-            >>> for r in fused:
-            ...     print(f"[RRF={r.score:.4f}] {r.chunk_id}")
+            委托而非复制的边界：融合数学与 payload 组装完全走
+            :meth:`fuse_routes`；唯一本地保留的是 trace details 的
+            **字段形态**（dense/sparse 计数平铺在顶层，既有契约），
+            与 ``fuse_routes`` 的 ``routes: {...}`` 嵌套形态并存兼容。
         """
-        if not ranking_lists:
-            raise ValueError("ranking_lists cannot be empty")
-        
-        # Filter out empty lists
-        non_empty_lists = [lst for lst in ranking_lists if lst]
-        
-        if not non_empty_lists:
-            logger.debug("All ranking lists are empty, returning empty result")
-            return []
-        
-        logger.debug(
-            f"Fusing {len(non_empty_lists)} ranking lists with "
-            f"sizes {[len(lst) for lst in non_empty_lists]}"
-        )
-        
-        # Step 1: Calculate RRF scores for each unique chunk
-        rrf_scores: Dict[str, float] = {}
-        chunk_data: Dict[str, RetrievalResult] = {}  # Preserve text/metadata
-        
-        for list_idx, ranking_list in enumerate(non_empty_lists):
-            for rank, result in enumerate(ranking_list, start=1):
-                chunk_id = result.chunk_id
-                
-                # Calculate RRF contribution: 1 / (k + rank)
-                rrf_contribution = 1.0 / (self.k + rank)
-                
-                # Accumulate scores
-                if chunk_id not in rrf_scores:
-                    rrf_scores[chunk_id] = 0.0
-                    # Store first occurrence's data (text, metadata)
-                    chunk_data[chunk_id] = result
-                
-                rrf_scores[chunk_id] += rrf_contribution
-        
-        logger.debug(f"Computed RRF scores for {len(rrf_scores)} unique chunks")
-        
-        # Step 2: Create fused results with RRF scores
-        fused_results = []
-        for chunk_id, rrf_score in rrf_scores.items():
-            original = chunk_data[chunk_id]
-            fused_results.append(
-                RetrievalResult(
-                    chunk_id=chunk_id,
-                    score=rrf_score,
-                    text=original.text,
-                    metadata=original.metadata.copy(),
-                )
+        started = time.perf_counter()
+        results = self.fuse_routes({"dense": dense, "sparse": sparse}, top_k=top_k)
+        elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
+        if trace is not None:
+            dense_list = self._validate_route(dense, "dense")
+            sparse_list = self._validate_route(sparse, "sparse")
+            trace.record_stage(
+                "fusion",
+                method="rrf",
+                details={
+                    "k": self._k,
+                    "dense": len(dense_list),
+                    "sparse": len(sparse_list),
+                    "fused": len(results),
+                    "elapsed_ms": elapsed_ms,
+                    "preview": [
+                        {"chunk_id": item.chunk_id, "score": float(item.score)}
+                        for item in results[:8]
+                    ],
+                },
             )
-        
-        # Step 3: Sort by RRF score (descending), then by chunk_id for stability
-        fused_results.sort(key=lambda r: (-r.score, r.chunk_id))
-        
-        # Step 4: Apply top_k limit if specified
-        if top_k is not None and top_k > 0:
-            fused_results = fused_results[:top_k]
-        
-        logger.debug(
-            f"Fusion complete: {len(fused_results)} results "
-            f"(top_k={top_k if top_k else 'all'})"
-        )
-        
-        return fused_results
-    
-    def fuse_with_weights(
+        return results
+
+    def fuse_routes(
         self,
-        ranking_lists: List[List[RetrievalResult]],
-        weights: Optional[List[float]] = None,
-        top_k: Optional[int] = None,
-        trace: Optional[Any] = None,
-    ) -> List[RetrievalResult]:
-        """Fuse multiple ranking lists with optional per-list weights.
-        
-        This is an extended version of fuse() that allows weighting different
-        ranking sources. For example, giving more weight to dense retrieval
-        for semantic queries, or more weight to sparse retrieval for keyword queries.
-        
+        routes: dict[str, Sequence[RetrievalResult]],
+        *,
+        top_k: int | None = None,
+        trace: TraceContext | None = None,
+    ) -> list[RetrievalResult]:
+        """N 路融合（S2.1）：按路由名聚合的召回结果 → 统一 RRF 排名。
+
         Args:
-            ranking_lists: List of ranking lists, each containing RetrievalResult objects.
-            weights: Optional list of weights for each ranking list (default: uniform).
-                     Must have same length as ranking_lists if provided.
-                     Weights are multiplied with RRF contributions.
-            top_k: Maximum number of results to return. If None, returns all.
-            trace: Optional TraceContext for observability (reserved for Stage F).
-        
+            routes: 路由名 → 该路召回结果的映射（key 如 ``"dense"`` /
+                ``"sparse"`` / ``"agentic"``）。payload 归属优先级固定为
+                dense > sparse > agentic（:data:`ROUTE_PRIORITY`），
+                **不依赖 dict 传入顺序**；未登记的路由名按传入顺序排在
+                已知路由之后参与融合。
+            top_k: 可选截断（正整数）；``None`` 保留全部融合结果。
+            trace: 可选追踪上下文，记录 ``fusion`` 阶段（details 含
+                ``routes: {路由名: 计数}``，与既有 k/fused/elapsed_ms/
+                preview 字段并存）。
+
         Returns:
-            List of RetrievalResult objects, sorted by weighted RRF score (descending).
-        
+            融合后的 ``RetrievalResult`` 列表（rrf score 降序、同分按
+            chunk_id 升序）；``score`` 为 RRF 融合分数（保留 6 位小数），
+            ``text`` / ``metadata`` 取该 chunk **首次出现**路由的载荷。
+
         Raises:
-            ValueError: If ranking_lists is empty or weights length doesn't match.
-        
-        Example:
-            >>> fusion = RRFFusion(k=60)
-            >>> # Give 1.5x weight to dense results
-            >>> fused = fusion.fuse_with_weights(
-            ...     [dense_results, sparse_results],
-            ...     weights=[1.5, 1.0],
-            ...     top_k=10
-            ... )
+            TypeError: ``routes`` 非字典，或某路结果非列表/元组。
+            ValueError: ``top_k`` 给定但非正整数。
         """
-        if not ranking_lists:
-            raise ValueError("ranking_lists cannot be empty")
-        
-        # Default to uniform weights
-        if weights is None:
-            weights = [1.0] * len(ranking_lists)
-        
-        if len(weights) != len(ranking_lists):
-            raise ValueError(
-                f"weights length ({len(weights)}) must match "
-                f"ranking_lists length ({len(ranking_lists)})"
-            )
-        
-        # Validate weights
-        for i, w in enumerate(weights):
-            if not isinstance(w, (int, float)) or w < 0:
-                raise ValueError(f"Weight at index {i} must be non-negative, got {w}")
-        
-        # Filter out empty lists (keep their weights aligned)
-        filtered = [
-            (lst, w) for lst, w in zip(ranking_lists, weights) if lst
-        ]
-        
-        if not filtered:
-            logger.debug("All ranking lists are empty, returning empty result")
-            return []
-        
-        non_empty_lists, filtered_weights = zip(*filtered)
-        
-        logger.debug(
-            f"Fusing {len(non_empty_lists)} ranking lists with "
-            f"weights={list(filtered_weights)}"
+        started = time.perf_counter()
+        if not isinstance(routes, dict):
+            raise TypeError(f"routes must be a dict of route name to list, got {type(routes).__name__}")
+        if top_k is not None and (not isinstance(top_k, int) or isinstance(top_k, bool) or top_k < 1):
+            raise ValueError(f"top_k must be a positive integer, got {top_k!r}")
+        # 规范优先级排序（稳定）：已知路由按 _ROUTE_PRIORITY，未知路由保持传入顺序垫后。
+        ordered = sorted(
+            routes.items(),
+            key=lambda kv: (_ROUTE_PRIORITY.index(kv[0]) if kv[0] in _ROUTE_PRIORITY else len(_ROUTE_PRIORITY)),
         )
-        
-        # Calculate weighted RRF scores
-        rrf_scores: Dict[str, float] = {}
-        chunk_data: Dict[str, RetrievalResult] = {}
-        
-        for list_idx, (ranking_list, weight) in enumerate(zip(non_empty_lists, filtered_weights)):
-            for rank, result in enumerate(ranking_list, start=1):
-                chunk_id = result.chunk_id
-                
-                # Weighted RRF contribution
-                rrf_contribution = weight * (1.0 / (self.k + rank))
-                
-                if chunk_id not in rrf_scores:
-                    rrf_scores[chunk_id] = 0.0
-                    chunk_data[chunk_id] = result
-                
-                rrf_scores[chunk_id] += rrf_contribution
-        
-        # Create and sort results
-        fused_results = [
+        route_lists: dict[str, list[RetrievalResult]] = {
+            name: self._validate_route(route, name) for name, route in ordered
+        }
+        # 载荷：按优先级顺序首次出现优先（dense > sparse > agentic）。
+        payload: dict[str, RetrievalResult] = {}
+        for route_list in route_lists.values():
+            for result in route_list:
+                payload.setdefault(result.chunk_id, result)
+        fused = rrf_fuse_rankings(
+            [[r.chunk_id for r in route_list] for route_list in route_lists.values()],
+            k=self._k,
+        )
+        results = [
             RetrievalResult(
                 chunk_id=chunk_id,
-                score=rrf_score,
-                text=chunk_data[chunk_id].text,
-                metadata=chunk_data[chunk_id].metadata.copy(),
+                score=round(score, 6),
+                text=payload[chunk_id].text,
+                metadata=dict(payload[chunk_id].metadata),
             )
-            for chunk_id, rrf_score in rrf_scores.items()
+            for chunk_id, score in fused
         ]
-        
-        fused_results.sort(key=lambda r: (-r.score, r.chunk_id))
-        
-        if top_k is not None and top_k > 0:
-            fused_results = fused_results[:top_k]
-        
-        return fused_results
+        if top_k is not None:
+            results = results[:top_k]
+        elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
+        if trace is not None:
+            trace.record_stage(
+                "fusion",
+                method="rrf",
+                details={
+                    "k": self._k,
+                    "routes": {name: len(route_list) for name, route_list in route_lists.items()},
+                    "fused": len(results),
+                    "elapsed_ms": elapsed_ms,
+                    "preview": [
+                        {"chunk_id": item.chunk_id, "score": float(item.score)}
+                        for item in results[:8]
+                    ],
+                },
+            )
+        return results
 
+    # ------------------------------------------------------------------
+    # 内部工具
+    # ------------------------------------------------------------------
 
-def rrf_score(rank: int, k: int = RRFFusion.DEFAULT_K) -> float:
-    """Calculate RRF score contribution for a single rank position.
-    
-    This is a utility function for calculating individual RRF contributions.
-    
-    Args:
-        rank: 1-based rank position (1 = highest rank)
-        k: Smoothing constant (default: 60)
-    
-    Returns:
-        RRF score contribution: 1 / (k + rank)
-    
-    Raises:
-        ValueError: If rank is not a positive integer or k is not positive.
-    
-    Example:
-        >>> rrf_score(1, k=60)  # Top-ranked document
-        0.01639344262295082
-        >>> rrf_score(10, k=60)  # 10th-ranked document
-        0.014285714285714285
-    """
-    if not isinstance(rank, int) or rank <= 0:
-        raise ValueError(f"rank must be a positive integer, got {rank}")
-    if not isinstance(k, int) or k <= 0:
-        raise ValueError(f"k must be a positive integer, got {k}")
-    
-    return 1.0 / (k + rank)
+    @staticmethod
+    def _validate_route(route: Any, name: str) -> list[RetrievalResult]:
+        if not isinstance(route, (list, tuple)):
+            raise TypeError(f"{name} must be a list of RetrievalResult, got {type(route).__name__}")
+        return list(route)

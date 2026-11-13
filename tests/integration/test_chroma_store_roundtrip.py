@@ -1,424 +1,427 @@
-"""Integration tests for ChromaStore roundtrip operations.
+"""ChromaStore 集成测试（阶段 B7.6）。
 
-This test suite validates the complete ChromaStore implementation through
-real upsert→query roundtrip cycles, ensuring data persistence and retrieval
-correctness.
+使用真实 ChromaDB（嵌入式 PersistentClient）完成完整的 upsert → query roundtrip。
+每个测试用独立临时目录持久化，测试结束后自动清理。
+
+覆盖：
+- provider=chroma 时 VectorStoreFactory 可创建。
+- 基本 upsert + query roundtrip。
+- 向量查询返回结果按 score 降序。
+- top_k 参数限制返回数量。
+- metadata filters（where 子句）过滤。
+- 幂等 upsert（相同 id 覆盖，count 不增长）。
+- 空输入安全处理。
+- 持久化：重开实例可读到已有数据。
 """
 
-import tempfile
+from __future__ import annotations
+
+import shutil
+from dataclasses import replace
 from pathlib import Path
-from typing import Dict, List
+from textwrap import dedent
 
 import pytest
 
-from src.core.settings import Settings
-from src.libs.vector_store.chroma_store import ChromaStore
+from core.settings import load_settings
+from core.types import parse_image_refs
+from libs.vector_store.base_vector_store import QueryResult, VectorRecord
+from libs.vector_store.chroma_store import ChromaStore
+from libs.vector_store.vector_store_factory import VectorStoreFactory
+
+_VALID_YAML = dedent(
+    """\
+    llm:
+      provider: azure
+      model: gpt-4o
+    embedding:
+      provider: openai
+      model: text-embedding-3-small
+    vision_llm:
+      provider: azure
+      model: gpt-4o
+    vector_store:
+      backend: chroma
+      persist_path: ./data/db/chroma
+    retrieval:
+      sparse_backend: bm25
+      fusion_algorithm: rrf
+    rerank:
+      backend: none
+    evaluation:
+      backends: [custom]
+    """
+)
+
+
+def _settings(tmp_path: Path, **vs_overrides):
+    path = tmp_path / "settings.yaml"
+    path.write_text(_VALID_YAML, encoding="utf-8")
+    settings = load_settings(path)
+    if vs_overrides:
+        settings = replace(settings, vector_store=replace(settings.vector_store, **vs_overrides))
+    return settings
 
 
 @pytest.fixture
-def temp_chroma_dir():
-    """Create a temporary directory for ChromaDB storage."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield tmpdir
+def store(tmp_path: Path):
+    """每个测试用独立临时 Chroma 目录。"""
+    persist = tmp_path / "chroma_db"
+    settings = _settings(tmp_path, persist_path=str(persist))
+    s = ChromaStore(settings.vector_store, collection="test_col")
+    yield s
+    # 清理：删除临时目录
+    shutil.rmtree(persist, ignore_errors=True)
 
 
 @pytest.fixture
-def test_settings(temp_chroma_dir):
-    """Create test settings with temporary ChromaDB directory."""
-    # Create minimal settings object
-    class VectorStoreConfig:
-        provider = "chroma"
-        collection_name = "test_collection"
-        persist_directory = temp_chroma_dir
-    
-    class TestSettings:
-        vector_store = VectorStoreConfig()
-    
-    return TestSettings()
+def factory_store(tmp_path: Path):
+    """通过工厂创建的实例。"""
+    persist = tmp_path / "chroma_db"
+    settings = _settings(tmp_path, persist_path=str(persist))
+    import libs.vector_store  # noqa: F401 — 触发注册
+    s = VectorStoreFactory.create(settings, collection="factory_col")
+    yield s
+    shutil.rmtree(persist, ignore_errors=True)
 
 
-@pytest.fixture
-def chroma_store(test_settings):
-    """Create a ChromaStore instance for testing."""
-    store = ChromaStore(settings=test_settings)
-    yield store
-    # Cleanup: clear collection after each test
-    try:
-        store.clear()
-    except Exception:
-        pass
+# ---------------------------------------------------------------------------
+# 工厂创建
+# ---------------------------------------------------------------------------
 
 
-class TestChromaStoreBasicOperations:
-    """Test basic CRUD operations on ChromaStore."""
-    
-    def test_upsert_single_record(self, chroma_store):
-        """Test upserting a single record."""
-        records = [
-            {
-                'id': 'doc1_chunk0',
-                'vector': [0.1, 0.2, 0.3, 0.4, 0.5],
-                'metadata': {'source': 'doc1.pdf', 'page': 1}
-            }
-        ]
-        
-        # Should not raise any exception
-        chroma_store.upsert(records)
-        
-        # Verify record count
-        stats = chroma_store.get_collection_stats()
-        assert stats['count'] == 1
-    
-    def test_upsert_multiple_records(self, chroma_store):
-        """Test upserting multiple records in batch."""
-        records = [
-            {
-                'id': f'doc1_chunk{i}',
-                'vector': [0.1 * i, 0.2 * i, 0.3 * i, 0.4 * i, 0.5 * i],
-                'metadata': {'source': 'doc1.pdf', 'page': i}
-            }
-            for i in range(10)
-        ]
-        
-        chroma_store.upsert(records)
-        
-        stats = chroma_store.get_collection_stats()
-        assert stats['count'] == 10
-    
-    def test_upsert_idempotent(self, chroma_store):
-        """Test that upserting same ID twice overwrites the first record."""
-        # First upsert
-        records_v1 = [
-            {
-                'id': 'doc1_chunk0',
-                'vector': [0.1, 0.2, 0.3],
-                'metadata': {'source': 'doc1.pdf', 'version': 1}
-            }
-        ]
-        chroma_store.upsert(records_v1)
-        
-        # Second upsert with same ID but different data
-        records_v2 = [
-            {
-                'id': 'doc1_chunk0',
-                'vector': [0.5, 0.6, 0.7],
-                'metadata': {'source': 'doc1.pdf', 'version': 2}
-            }
-        ]
-        chroma_store.upsert(records_v2)
-        
-        # Should still have only 1 record (not 2)
-        stats = chroma_store.get_collection_stats()
-        assert stats['count'] == 1
-        
-        # Query should return the updated version
-        results = chroma_store.query([0.5, 0.6, 0.7], top_k=1)
-        assert len(results) == 1
-        assert results[0]['metadata']['version'] == 2
+def test_factory_creates_chroma(tmp_path: Path, factory_store):
+    assert isinstance(factory_store, ChromaStore)
 
 
-class TestChromaStoreQueryOperations:
-    """Test query and retrieval operations."""
-    
-    def test_query_empty_collection(self, chroma_store):
-        """Test querying an empty collection returns empty list."""
-        results = chroma_store.query([0.1, 0.2, 0.3], top_k=5)
-        assert results == []
-    
-    def test_query_returns_top_k(self, chroma_store):
-        """Test that query respects top_k parameter."""
-        # Insert 10 records
-        records = [
-            {
-                'id': f'doc1_chunk{i}',
-                'vector': [0.1 * i, 0.2 * i, 0.3 * i],
-                'metadata': {'source': 'doc1.pdf', 'chunk': i}
-            }
-            for i in range(10)
-        ]
-        chroma_store.upsert(records)
-        
-        # Query with top_k=5
-        results = chroma_store.query([0.3, 0.6, 0.9], top_k=5)
-        
-        assert len(results) == 5
-    
-    def test_query_similarity_score(self, chroma_store):
-        """Test that query returns results with similarity scores."""
-        # Insert records
-        records = [
-            {
-                'id': 'doc1_chunk0',
-                'vector': [1.0, 0.0, 0.0],
-                'metadata': {'source': 'doc1.pdf'}
-            },
-            {
-                'id': 'doc1_chunk1',
-                'vector': [0.0, 1.0, 0.0],
-                'metadata': {'source': 'doc1.pdf'}
-            },
-        ]
-        chroma_store.upsert(records)
-        
-        # Query with exact match to first vector
-        results = chroma_store.query([1.0, 0.0, 0.0], top_k=2)
-        
-        # First result should have highest score (close to 1.0)
-        assert len(results) == 2
-        assert 'score' in results[0]
-        assert results[0]['score'] > results[1]['score']
-        assert results[0]['id'] == 'doc1_chunk0'
-    
-    def test_query_with_metadata_filters(self, chroma_store):
-        """Test querying with metadata filters."""
-        # Insert records from different sources
-        records = [
-            {
-                'id': 'doc1_chunk0',
-                'vector': [0.1, 0.2, 0.3],
-                'metadata': {'source': 'doc1.pdf', 'page': 1}
-            },
-            {
-                'id': 'doc2_chunk0',
-                'vector': [0.1, 0.2, 0.3],
-                'metadata': {'source': 'doc2.pdf', 'page': 1}
-            },
-            {
-                'id': 'doc1_chunk1',
-                'vector': [0.2, 0.3, 0.4],
-                'metadata': {'source': 'doc1.pdf', 'page': 2}
-            },
-        ]
-        chroma_store.upsert(records)
-        
-        # Query with filter for doc1.pdf only
-        results = chroma_store.query(
-            [0.1, 0.2, 0.3],
-            top_k=10,
-            filters={'source': 'doc1.pdf'}
-        )
-        
-        # Should return only doc1 chunks
-        assert len(results) == 2
-        for result in results:
-            assert result['metadata']['source'] == 'doc1.pdf'
+def test_factory_registered_backends():
+    import libs.vector_store  # noqa: F401
+
+    assert "chroma" in VectorStoreFactory.available_backends()
 
 
-class TestChromaStoreRoundtrip:
-    """Test complete roundtrip: upsert → query → validate."""
-    
-    def test_roundtrip_preserves_metadata(self, chroma_store):
-        """Test that metadata is preserved through upsert→query cycle."""
-        records = [
-            {
-                'id': 'test_doc_chunk0',
-                'vector': [0.5, 0.5, 0.5],
-                'metadata': {
-                    'source': 'test.pdf',
-                    'page': 42,
-                    'title': 'Test Document',
-                    'tags': 'tag1,tag2,tag3',
-                }
-            }
-        ]
-        
-        chroma_store.upsert(records)
-        results = chroma_store.query([0.5, 0.5, 0.5], top_k=1)
-        
-        assert len(results) == 1
-        assert results[0]['id'] == 'test_doc_chunk0'
-        assert results[0]['metadata']['source'] == 'test.pdf'
-        assert results[0]['metadata']['page'] == 42
-        assert results[0]['metadata']['title'] == 'Test Document'
-    
-    def test_roundtrip_deterministic(self, chroma_store):
-        """Test that same query returns same results deterministically."""
-        # Insert records
-        records = [
-            {
-                'id': f'chunk{i}',
-                'vector': [float(i), float(i * 2), float(i * 3)],
-                'metadata': {'index': i}
-            }
-            for i in range(5)
-        ]
-        chroma_store.upsert(records)
-        
-        # Query multiple times
-        query_vector = [2.0, 4.0, 6.0]
-        results1 = chroma_store.query(query_vector, top_k=3)
-        results2 = chroma_store.query(query_vector, top_k=3)
-        results3 = chroma_store.query(query_vector, top_k=3)
-        
-        # All results should be identical
-        assert len(results1) == len(results2) == len(results3) == 3
-        
-        for i in range(3):
-            assert results1[i]['id'] == results2[i]['id'] == results3[i]['id']
-            assert abs(results1[i]['score'] - results2[i]['score']) < 1e-6
-    
-    def test_roundtrip_large_batch(self, chroma_store):
-        """Test roundtrip with large batch (100+ records)."""
-        # Insert 100 records
-        records = [
-            {
-                'id': f'large_batch_chunk{i}',
-                'vector': [float(i % 10), float((i * 2) % 10), float((i * 3) % 10)],
-                'metadata': {'batch': 'large', 'index': i}
-            }
-            for i in range(100)
-        ]
-        chroma_store.upsert(records)
-        
-        # Verify count
-        stats = chroma_store.get_collection_stats()
-        assert stats['count'] == 100
-        
-        # Query should work normally
-        results = chroma_store.query([5.0, 5.0, 5.0], top_k=10)
-        assert len(results) == 10
+# ---------------------------------------------------------------------------
+# 基本 upsert + query roundtrip
+# ---------------------------------------------------------------------------
 
 
-class TestChromaStoreDeleteOperations:
-    """Test delete and clear operations."""
-    
-    def test_delete_records(self, chroma_store):
-        """Test deleting specific records by ID."""
-        # Insert records
-        records = [
-            {'id': f'doc{i}', 'vector': [float(i)] * 3, 'metadata': {}}
-            for i in range(5)
-        ]
-        chroma_store.upsert(records)
-        
-        # Delete 2 records
-        chroma_store.delete(['doc1', 'doc3'])
-        
-        # Verify count
-        stats = chroma_store.get_collection_stats()
-        assert stats['count'] == 3
-    
-    def test_clear_collection(self, chroma_store):
-        """Test clearing entire collection."""
-        # Insert records
-        records = [
-            {'id': f'doc{i}', 'vector': [float(i)] * 3, 'metadata': {}}
-            for i in range(10)
-        ]
-        chroma_store.upsert(records)
-        
-        # Clear collection
-        chroma_store.clear()
-        
-        # Verify count is 0
-        stats = chroma_store.get_collection_stats()
-        assert stats['count'] == 0
+def test_basic_upsert_and_query(store):
+    records = [
+        VectorRecord(id="r1", vector=[1.0, 0.0, 0.0], text="apple", metadata={"category": "fruit"}),
+        VectorRecord(id="r2", vector=[0.0, 1.0, 0.0], text="carrot", metadata={"category": "vegetable"}),
+        VectorRecord(id="r3", vector=[0.0, 0.0, 1.0], text="banana", metadata={"category": "fruit"}),
+    ]
+    count = store.upsert(records)
+    assert count == 3
+    assert store.count() == 3
+
+    results = store.query([1.0, 0.0, 0.0], top_k=3)
+    assert len(results) == 3
+    assert results[0].id == "r1"
+    assert results[0].text == "apple"
+    assert results[0].metadata["category"] == "fruit"
+    # score 应为正且越高越相关
+    assert results[0].score >= results[1].score
 
 
-class TestChromaStoreErrorHandling:
-    """Test error handling and validation."""
-    
-    def test_upsert_empty_records_raises_error(self, chroma_store):
-        """Test that upserting empty list raises ValueError."""
-        with pytest.raises(ValueError, match="Records list cannot be empty"):
-            chroma_store.upsert([])
-    
-    def test_upsert_missing_id_raises_error(self, chroma_store):
-        """Test that record missing 'id' raises ValueError."""
-        records = [
-            {'vector': [0.1, 0.2, 0.3], 'metadata': {}}
-        ]
-        with pytest.raises(ValueError, match="missing required field: 'id'"):
-            chroma_store.upsert(records)
-    
-    def test_upsert_missing_vector_raises_error(self, chroma_store):
-        """Test that record missing 'vector' raises ValueError."""
-        records = [
-            {'id': 'test', 'metadata': {}}
-        ]
-        with pytest.raises(ValueError, match="missing required field: 'vector'"):
-            chroma_store.upsert(records)
-    
-    def test_query_empty_vector_raises_error(self, chroma_store):
-        """Test that querying with empty vector raises ValueError."""
-        with pytest.raises(ValueError, match="Query vector cannot be empty"):
-            chroma_store.query([], top_k=5)
-    
-    def test_query_invalid_top_k_raises_error(self, chroma_store):
-        """Test that invalid top_k raises ValueError."""
-        with pytest.raises(ValueError, match="top_k must be a positive integer"):
-            chroma_store.query([0.1, 0.2, 0.3], top_k=0)
+def test_query_returns_sorted_by_score_desc(store):
+    records = [
+        VectorRecord(id="a", vector=[1.0, 0.0], text="a"),
+        VectorRecord(id="b", vector=[0.9, 0.1], text="b"),
+        VectorRecord(id="c", vector=[0.0, 1.0], text="c"),
+    ]
+    store.upsert(records)
+    results = store.query([1.0, 0.0], top_k=3)
+    scores = [r.score for r in results]
+    assert scores == sorted(scores, reverse=True)
 
 
-class TestChromaStorePersistence:
-    """Test data persistence across ChromaStore instances."""
-    
-    def test_data_persists_across_instances(self, test_settings):
-        """Test that data persists when recreating ChromaStore instance."""
-        # Create first instance and insert data
-        store1 = ChromaStore(settings=test_settings)
-        records = [
-            {'id': 'persist_test', 'vector': [1.0, 2.0, 3.0], 'metadata': {'test': 'data'}}
-        ]
-        store1.upsert(records)
-        
-        # Create second instance (should load existing data)
-        store2 = ChromaStore(settings=test_settings)
-        
-        # Verify data is accessible from second instance
-        stats = store2.get_collection_stats()
-        assert stats['count'] == 1
-        
-        results = store2.query([1.0, 2.0, 3.0], top_k=1)
-        assert len(results) == 1
-        assert results[0]['id'] == 'persist_test'
-        
-        # Cleanup
-        store2.clear()
+def test_query_results_are_queryresult_instances(store):
+    store.upsert([VectorRecord(id="x", vector=[1.0, 0.0], text="hello")])
+    results = store.query([1.0, 0.0], top_k=1)
+    assert len(results) == 1
+    assert isinstance(results[0], QueryResult)
+    assert results[0].id == "x"
+    assert results[0].text == "hello"
 
 
-class TestChromaStoreMetadataSanitization:
-    """Test metadata sanitization for ChromaDB compatibility."""
-    
-    def test_metadata_with_none_values(self, chroma_store):
-        """Test that None values in metadata are handled correctly."""
-        records = [
-            {
-                'id': 'test_none',
-                'vector': [0.1, 0.2, 0.3],
-                'metadata': {
-                    'field1': 'value1',
-                    'field2': None,  # Should be filtered out
-                    'field3': 'value3'
-                }
-            }
-        ]
-        
-        chroma_store.upsert(records)
-        results = chroma_store.query([0.1, 0.2, 0.3], top_k=1)
-        
-        assert len(results) == 1
-        assert 'field1' in results[0]['metadata']
-        assert 'field3' in results[0]['metadata']
-        # field2 (None) should be filtered out
-        assert 'field2' not in results[0]['metadata']
-    
-    def test_metadata_with_list_values(self, chroma_store):
-        """Test that list values are converted to strings."""
-        records = [
-            {
-                'id': 'test_list',
-                'vector': [0.1, 0.2, 0.3],
-                'metadata': {
-                    'tags': ['tag1', 'tag2', 'tag3']  # Should be joined as string
-                }
-            }
-        ]
-        
-        chroma_store.upsert(records)
-        results = chroma_store.query([0.1, 0.2, 0.3], top_k=1)
-        
-        assert len(results) == 1
-        assert 'tags' in results[0]['metadata']
-        # Should be comma-separated string
-        assert results[0]['metadata']['tags'] == 'tag1,tag2,tag3'
+# ---------------------------------------------------------------------------
+# top_k 参数
+# ---------------------------------------------------------------------------
+
+
+def test_top_k_limits_results(store):
+    records = [VectorRecord(id=f"r{i}", vector=[float(i), 0.0], text=f"r{i}") for i in range(5)]
+    store.upsert(records)
+    results = store.query([0.0, 0.0], top_k=2)
+    assert len(results) == 2
+
+
+def test_top_k_zero_returns_empty(store):
+    store.upsert([VectorRecord(id="x", vector=[1.0, 0.0], text="x")])
+    results = store.query([1.0, 0.0], top_k=0)
+    assert results == []
+
+
+# ---------------------------------------------------------------------------
+# metadata filters
+# ---------------------------------------------------------------------------
+
+
+def test_metadata_filter_basic(store):
+    records = [
+        VectorRecord(id="r1", vector=[1.0, 0.0], text="apple", metadata={"category": "fruit"}),
+        VectorRecord(id="r2", vector=[0.0, 1.0], text="carrot", metadata={"category": "vegetable"}),
+        VectorRecord(id="r3", vector=[1.0, 1.0], text="banana", metadata={"category": "fruit"}),
+    ]
+    store.upsert(records)
+    results = store.query([1.0, 0.0], top_k=10, filters={"category": "fruit"})
+    assert len(results) == 2
+    assert all(r.metadata["category"] == "fruit" for r in results)
+
+
+def test_metadata_filter_no_match(store):
+    records = [
+        VectorRecord(id="r1", vector=[1.0, 0.0], text="apple", metadata={"category": "fruit"}),
+    ]
+    store.upsert(records)
+    results = store.query([1.0, 0.0], top_k=10, filters={"category": "nonexistent"})
+    assert len(results) == 0
+
+
+# ---------------------------------------------------------------------------
+# 幂等 upsert
+# ---------------------------------------------------------------------------
+
+
+def test_upsert_idempotent_same_id_overwrites(store):
+    r1 = VectorRecord(id="dup", vector=[1.0, 0.0], text="original", metadata={"v": 1})
+    store.upsert([r1])
+    assert store.count() == 1
+    r2 = VectorRecord(id="dup", vector=[0.0, 1.0], text="updated", metadata={"v": 2})
+    store.upsert([r2])
+    assert store.count() == 1  # 不增长
+    results = store.query([0.0, 1.0], top_k=1)
+    assert results[0].id == "dup"
+    assert results[0].text == "updated"
+    assert results[0].metadata["v"] == 2
+
+
+def test_upsert_empty_records_returns_zero(store):
+    assert store.upsert([]) == 0
+    assert store.count() == 0
+
+
+# ---------------------------------------------------------------------------
+# 持久化：重开实例可读已有数据
+# ---------------------------------------------------------------------------
+
+
+def test_persistence_across_instances(tmp_path: Path):
+    persist = tmp_path / "chroma_persist"
+    settings = _settings(tmp_path, persist_path=str(persist))
+    s1 = ChromaStore(settings.vector_store, collection="persist_col")
+    s1.upsert([VectorRecord(id="p1", vector=[1.0, 0.0], text="persisted")])
+    assert s1.count() == 1
+
+    # 重新创建实例，指向同一目录
+    s2 = ChromaStore(settings.vector_store, collection="persist_col")
+    assert s2.count() == 1
+    results = s2.query([1.0, 0.0], top_k=1)
+    assert results[0].id == "p1"
+    assert results[0].text == "persisted"
+    shutil.rmtree(persist, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# 输入校验
+# ---------------------------------------------------------------------------
+
+
+def test_query_non_list_vector_raises(store):
+    with pytest.raises(ValueError):
+        store.query("not a list", top_k=1)  # type: ignore[arg-type]
+
+
+def test_upsert_non_list_records_raises(store):
+    with pytest.raises(ValueError):
+        store.upsert("not a list")  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# 阶段 D2 验收：query 返回结果包含 text 字段（DenseRetriever 依赖）
+# ---------------------------------------------------------------------------
+
+
+def test_query_results_include_text_and_metadata(store):
+    records = [
+        VectorRecord(
+            id="d2_c1",
+            vector=[1.0, 0.0],
+            text="azure 认证配置说明",
+            metadata={"source_path": "docs/azure.pdf", "page": 3, "collection": "docs"},
+        ),
+        VectorRecord(
+            id="d2_c2",
+            vector=[0.0, 1.0],
+            text="bm25 稀疏检索原理",
+            metadata={"source_path": "docs/bm25.pdf"},
+        ),
+    ]
+    store.upsert(records)
+    results = store.query([1.0, 0.0], top_k=2)
+    assert len(results) == 2
+    top = results[0]
+    assert top.id == "d2_c1"
+    assert top.text == "azure 认证配置说明"
+    assert top.metadata["source_path"] == "docs/azure.pdf"
+    assert top.metadata["page"] == 3
+    # 每条命中都携带完整 text（All-in-One 存储：命中即可取回，无需额外查库）。
+    assert all(r.text for r in results)
+
+
+def test_query_results_include_text_with_filters(store):
+    store.upsert([
+        VectorRecord(id="d2_f1", vector=[1.0, 0.0], text="kept", metadata={"collection": "x"}),
+        VectorRecord(id="d2_f2", vector=[1.0, 0.0], text="filtered", metadata={"collection": "y"}),
+    ])
+    results = store.query([1.0, 0.0], top_k=5, filters={"collection": "x"})
+    assert len(results) == 1
+    assert results[0].text == "kept"
+
+
+# ---------------------------------------------------------------------------
+# 阶段 D3 验收：get_by_ids 按 chunk_id 批量取回 text/metadata
+# ---------------------------------------------------------------------------
+
+
+def test_get_by_ids_returns_text_and_metadata(store):
+    store.upsert([
+        VectorRecord(id="d3_c1", vector=[1.0, 0.0], text="azure 指南", metadata={"page": 1, "collection": "docs"}),
+        VectorRecord(id="d3_c2", vector=[0.0, 1.0], text="bm25 原理", metadata={"page": 2}),
+    ])
+    records = store.get_by_ids(["d3_c1", "d3_c2"])
+    assert records == [
+        {"id": "d3_c1", "text": "azure 指南", "metadata": {"page": 1, "collection": "docs"}},
+        {"id": "d3_c2", "text": "bm25 原理", "metadata": {"page": 2}},
+    ]
+
+
+def test_get_by_ids_preserves_request_order_and_skips_missing(store):
+    store.upsert([
+        VectorRecord(id="d3_a", vector=[1.0, 0.0], text="a"),
+        VectorRecord(id="d3_b", vector=[1.0, 0.0], text="b"),
+    ])
+    records = store.get_by_ids(["d3_b", "d3_missing", "d3_a"])
+    assert [r["id"] for r in records] == ["d3_b", "d3_a"]
+
+
+def test_get_by_ids_deduplicates_ids(store):
+    store.upsert([VectorRecord(id="d3_dup", vector=[1.0, 0.0], text="dup")])
+    records = store.get_by_ids(["d3_dup", "d3_dup"])
+    assert len(records) == 1
+
+
+def test_get_by_ids_empty_input_returns_empty(store):
+    assert store.get_by_ids([]) == []
+
+
+def test_get_by_ids_validates_input(store):
+    with pytest.raises(ValueError):
+        store.get_by_ids("not-a-list")  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        store.get_by_ids(["ok", ""])
+
+
+# ---------------------------------------------------------------------------
+# 阶段 G2：get_by_metadata / delete_by_metadata / collection stats
+# ---------------------------------------------------------------------------
+
+
+def test_get_by_metadata_filters_and_sorts(store):
+    store.upsert([
+        VectorRecord(id="g2_c2", vector=[1.0, 0.0], text="b", metadata={"collection": "docs", "source_path": "b.pdf"}),
+        VectorRecord(id="g2_c1", vector=[1.0, 0.0], text="a", metadata={"collection": "docs", "source_path": "a.pdf"}),
+        VectorRecord(id="g2_c3", vector=[1.0, 0.0], text="c", metadata={"collection": "other", "source_path": "c.pdf"}),
+    ])
+    records = store.get_by_metadata({"collection": "docs"})
+    assert [item["id"] for item in records] == ["g2_c1", "g2_c2"]
+    assert records[0]["text"] == "a"
+
+
+def test_delete_by_metadata_multi_key_and_stats(store):
+    store.upsert([
+        VectorRecord(
+            id="g2_a1",
+            vector=[1.0, 0.0],
+            text="a1",
+            metadata={"source_path": "a.pdf", "collection": "docs"},
+        ),
+        VectorRecord(
+            id="g2_a2",
+            vector=[1.0, 0.0],
+            text="a2",
+            metadata={"source_path": "a.pdf", "collection": "docs"},
+        ),
+        VectorRecord(
+            id="g2_b1",
+            vector=[1.0, 0.0],
+            text="b1",
+            metadata={"source_path": "b.pdf", "collection": "docs"},
+        ),
+    ])
+    deleted = store.delete_by_metadata({"source_path": "a.pdf", "collection": "docs"})
+    assert deleted == 2
+    remaining = store.get_by_metadata()
+    assert [item["id"] for item in remaining] == ["g2_b1"]
+    stats = store.get_collection_stats()
+    assert stats["chunk_count"] == 1
+    assert stats["document_count"] == 1
+    assert stats["collections"][0]["name"] == "docs"
+    with pytest.raises(ValueError):
+        store.delete_by_metadata({})
+
+
+# ---------------------------------------------------------------------------
+# 复杂 metadata 净化：dict / 混合列表序列化为 JSON 字符串（G1 修复）
+# ---------------------------------------------------------------------------
+
+
+def test_upsert_sanitizes_non_primitive_metadata(store):
+    """dict 列表（metadata.images）等复杂值不再令 upsert 崩溃，落库为 JSON 字符串。"""
+    image_meta = [
+        {"id": "h1_0_1", "path": "data/images/h1_0_1.png", "page": 0, "text_offset": 152},
+    ]
+    store.upsert([
+        VectorRecord(
+            id="s1_c1",
+            vector=[1.0, 0.0],
+            text="含图片的 chunk",
+            metadata={"source_path": "a.pdf", "images": image_meta, "tags": ["a", "b"], "page": 0},
+        ),
+    ])
+    back = store.get_by_ids(["s1_c1"])[0]
+    # 同构原始列表与标量原样保留；dict 列表转 JSON 字符串。
+    assert back["metadata"]["tags"] == ["a", "b"]
+    assert back["metadata"]["page"] == 0
+    assert isinstance(back["metadata"]["images"], str)
+    # 读取侧 parse_image_refs 兼容 JSON 字符串，图片引用可完整还原。
+    refs = parse_image_refs(back["metadata"], owner="Chunk.metadata")
+    assert [r.id for r in refs] == ["h1_0_1"]
+    assert refs[0].path == "data/images/h1_0_1.png"
+    assert refs[0].text_offset == 152
+
+
+def test_upsert_drops_none_metadata_values(store):
+    """None 值键被丢弃而非令整个 upsert 失败。"""
+    store.upsert([
+        VectorRecord(
+            id="s2_c1",
+            vector=[1.0, 0.0],
+            text="t",
+            metadata={"source_path": "a.pdf", "optional": None},
+        ),
+    ])
+    back = store.get_by_ids(["s2_c1"])[0]
+    assert back["metadata"]["source_path"] == "a.pdf"
+    assert "optional" not in back["metadata"]

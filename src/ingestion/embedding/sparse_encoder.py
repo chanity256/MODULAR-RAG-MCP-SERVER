@@ -1,215 +1,107 @@
-"""Sparse Encoder for generating BM25 term statistics from text chunks.
+"""SparseEncoder：BM25 词项统计（阶段 C9）。
 
-This module implements the Sparse Encoder component of the Ingestion Pipeline,
-responsible for extracting term statistics needed for BM25 indexing.
+为每个 chunk 产出 BM25 所需的词频统计（``SparseDocStats``）：
+``term_freqs``（term → 出现次数）与 ``length``（token 总数）。IDF 与
+倒排索引由 C11 ``BM25Indexer`` 在全量文档统计上计算，此处只做
+"单文档可独立计算"的部分，保证输出结构可直接喂给 indexer。
 
-Design Principles:
-- Stateless Processing: No internal state between encode() calls
-- Observable: Accepts TraceContext for future observability integration
-- Deterministic: Same inputs produce same term statistics
-- Clear Contracts: Well-defined output structure for downstream BM25Indexer
+分词策略（默认 ``default_tokenize``，可注入自定义实现）：
+- 拉丁词：``[a-z0-9]+`` 小写化；
+- CJK：逐字切分（unigram），与阶段 D QueryProcessor 的关键词粒度对齐；
+- 过滤空 token。
+
+空文本行为（明确契约）：``term_freqs={}`` 且 ``length=0``，不抛错。
 """
 
-from typing import List, Dict, Optional, Any
-from collections import Counter
+from __future__ import annotations
+
 import re
+from collections import Counter
+from dataclasses import asdict, dataclass, field
+from typing import Callable, Sequence
 
-import jieba
+from core.settings import Settings
+from core.trace.trace_context import TraceContext
+from core.types import Chunk
+from observability.logger import get_logger
 
-from src.core.types import Chunk
+__all__ = ["SparseDocStats", "SparseEncoder", "default_tokenize"]
+
+_LATIN_WORD_RE = re.compile(r"[a-z0-9]+")
+_CJK_CHAR_RE = re.compile(r"[\u4e00-\u9fff]")
+
+Tokenizer = Callable[[str], list[str]]
+
+
+def default_tokenize(text: str) -> list[str]:
+    """默认分词：拉丁词小写化 + CJK 逐字。"""
+    tokens: list[str] = _LATIN_WORD_RE.findall(text.lower())
+    tokens.extend(_CJK_CHAR_RE.findall(text))
+    return tokens
+
+
+@dataclass
+class SparseDocStats:
+    """单 chunk 的 BM25 统计（供 ``BM25Indexer`` 构建 IDF 与倒排表）。"""
+
+    chunk_id: str
+    term_freqs: dict[str, int] = field(default_factory=dict)
+    length: int = 0
+
+    def to_dict(self) -> dict:
+        """可 JSON 序列化 dict（排除 None）。"""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SparseDocStats":
+        """从 dict 反序列化（容忍多余键，缺失键走默认值）。"""
+        return cls(
+            chunk_id=str(data["chunk_id"]),
+            term_freqs=dict(data.get("term_freqs") or {}),
+            length=int(data.get("length") or 0),
+        )
 
 
 class SparseEncoder:
-    """Encodes text chunks into BM25 term statistics.
-    
-    This encoder prepares term-level statistics needed for BM25 indexing.
-    The actual index construction is handled by BM25Indexer (C12).
-    
-    Output Structure:
-        For each chunk, produces:
-        {
-            "chunk_id": str,
-            "term_frequencies": Dict[str, int],  # term -> count in this chunk
-            "doc_length": int,                    # number of terms in chunk
-            "unique_terms": int                   # vocabulary size in chunk
-        }
-    
-    Design:
-    - Tokenization: Simple whitespace + lowercasing (can be enhanced later)
-    - Stop Words: None by default (can add in future iterations)
-    - Deterministic: Same chunk text always produces same statistics
-    
-    Example:
-        >>> from src.core.types import Chunk
-        >>> encoder = SparseEncoder()
-        >>> 
-        >>> chunks = [Chunk(id="1", text="Hello world hello", metadata={})]
-        >>> stats = encoder.encode(chunks)
-        >>> stats[0]["term_frequencies"]["hello"]  # 2
-        >>> stats[0]["doc_length"]  # 3
-    """
-    
-    def __init__(
+    """chunk 稀疏编码器：词频统计 + 长度，无外部依赖、确定性。"""
+
+    def __init__(self, settings: Settings, tokenizer: Tokenizer | None = None) -> None:
+        self._settings = settings
+        self._tokenize: Tokenizer = tokenizer or default_tokenize
+        self._logger = get_logger("modular-rag.ingestion.sparse_encoder")
+
+    @property
+    def tokenizer(self) -> Tokenizer:
+        return self._tokenize
+
+    def encode_chunks(
         self,
-        min_term_length: int = 2,
-        lowercase: bool = True,
-    ):
-        """Initialize SparseEncoder.
-        
-        Args:
-            min_term_length: Minimum character length for a term (default: 2)
-            lowercase: Whether to convert terms to lowercase (default: True)
-        
-        Raises:
-            ValueError: If min_term_length < 1
-        """
-        if min_term_length < 1:
-            raise ValueError(f"min_term_length must be >= 1, got {min_term_length}")
-        
-        self.min_term_length = min_term_length
-        self.lowercase = lowercase
-    
-    def encode(
-        self,
-        chunks: List[Chunk],
-        trace: Optional[Any] = None,
-    ) -> List[Dict[str, Any]]:
-        """Encode chunks into BM25 term statistics.
-        
-        For each chunk, extracts:
-        - Term frequencies (term -> count)
-        - Document length (total terms)
-        - Unique terms count
-        
-        Args:
-            chunks: List of Chunk objects to encode
-            trace: Optional TraceContext for observability (reserved for Stage F)
-        
-        Returns:
-            List of statistics dictionaries (one per chunk, in same order).
-            Each dict contains: chunk_id, term_frequencies, doc_length, unique_terms
-        
-        Raises:
-            ValueError: If chunks list is empty
-            ValueError: If any chunk has empty text
-        
-        Example:
-            >>> chunks = [
-            ...     Chunk(id="1", text="machine learning", metadata={}),
-            ...     Chunk(id="2", text="deep learning networks", metadata={})
-            ... ]
-            >>> stats = encoder.encode(chunks)
-            >>> len(stats) == len(chunks)  # True
-            >>> stats[0]["term_frequencies"]["machine"]  # 1
-            >>> stats[1]["doc_length"]  # 3
-        """
+        chunks: Sequence[Chunk],
+        *,
+        trace: TraceContext | None = None,
+    ) -> list[SparseDocStats]:
+        """按输入顺序产出每个 chunk 的 ``SparseDocStats``。"""
         if not chunks:
-            raise ValueError("Cannot encode empty chunks list")
-        
-        results = []
-        
-        for i, chunk in enumerate(chunks):
-            # Validate chunk text
-            if not chunk.text or not chunk.text.strip():
-                raise ValueError(
-                    f"Chunk at index {i} (id={chunk.id}) has empty or whitespace-only text"
-                )
-            
-            # Tokenize and count terms
-            terms = self._tokenize(chunk.text)
-            term_frequencies = Counter(terms)
-            
-            # Build statistics dict
-            stat_dict = {
-                "chunk_id": chunk.id,
-                "term_frequencies": dict(term_frequencies),  # Convert Counter to dict
-                "doc_length": len(terms),
-                "unique_terms": len(term_frequencies),
-            }
-            
-            results.append(stat_dict)
-        
-        return results
-    
-    def _tokenize(self, text: str) -> List[str]:
-        """Tokenize text into terms.
-        
-        Uses jieba for Chinese text segmentation and regex for English.
-        This ensures consistent tokenization with the query-side
-        (QueryProcessor), which is required for BM25 matching.
-        
-        Args:
-            text: Input text to tokenize
-        
-        Returns:
-            List of valid terms
-        """
-        tokens: List[str] = []
+            return []
+        stats = [self.encode_chunk(chunk) for chunk in chunks]
+        total_terms = sum(s.length for s in stats)
+        if trace is not None:
+            trace.record_stage(
+                "embedding",
+                method="sparse_encoder",
+                details={
+                    "chunks": len(chunks),
+                    "total_terms": total_terms,
+                    "unique_terms": len({t for s in stats for t in s.term_freqs}),
+                },
+            )
+        return stats
 
-        # Use jieba to segment the text (handles both Chinese and English)
-        raw_tokens = jieba.lcut(text)
+    def encode_chunk(self, chunk: Chunk) -> SparseDocStats:
+        term_freqs, length = self.encode_text(chunk.text)
+        return SparseDocStats(chunk_id=chunk.id, term_freqs=term_freqs, length=length)
 
-        # Clean tokens: keep only alphanumeric and Chinese characters
-        for token in raw_tokens:
-            token = token.strip()
-            if not token:
-                continue
-            # Skip pure punctuation / whitespace
-            if re.fullmatch(r'[\s\W]+', token, re.UNICODE):
-                continue
-            tokens.append(token)
-        
-        # Apply lowercase if configured
-        if self.lowercase:
-            tokens = [t.lower() for t in tokens]
-        
-        # Filter by minimum length
-        terms = [t for t in tokens if len(t) >= self.min_term_length]
-        
-        return terms
-    
-    def get_corpus_stats(
-        self,
-        encoded_chunks: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
-        """Calculate corpus-level statistics from encoded chunks.
-        
-        Utility method for BM25Indexer to compute:
-        - Average document length
-        - Document frequency (how many docs contain each term)
-        - Total number of documents
-        
-        Args:
-            encoded_chunks: List of statistics dicts from encode()
-        
-        Returns:
-            Dictionary with corpus-level statistics:
-            {
-                "num_docs": int,
-                "avg_doc_length": float,
-                "document_frequency": Dict[str, int]  # term -> # docs containing it
-            }
-        """
-        if not encoded_chunks:
-            return {
-                "num_docs": 0,
-                "avg_doc_length": 0.0,
-                "document_frequency": {}
-            }
-        
-        num_docs = len(encoded_chunks)
-        total_length = sum(chunk["doc_length"] for chunk in encoded_chunks)
-        avg_doc_length = total_length / num_docs if num_docs > 0 else 0.0
-        
-        # Calculate document frequency (DF) for each term
-        doc_freq: Dict[str, int] = {}
-        for chunk_stats in encoded_chunks:
-            # Each unique term in this chunk contributes 1 to DF
-            for term in chunk_stats["term_frequencies"].keys():
-                doc_freq[term] = doc_freq.get(term, 0) + 1
-        
-        return {
-            "num_docs": num_docs,
-            "avg_doc_length": avg_doc_length,
-            "document_frequency": doc_freq,
-        }
+    def encode_text(self, text: str) -> tuple[dict[str, int], int]:
+        """统计单段文本：返回 (term_freqs, token 总数)。"""
+        tokens = self._tokenize(text)
+        return dict(Counter(tokens)), len(tokens)

@@ -1,483 +1,280 @@
-"""Unit tests for core data types (Document, Chunk, ChunkRecord).
+"""``core.types`` 核心数据契约测试（阶段 C1）。
 
-Tests cover:
-- Type instantiation
-- Required field validation
-- Serialization (to_dict/from_dict)
-- Metadata conventions
-- Helper methods
+覆盖：
+- ``Document`` / ``Chunk`` / ``ChunkRecord`` 的 ``to_dict`` / ``from_dict`` /
+  ``to_json`` 序列化与字段稳定性（键集合固定，未知字段忽略）。
+- ``metadata`` 约定最少包含 ``source_path``，且增量扩展字段不破坏兼容。
+- ``metadata.images`` 图片引用规范（``ImageRef`` 六字段结构）。
+- 文本图片占位符规范（``[IMAGE: {image_id}]``）与 ID 生成格式。
 """
 
+from __future__ import annotations
+
+import json
+
 import pytest
-from src.core.types import Document, Chunk, ChunkRecord
+
+from core.types import (
+    Chunk,
+    ChunkRecord,
+    Document,
+    ImageRef,
+    IMAGE_PLACEHOLDER_TEMPLATE,
+    image_placeholder,
+    iter_image_placeholders,
+    make_image_id,
+    parse_image_refs,
+)
 
 
-class TestDocument:
-    """Test Document data type."""
-    
-    def test_document_creation_valid(self):
-        """Test creating a valid Document."""
-        doc = Document(
-            id="doc_123",
-            text="# Title\n\nContent here",
-            metadata={"source_path": "data/test.pdf"}
-        )
-        assert doc.id == "doc_123"
-        assert doc.text == "# Title\n\nContent here"
-        assert doc.metadata["source_path"] == "data/test.pdf"
-    
-    def test_document_requires_source_path(self):
-        """Test that Document requires source_path in metadata."""
-        with pytest.raises(ValueError, match="must contain 'source_path'"):
-            Document(
-                id="doc_123",
-                text="Content",
-                metadata={}
-            )
-    
-    def test_document_optional_metadata_fields(self):
-        """Test Document with extended metadata."""
-        doc = Document(
-            id="doc_123",
-            text="Content",
-            metadata={
-                "source_path": "data/test.pdf",
-                "doc_type": "pdf",
-                "title": "Test Document",
-                "page_count": 10,
-                "images": ["img1.png", "img2.png"]
-            }
-        )
-        assert doc.metadata["doc_type"] == "pdf"
-        assert doc.metadata["title"] == "Test Document"
-        assert doc.metadata["page_count"] == 10
-        assert len(doc.metadata["images"]) == 2
-    
-    def test_document_serialization(self):
-        """Test Document to_dict and from_dict."""
-        original = Document(
-            id="doc_123",
-            text="Content",
-            metadata={"source_path": "data/test.pdf", "title": "Test"}
-        )
-        
-        # Serialize
-        data = original.to_dict()
-        assert data["id"] == "doc_123"
-        assert data["text"] == "Content"
-        assert data["metadata"]["source_path"] == "data/test.pdf"
-        
-        # Deserialize
-        restored = Document.from_dict(data)
-        assert restored.id == original.id
-        assert restored.text == original.text
-        assert restored.metadata == original.metadata
+# ---------------------------------------------------------------------------
+# Document
+# ---------------------------------------------------------------------------
 
 
-class TestChunk:
-    """Test Chunk data type."""
-    
-    def test_chunk_creation_valid(self):
-        """Test creating a valid Chunk."""
-        chunk = Chunk(
-            id="chunk_123_001",
-            text="## Section 1\n\nFirst paragraph",
-            metadata={"source_path": "data/test.pdf", "chunk_index": 0}
-        )
-        assert chunk.id == "chunk_123_001"
-        assert chunk.text == "## Section 1\n\nFirst paragraph"
-        assert chunk.metadata["chunk_index"] == 0
-    
-    def test_chunk_requires_source_path(self):
-        """Test that Chunk requires source_path in metadata."""
-        with pytest.raises(ValueError, match="must contain 'source_path'"):
-            Chunk(
-                id="chunk_123",
-                text="Content",
-                metadata={"chunk_index": 0}
-            )
-    
-    def test_chunk_with_offsets(self):
-        """Test Chunk with start/end offsets."""
-        chunk = Chunk(
-            id="chunk_123_001",
-            text="Content",
-            metadata={"source_path": "data/test.pdf"},
-            start_offset=0,
-            end_offset=100
-        )
-        assert chunk.start_offset == 0
-        assert chunk.end_offset == 100
-    
-    def test_chunk_with_source_ref(self):
-        """Test Chunk with parent document reference."""
-        chunk = Chunk(
-            id="chunk_123_001",
-            text="Content",
-            metadata={"source_path": "data/test.pdf"},
-            source_ref="doc_123"
-        )
-        assert chunk.source_ref == "doc_123"
-    
-    def test_chunk_serialization(self):
-        """Test Chunk to_dict and from_dict."""
-        original = Chunk(
-            id="chunk_123_001",
-            text="Content",
-            metadata={"source_path": "data/test.pdf", "chunk_index": 0},
-            start_offset=0,
-            end_offset=100,
-            source_ref="doc_123"
-        )
-        
-        # Serialize
-        data = original.to_dict()
-        assert data["id"] == "chunk_123_001"
-        assert data["start_offset"] == 0
-        assert data["end_offset"] == 100
-        assert data["source_ref"] == "doc_123"
-        
-        # Deserialize
-        restored = Chunk.from_dict(data)
-        assert restored.id == original.id
-        assert restored.text == original.text
-        assert restored.start_offset == original.start_offset
-        assert restored.end_offset == original.end_offset
-        assert restored.source_ref == original.source_ref
+def test_document_to_dict_field_stability():
+    doc = Document(id="doc_abc", text="hello", metadata={"source_path": "a.pdf"})
+    d = doc.to_dict()
+    assert set(d.keys()) == {"id", "text", "metadata"}
+    assert d["id"] == "doc_abc"
+    assert d["text"] == "hello"
+    assert d["metadata"]["source_path"] == "a.pdf"
 
 
-class TestChunkRecord:
-    """Test ChunkRecord data type."""
-    
-    def test_chunk_record_creation_valid(self):
-        """Test creating a valid ChunkRecord."""
-        record = ChunkRecord(
-            id="chunk_123_001",
-            text="Content",
-            metadata={"source_path": "data/test.pdf", "chunk_index": 0},
-            dense_vector=[0.1, 0.2, 0.3],
-            sparse_vector={"word1": 0.5, "word2": 0.3}
-        )
-        assert record.id == "chunk_123_001"
-        assert len(record.dense_vector) == 3
-        assert record.sparse_vector["word1"] == 0.5
-    
-    def test_chunk_record_requires_source_path(self):
-        """Test that ChunkRecord requires source_path in metadata."""
-        with pytest.raises(ValueError, match="must contain 'source_path'"):
-            ChunkRecord(
-                id="chunk_123",
-                text="Content",
-                metadata={}
-            )
-    
-    def test_chunk_record_without_vectors(self):
-        """Test ChunkRecord can be created without vectors (for intermediate stages)."""
-        record = ChunkRecord(
-            id="chunk_123_001",
-            text="Content",
-            metadata={"source_path": "data/test.pdf"}
-        )
-        assert record.dense_vector is None
-        assert record.sparse_vector is None
-    
-    def test_chunk_record_serialization(self):
-        """Test ChunkRecord to_dict and from_dict."""
-        original = ChunkRecord(
-            id="chunk_123_001",
-            text="Content",
-            metadata={"source_path": "data/test.pdf", "title": "Section 1"},
-            dense_vector=[0.1, 0.2, 0.3],
-            sparse_vector={"word": 0.5}
-        )
-        
-        # Serialize
-        data = original.to_dict()
-        assert data["id"] == "chunk_123_001"
-        assert data["dense_vector"] == [0.1, 0.2, 0.3]
-        assert data["sparse_vector"] == {"word": 0.5}
-        
-        # Deserialize
-        restored = ChunkRecord.from_dict(data)
-        assert restored.id == original.id
-        assert restored.dense_vector == original.dense_vector
-        assert restored.sparse_vector == original.sparse_vector
-    
-    def test_chunk_record_from_chunk(self):
-        """Test creating ChunkRecord from Chunk."""
-        chunk = Chunk(
-            id="chunk_123_001",
-            text="Content",
-            metadata={"source_path": "data/test.pdf", "chunk_index": 0},
-            start_offset=0,
-            end_offset=100
-        )
-        
-        dense_vec = [0.1, 0.2, 0.3]
-        sparse_vec = {"word": 0.5}
-        
-        record = ChunkRecord.from_chunk(chunk, dense_vec, sparse_vec)
-        
-        assert record.id == chunk.id
-        assert record.text == chunk.text
-        assert record.metadata == chunk.metadata
-        assert record.dense_vector == dense_vec
-        assert record.sparse_vector == sparse_vec
-    
-    def test_chunk_record_metadata_isolation(self):
-        """Test that metadata is copied not shared between Chunk and ChunkRecord."""
-        chunk = Chunk(
-            id="chunk_123",
-            text="Content",
-            metadata={"source_path": "data/test.pdf", "key": "original"}
-        )
-        
-        record = ChunkRecord.from_chunk(chunk)
-        record.metadata["key"] = "modified"
-        
-        # Original chunk metadata should be unchanged
-        assert chunk.metadata["key"] == "original"
-        assert record.metadata["key"] == "modified"
+def test_document_json_round_trip():
+    doc = Document(id="doc_abc", text="你好 [IMAGE: h1_0_1]", metadata={"source_path": "a.pdf"})
+    restored = Document.from_json(doc.to_json())
+    assert restored == doc
 
 
-class TestMultimodalSupport:
-    """Test multimodal image support according to C1 specification."""
-    
-    def test_document_with_image_placeholder(self):
-        """Test Document with image placeholder in text."""
-        doc = Document(
-            id="doc_with_img",
-            text="Here is some text.\n\n[IMAGE: abc123_1_0]\n\nMore text after image.",
-            metadata={
-                "source_path": "data/test.pdf",
-                "images": [
-                    {
-                        "id": "abc123_1_0",
-                        "path": "data/images/collection/abc123_1_0.png",
-                        "page": 1,
-                        "text_offset": 20,
-                        "text_length": 21,
-                        "position": {"x": 100, "y": 200, "width": 400, "height": 300}
-                    }
-                ]
-            }
-        )
-        
-        assert "[IMAGE: abc123_1_0]" in doc.text
-        assert len(doc.metadata["images"]) == 1
-        assert doc.metadata["images"][0]["id"] == "abc123_1_0"
-        assert doc.metadata["images"][0]["text_offset"] == 20
-        assert doc.metadata["images"][0]["text_length"] == 21
-    
-    def test_document_with_multiple_images(self):
-        """Test Document with multiple image placeholders."""
-        doc = Document(
-            id="doc_multi_img",
-            text="Text [IMAGE: img1] middle [IMAGE: img2] end",
-            metadata={
-                "source_path": "data/test.pdf",
-                "images": [
-                    {
-                        "id": "img1",
-                        "path": "data/images/collection/img1.png",
-                        "page": 1,
-                        "text_offset": 5,
-                        "text_length": 14,
-                        "position": {}
-                    },
-                    {
-                        "id": "img2",
-                        "path": "data/images/collection/img2.png",
-                        "page": 2,
-                        "text_offset": 27,
-                        "text_length": 14,
-                        "position": {}
-                    }
-                ]
-            }
-        )
-        
-        assert len(doc.metadata["images"]) == 2
-        assert doc.text.count("[IMAGE:") == 2
-    
-    def test_chunk_with_image_reference(self):
-        """Test Chunk containing image placeholder and relevant image metadata."""
-        chunk = Chunk(
-            id="chunk_with_img",
-            text="Section content [IMAGE: abc123_1_0] continues here",
-            metadata={
-                "source_path": "data/test.pdf",
-                "chunk_index": 0,
-                "images": [
-                    {
-                        "id": "abc123_1_0",
-                        "path": "data/images/collection/abc123_1_0.png",
-                        "page": 1,
-                        "text_offset": 16,
-                        "text_length": 21,
-                        "position": {}
-                    }
-                ]
-            }
-        )
-        
-        assert "[IMAGE: abc123_1_0]" in chunk.text
-        assert "images" in chunk.metadata
-        assert len(chunk.metadata["images"]) == 1
-    
-    def test_chunk_record_with_image_captions(self):
-        """Test ChunkRecord with image captions from ImageCaptioner."""
-        record = ChunkRecord(
-            id="record_with_caption",
-            text="Architecture diagram [IMAGE: diagram_001] shows the system",
-            metadata={
-                "source_path": "data/test.pdf",
-                "chunk_index": 0,
-                "images": [
-                    {
-                        "id": "diagram_001",
-                        "path": "data/images/collection/diagram_001.png",
-                        "page": 5,
-                        "text_offset": 21,
-                        "text_length": 21,
-                        "position": {}
-                    }
-                ],
-                "image_captions": {
-                    "diagram_001": "System architecture showing three-tier design with load balancer"
-                }
-            },
-            dense_vector=[0.1, 0.2, 0.3]
-        )
-        
-        assert "image_captions" in record.metadata
-        assert record.metadata["image_captions"]["diagram_001"]
-        assert "architecture" in record.metadata["image_captions"]["diagram_001"].lower()
-    
-    def test_image_metadata_structure_validation(self):
-        """Test that image metadata follows the C1 specification structure."""
-        image_ref = {
-            "id": "doc_hash_page_seq",
-            "path": "data/images/collection/doc_hash_page_seq.png",
-            "page": 1,
-            "text_offset": 100,
-            "text_length": 25,
-            "position": {"x": 0, "y": 0, "width": 500, "height": 400}
-        }
-        
-        # Verify all required fields are present
-        assert "id" in image_ref
-        assert "path" in image_ref
-        assert "text_offset" in image_ref
-        assert "text_length" in image_ref
-        
-        # Verify field types
-        assert isinstance(image_ref["id"], str)
-        assert isinstance(image_ref["path"], str)
-        assert isinstance(image_ref["text_offset"], int)
-        assert isinstance(image_ref["text_length"], int)
-        assert isinstance(image_ref["position"], dict)
-    
-    def test_document_without_images(self):
-        """Test Document without images (images field can be omitted or empty list)."""
-        # Omit images field
-        doc1 = Document(
-            id="doc_no_img_1",
-            text="Plain text document",
-            metadata={"source_path": "data/test.txt"}
-        )
-        assert "images" not in doc1.metadata or doc1.metadata.get("images", []) == []
-        
-        # Explicit empty list
-        doc2 = Document(
-            id="doc_no_img_2",
-            text="Plain text document",
-            metadata={"source_path": "data/test.txt", "images": []}
-        )
-        assert doc2.metadata["images"] == []
+def test_document_from_dict_ignores_unknown_fields():
+    d = {"id": "doc_abc", "text": "t", "metadata": {"source_path": "a.pdf"}, "future_field": 1}
+    doc = Document.from_dict(d)
+    assert doc.id == "doc_abc"
+    assert doc.text == "t"
+    assert doc.metadata == {"source_path": "a.pdf"}
 
 
-class TestMetadataConventions:
-    """Test metadata field conventions across types."""
-    
-    def test_source_path_required_everywhere(self):
-        """Test that source_path is required in all types."""
-        # Document
-        with pytest.raises(ValueError):
-            Document(id="d1", text="t", metadata={})
-        
-        # Chunk
-        with pytest.raises(ValueError):
-            Chunk(id="c1", text="t", metadata={})
-        
-        # ChunkRecord
-        with pytest.raises(ValueError):
-            ChunkRecord(id="r1", text="t", metadata={})
-    
-    def test_metadata_extensibility(self):
-        """Test that metadata can be extended without breaking compatibility."""
-        # Add arbitrary fields
-        doc = Document(
-            id="doc_123",
-            text="Content",
-            metadata={
-                "source_path": "data/test.pdf",
-                "custom_field_1": "value1",
-                "custom_field_2": 123,
-                "custom_field_3": ["list", "values"]
-            }
-        )
-        
-        # Should serialize and deserialize without issues
-        data = doc.to_dict()
-        restored = Document.from_dict(data)
-        
-        assert restored.metadata["custom_field_1"] == "value1"
-        assert restored.metadata["custom_field_2"] == 123
-        assert restored.metadata["custom_field_3"] == ["list", "values"]
-    
-    def test_metadata_propagation_pattern(self):
-        """Test typical metadata propagation from Document -> Chunk -> ChunkRecord."""
-        # Document level
-        doc_metadata = {
-            "source_path": "data/report.pdf",
-            "doc_type": "pdf",
-            "title": "Annual Report",
-            "author": "John Doe"
-        }
-        
-        doc = Document(id="doc_123", text="Full document text", metadata=doc_metadata.copy())
-        
-        # Chunk inherits and extends
-        chunk_metadata = doc.metadata.copy()
-        chunk_metadata.update({
-            "chunk_index": 0,
-            "page": 1
-        })
-        
-        chunk = Chunk(
-            id="chunk_123_001",
-            text="First section",
-            metadata=chunk_metadata,
-            source_ref="doc_123"
-        )
-        
-        # ChunkRecord inherits from chunk and adds enrichment
-        record_metadata = chunk.metadata.copy()
-        record_metadata.update({
-            "summary": "Introduction section",
-            "tags": ["intro", "overview"]
-        })
-        
-        record = ChunkRecord(
-            id=chunk.id,
-            text=chunk.text,
-            metadata=record_metadata,
-            dense_vector=[0.1, 0.2, 0.3]
-        )
-        
-        # Verify propagation
-        assert record.metadata["source_path"] == doc.metadata["source_path"]
-        assert record.metadata["title"] == doc.metadata["title"]
-        assert record.metadata["chunk_index"] == 0
-        assert record.metadata["summary"] == "Introduction section"
+def test_document_metadata_extra_fields_preserved():
+    """metadata 增量扩展（新增字段）不破坏序列化与往返一致性。"""
+    metadata = {
+        "source_path": "a.pdf",
+        "title": "Sample",
+        "tags": ["rag", "mcp"],
+        "custom": {"nested": True},
+    }
+    doc = Document(id="doc_abc", text="t", metadata=metadata)
+    restored = Document.from_dict(json.loads(doc.to_json()))
+    assert restored.metadata == metadata
+
+
+def test_document_requires_non_empty_id():
+    with pytest.raises(ValueError) as exc_info:
+        Document(id="", text="t", metadata={"source_path": "a.pdf"})
+    assert "Document.id" in str(exc_info.value)
+
+
+def test_document_rejects_non_dict_metadata():
+    with pytest.raises(TypeError) as exc_info:
+        Document(id="doc_abc", text="t", metadata=["not", "a", "dict"])
+    assert "Document.metadata" in str(exc_info.value)
+
+
+def test_document_rejects_non_string_text():
+    with pytest.raises(TypeError) as exc_info:
+        Document(id="doc_abc", text=123, metadata={})
+    assert "Document.text" in str(exc_info.value)
+
+
+def test_document_with_images_metadata_is_json_serializable():
+    """metadata.images 为纯 dict 结构时整体可直接 json.dumps。"""
+    ref = ImageRef(
+        id=make_image_id("h1", 0, 1),
+        path="data/images/col/h1_0_1.png",
+        text_offset=5,
+        text_length=len(image_placeholder("h1_0_1")),
+        page=0,
+        position={"x": 10, "y": 20, "width": 100, "height": 50},
+    )
+    text = "开头 " + image_placeholder(ref.id) + " 结尾"
+    doc = Document(id="doc_h1", text=text, metadata={"source_path": "a.pdf", "images": [ref.to_dict()]})
+    payload = json.loads(doc.to_json())
+    assert payload["metadata"]["images"] == [ref.to_dict()]
+    assert Document.from_dict(payload).image_refs == [ref]
+
+
+def test_document_source_path_convention_survives_round_trip():
+    doc = Document(id="doc_h1", text="t", metadata={"source_path": "docs/a.pdf", "page": 3})
+    restored = Document.from_dict(json.loads(doc.to_json()))
+    assert restored.metadata["source_path"] == "docs/a.pdf"
+
+
+# ---------------------------------------------------------------------------
+# Chunk
+# ---------------------------------------------------------------------------
+
+
+def test_chunk_to_dict_field_stability():
+    chunk = Chunk(id="c1", text="片段", metadata={"source_path": "a.pdf"})
+    d = chunk.to_dict()
+    assert set(d.keys()) == {"id", "text", "metadata", "start_offset", "end_offset", "source_ref"}
+    # 可选字段默认 None（序列化键仍稳定存在）。
+    assert d["start_offset"] is None
+    assert d["end_offset"] is None
+    assert d["source_ref"] is None
+
+
+def test_chunk_round_trip_with_offsets_and_source_ref():
+    chunk = Chunk(
+        id="c1",
+        text="片段 [IMAGE: h1_0_1]",
+        metadata={"source_path": "a.pdf", "chunk_index": 0, "image_refs": ["h1_0_1"]},
+        start_offset=0,
+        end_offset=42,
+        source_ref="doc_h1",
+    )
+    restored = Chunk.from_dict(json.loads(chunk.to_json()))
+    assert restored == chunk
+
+
+def test_chunk_requires_non_empty_id():
+    with pytest.raises(ValueError):
+        Chunk(id="", text="t")
+
+
+# ---------------------------------------------------------------------------
+# ChunkRecord
+# ---------------------------------------------------------------------------
+
+
+def test_chunk_record_defaults_and_shape():
+    rec = ChunkRecord(id="c1", text="片段", metadata={"source_path": "a.pdf"})
+    assert rec.dense_vector is None
+    assert rec.sparse_vector is None
+    d = rec.to_dict()
+    assert set(d.keys()) == {"id", "text", "metadata", "dense_vector", "sparse_vector"}
+
+
+def test_chunk_record_with_vectors_round_trip():
+    rec = ChunkRecord(
+        id="c1",
+        text="片段",
+        metadata={"source_path": "a.pdf"},
+        dense_vector=[0.1, 0.2, 0.3],
+        sparse_vector={"检索": 1.5, "bm25": 0.8},
+    )
+    restored = ChunkRecord.from_dict(json.loads(rec.to_json()))
+    assert restored == rec
+    assert restored.dense_vector == [0.1, 0.2, 0.3]
+    assert restored.sparse_vector == {"检索": 1.5, "bm25": 0.8}
+
+
+def test_chunk_record_from_chunk_copies_and_defaults_vectors():
+    chunk = Chunk(id="c1", text="片段", metadata={"source_path": "a.pdf", "chunk_index": 2})
+    rec = ChunkRecord.from_chunk(chunk)
+    assert rec.id == chunk.id
+    assert rec.text == chunk.text
+    assert rec.metadata == chunk.metadata
+    assert rec.metadata is not chunk.metadata  # 浅拷贝，互不影响
+    assert rec.dense_vector is None
+    assert rec.sparse_vector is None
+
+
+# ---------------------------------------------------------------------------
+# ImageRef（metadata.images 规范）
+# ---------------------------------------------------------------------------
+
+
+def test_image_ref_to_dict_six_fields():
+    ref = ImageRef(id="h1_0_1", path="data/images/col/h1_0_1.png", text_offset=5, text_length=16, page=0,
+                   position={"x": 1})
+    assert set(ref.to_dict().keys()) == {"id", "path", "page", "text_offset", "text_length", "position"}
+
+
+def test_image_ref_round_trip():
+    ref = ImageRef(id="h1_2_3", path="data/images/col/h1_2_3.png", text_offset=100, text_length=16, page=2,
+                   position={"page_width": 595})
+    assert ImageRef.from_dict(ref.to_dict()) == ref
+
+
+def test_image_ref_from_dict_uses_defaults_for_optional_fields():
+    ref = ImageRef.from_dict({"id": "h1_0_1", "path": "p.png"})
+    assert ref.page is None
+    assert ref.text_offset == 0
+    assert ref.text_length == 0
+    assert ref.position == {}
+
+
+def test_image_ref_requires_id_and_path():
+    with pytest.raises(ValueError):
+        ImageRef(id="", path="p.png")
+    with pytest.raises(ValueError):
+        ImageRef(id="h1_0_1", path="")
+
+
+# ---------------------------------------------------------------------------
+# 占位符与图片 ID 规范
+# ---------------------------------------------------------------------------
+
+
+def test_image_placeholder_format():
+    assert image_placeholder("h1_0_1") == "[IMAGE: h1_0_1]"
+    assert IMAGE_PLACEHOLDER_TEMPLATE == "[IMAGE: {image_id}]"
+
+
+def test_make_image_id_format():
+    assert make_image_id("abcd1234", 0, 1) == "abcd1234_0_1"
+
+
+def test_iter_image_placeholders_finds_all_in_order():
+    text = "开头 [IMAGE: h1_0_1] 中段 [IMAGE: h1_0_2] 结尾"
+    found = iter_image_placeholders(text)
+    assert found == [("h1_0_1", 3), ("h1_0_2", 22)]
+
+
+def test_iter_image_placeholders_no_match_returns_empty():
+    assert iter_image_placeholders("没有图片的普通文本") == []
+
+
+# ---------------------------------------------------------------------------
+# parse_image_refs（metadata.images 访问）
+# ---------------------------------------------------------------------------
+
+
+def test_parse_image_refs_from_metadata():
+    refs = [
+        ImageRef(id="h1_0_1", path="data/images/col/h1_0_1.png", text_offset=3, text_length=16, page=0),
+        ImageRef(id="h1_0_2", path="data/images/col/h1_0_2.png", text_offset=21, text_length=16, page=0),
+    ]
+    metadata = {"source_path": "a.pdf", "images": [r.to_dict() for r in refs]}
+    assert parse_image_refs(metadata, owner="Document.metadata") == refs
+    assert Document(id="d", text="t", metadata=metadata).image_refs == refs
+
+
+def test_parse_image_refs_missing_images_returns_empty():
+    assert parse_image_refs({"source_path": "a.pdf"}) == []
+    doc = Document(id="d", text="t", metadata={"source_path": "a.pdf"})
+    assert doc.image_refs == []
+
+
+def test_parse_image_refs_malformed_raises_readable_errors():
+    with pytest.raises(TypeError) as exc_info:
+        parse_image_refs({"images": {"id": "x"}})
+    assert "images must be a list" in str(exc_info.value)
+    with pytest.raises(TypeError) as exc_info:
+        parse_image_refs({"images": ["not-a-dict"]})
+    assert "images[0] must be a dict" in str(exc_info.value)
+    with pytest.raises(ValueError) as exc_info:
+        parse_image_refs({"images": [{"id": "x"}]})
+    assert "non-empty 'id' and 'path'" in str(exc_info.value)
+
+
+def test_parse_image_refs_accepts_json_string():
+    """向量库落库侧把 dict 列表序列化为 JSON 字符串，读取侧需兼容还原。"""
+    refs = [ImageRef(id="h1_0_1", path="data/images/h1_0_1.png", text_offset=3, text_length=16, page=0)]
+    metadata = {"source_path": "a.pdf", "images": json.dumps([r.to_dict() for r in refs], ensure_ascii=False)}
+    assert parse_image_refs(metadata, owner="Chunk.metadata") == refs
+    # 非法 JSON 字符串报可读错误而非裸异常
+    with pytest.raises(TypeError) as exc_info:
+        parse_image_refs({"images": "{not-json"})
+    assert "not valid JSON" in str(exc_info.value)

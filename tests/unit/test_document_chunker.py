@@ -1,404 +1,245 @@
-"""Unit tests for DocumentChunker - Document to Chunk adapter.
+"""``ingestion.chunking.DocumentChunker`` 单元测试（阶段 C4）。
 
-This test suite validates the DocumentChunker's five core value-add features:
-1. Unique and deterministic chunk ID generation
-2. Complete metadata inheritance from Document to Chunk
-3. chunk_index tracking for sequential position
-4. source_ref establishing parent-child traceability
-5. Type contract compliance (core.types.Chunk)
+使用 FakeSplitter（按哨兵分隔符切分）隔离测试，不依赖真实 LLM/外部服务；
+另含一个基于真实 RecursiveSplitter 的配置驱动用例（chunk_size 改变切分结果）。
 
-All tests use FakeSplitter to isolate DocumentChunker's business logic from
-the underlying text splitting implementation, ensuring no external dependencies.
+覆盖验收标准：ID 唯一/确定性/格式、元数据继承 + chunk_index、图片引用按需
+分发（子集/移除）、source_ref 溯源、Chunk 类型契约（可序列化往返）。
 """
 
+from __future__ import annotations
+
+import hashlib
+import re
+from pathlib import Path
+from textwrap import dedent
+
 import pytest
-from unittest.mock import Mock
 
-from src.core.types import Document, Chunk
-from src.core.settings import Settings
-from src.ingestion.chunking import DocumentChunker
-from src.libs.splitter.base_splitter import BaseSplitter
+from core.settings import load_settings
+from core.types import Chunk, Document, ImageRef, image_placeholder
+from ingestion.chunking.document_chunker import DocumentChunker
+from libs.splitter.base_splitter import BaseSplitter
+from libs.splitter.splitter_factory import SplitterFactory, SplitterProviderError
 
-
-class FakeSplitter(BaseSplitter):
-    """Fake splitter for testing - returns predictable chunks.
-    
-    This fake implementation allows us to test DocumentChunker's business logic
-    without depending on real text splitting algorithms or external libraries.
+_VALID_YAML = dedent(
+    """\
+    llm:
+      provider: azure
+      model: gpt-4o
+    embedding:
+      provider: openai
+      model: text-embedding-3-small
+    vision_llm:
+      provider: azure
+      model: gpt-4o
+    vector_store:
+      backend: chroma
+    retrieval:
+      sparse_backend: bm25
+      fusion_algorithm: rrf
+    rerank:
+      backend: none
+    evaluation:
+      backends: [custom]
     """
-    
-    def __init__(self, chunk_size: int = 100, overlap: int = 0, **kwargs):
-        """Initialize with ignored parameters for compatibility."""
-        pass
-    
-    def split_text(self, text: str) -> list[str]:
-        """Split text by double newlines (paragraph-based splitting)."""
-        # Simple splitting for testing: split on double newlines
-        paragraphs = text.split("\n\n")
-        return [p.strip() for p in paragraphs if p.strip()]
+)
+
+
+def _settings(tmp_path: Path, splitter_yaml: str = ""):
+    path = Path(tmp_path) / "settings.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_VALID_YAML + splitter_yaml, encoding="utf-8")
+    return load_settings(path)
 
 
 @pytest.fixture
-def fake_settings():
-    """Fixture providing minimal settings for testing."""
-    settings = Mock(spec=Settings)
-    settings.splitter = Mock()
-    settings.splitter.provider = "fake"
-    settings.splitter.chunk_size = 100
-    settings.splitter.overlap = 0
-    return settings
+def clean_registry():
+    saved = dict(SplitterFactory._registry)
+    SplitterFactory._registry.clear()
+    yield SplitterFactory
+    SplitterFactory._registry.clear()
+    SplitterFactory._registry.update(saved)
+
+
+class _FakeSplitter(BaseSplitter):
+    """按哨兵 ``\\x1e`` 切分的确定性 Fake 实现。"""
+
+    def __init__(self, splitter_config, **kwargs):
+        self.config = splitter_config
+        self.kwargs = kwargs
+        self.received: list[str] = []
+
+    def split_text(self, text, *, trace=None, **kwargs):
+        self.received.append(text)
+        return text.split("\x1e")
 
 
 @pytest.fixture
-def chunker(fake_settings, monkeypatch):
-    """Fixture providing DocumentChunker with FakeSplitter injected."""
-    # Monkey-patch SplitterFactory to return our FakeSplitter
-    from src.libs.splitter import splitter_factory
-    
-    original_create = splitter_factory.SplitterFactory.create
-    
-    def mock_create(settings):
-        return FakeSplitter()
-    
-    monkeypatch.setattr(splitter_factory.SplitterFactory, "create", mock_create)
-    
-    return DocumentChunker(fake_settings)
+def fake_chunker(tmp_path, clean_registry):
+    """注册 fake provider=recursive 并返回构造函数（延迟创建 chunker）。"""
+    clean_registry.register("recursive")(_FakeSplitter)
+
+    def make():
+        return DocumentChunker(_settings(tmp_path))
+    return make
 
 
-@pytest.fixture
-def sample_document():
-    """Fixture providing a sample document for testing."""
-    return Document(
-        id="doc_sample_001",
-        text="First paragraph content.\n\nSecond paragraph content.\n\nThird paragraph content.",
-        metadata={
-            "source_path": "data/documents/sample.pdf",
-            "doc_type": "pdf",
-            "title": "Sample Document",
-            "page_count": 3
-        }
+def _make_document(text: str, images: list[ImageRef] | None = None) -> Document:
+    metadata = {"source_path": "docs/sample.pdf", "doc_type": "pdf", "sha256": "ab" * 32}
+    if images is not None:
+        metadata["images"] = [r.to_dict() for r in images]
+    return Document(id="doc" + "0" * 61, text=text, metadata=metadata)
+
+
+def _img(image_id: str, page: int = 0) -> ImageRef:
+    return ImageRef(
+        id=image_id,
+        path=f"data/images/col/{image_id}.png",
+        text_offset=0,
+        text_length=len(image_placeholder(image_id)),
+        page=page,
+        position={"width": 2, "height": 2},
     )
 
 
-# =============================================================================
-# Test 1: Chunk ID Generation - Uniqueness and Determinism
-# =============================================================================
-
-def test_chunk_ids_are_unique(chunker, sample_document):
-    """Test that each chunk gets a unique ID."""
-    chunks = chunker.split_document(sample_document)
-    
-    # Extract all chunk IDs
-    chunk_ids = [chunk.id for chunk in chunks]
-    
-    # Verify uniqueness: no duplicates
-    assert len(chunk_ids) == len(set(chunk_ids)), "Chunk IDs must be unique"
+# ---------------------------------------------------------------------------
+# 基础契约
+# ---------------------------------------------------------------------------
 
 
-def test_chunk_ids_are_deterministic(chunker, sample_document):
-    """Test that splitting the same document twice produces identical IDs."""
-    # Split twice
-    chunks_first = chunker.split_document(sample_document)
-    chunks_second = chunker.split_document(sample_document)
-    
-    # Extract IDs
-    ids_first = [c.id for c in chunks_first]
-    ids_second = [c.id for c in chunks_second]
-    
-    # Verify determinism: IDs match across runs
-    assert ids_first == ids_second, "Chunk IDs must be deterministic"
+def test_split_document_returns_chunks_contract(fake_chunker):
+    doc = _make_document("第一段\x1e第二段\x1e第三段")
+    chunks = fake_chunker().split_document(doc)
+    assert len(chunks) == 3
+    assert all(isinstance(c, Chunk) for c in chunks)
+    assert [c.text for c in chunks] == ["第一段", "第二段", "第三段"]
+    assert [c.metadata["chunk_index"] for c in chunks] == [0, 1, 2]
+    assert all(c.source_ref == doc.id for c in chunks)
 
 
-def test_chunk_id_format(chunker, sample_document):
-    """Test that chunk IDs follow expected format: {doc_id}_{index:04d}_{hash}."""
-    chunks = chunker.split_document(sample_document)
-    
-    for i, chunk in enumerate(chunks):
-        # Expected format: doc_sample_001_0000_{hash}, doc_sample_001_0001_{hash}, etc.
-        assert chunk.id.startswith(f"doc_sample_001_{i:04d}_"), \
-            f"Chunk ID should start with 'doc_sample_001_{i:04d}_', got: {chunk.id}"
-        
-        # Hash portion should be 8 characters
-        hash_part = chunk.id.split("_")[-1]
-        assert len(hash_part) == 8, f"Hash should be 8 chars, got: {hash_part}"
+def test_splitter_receives_full_document_text(fake_chunker):
+    doc = _make_document("第一段\x1e第二段")
+    chunker = fake_chunker()
+    chunker.split_document(doc)
+    assert chunker.splitter.received == [doc.text]
 
 
-def test_chunk_id_changes_with_content(chunker):
-    """Test that chunk ID changes when content changes."""
-    doc1 = Document(
-        id="doc_001",
-        text="Content A",
-        metadata={"source_path": "file.pdf"}
+def test_chunk_id_format(fake_chunker):
+    doc = _make_document("内容 A\x1e内容 B")
+    chunks = fake_chunker().split_document(doc)
+    pattern = re.compile(rf"^{re.escape(doc.id)}_\d{{4}}_[0-9a-f]{{8}}$")
+    for c in chunks:
+        assert pattern.match(c.id)
+    # hash 部分为 chunk 文本 sha256 前 8 位。
+    assert chunks[1].id == f"{doc.id}_0001_{hashlib.sha256('内容 B'.encode()).hexdigest()[:8]}"
+
+
+def test_chunk_ids_unique(fake_chunker):
+    doc = _make_document("同文\x1e同文\x1e同文")  # 相同文本也必须 ID 唯一（index 区分）
+    chunks = fake_chunker().split_document(doc)
+    assert len({c.id for c in chunks}) == 3
+
+
+def test_chunk_ids_deterministic(fake_chunker):
+    doc = _make_document("甲\x1e乙\x1e丙")
+    first = fake_chunker().split_document(doc)
+    second = fake_chunker().split_document(doc)
+    assert [c.id for c in first] == [c.id for c in second]
+    assert [c.to_dict() for c in first] == [c.to_dict() for c in second]
+
+
+def test_metadata_inherits_document_fields(fake_chunker):
+    doc = _make_document("片段一\x1e片段二")
+    chunks = fake_chunker().split_document(doc)
+    for c in chunks:
+        assert c.metadata["source_path"] == "docs/sample.pdf"
+        assert c.metadata["doc_type"] == "pdf"
+        assert c.metadata["sha256"] == "ab" * 32
+
+
+def test_chunks_serializable_round_trip(fake_chunker):
+    doc = _make_document("片段一\x1e片段二")
+    chunks = fake_chunker().split_document(doc)
+    for c in chunks:
+        assert Chunk.from_dict(c.to_dict()) == c
+
+
+# ---------------------------------------------------------------------------
+# 图片引用按需分发
+# ---------------------------------------------------------------------------
+
+
+def test_image_refs_distributed_per_chunk(fake_chunker):
+    a, b = _img("h1_0_0"), _img("h1_1_2")
+    text = (
+        f"首段引用图片 {image_placeholder(a.id)}\x1e"
+        f"次段引用另一张 {image_placeholder(b.id)}\x1e"
+        "末段没有图片"
     )
-    doc2 = Document(
-        id="doc_001",  # Same doc_id
-        text="Content B",  # Different content
-        metadata={"source_path": "file.pdf"}
+    doc = _make_document(text, images=[a, b])
+    chunks = fake_chunker().split_document(doc)
+
+    assert chunks[0].metadata["image_refs"] == [a.id]
+    assert chunks[0].metadata["images"] == [a.to_dict()]
+    assert chunks[1].metadata["image_refs"] == [b.id]
+    assert chunks[1].metadata["images"] == [b.to_dict()]
+    # 无占位符的 chunk：不含 images / image_refs 字段（文档级 images 不整体继承）。
+    assert "images" not in chunks[2].metadata
+    assert "image_refs" not in chunks[2].metadata
+
+
+def test_multiple_placeholders_in_same_chunk(fake_chunker):
+    a, b = _img("h1_0_0"), _img("h1_1_2")
+    doc = _make_document(
+        f"双图段落 {image_placeholder(a.id)} 和 {image_placeholder(b.id)}",
+        images=[a, b],
     )
-    
-    chunks1 = chunker.split_document(doc1)
-    chunks2 = chunker.split_document(doc2)
-    
-    # IDs should differ due to content hash
-    assert chunks1[0].id != chunks2[0].id, \
-        "Chunk ID should change when content changes"
+    chunks = fake_chunker().split_document(doc)
+    assert chunks[0].metadata["image_refs"] == [a.id, b.id]
+    assert chunks[0].metadata["images"] == [a.to_dict(), b.to_dict()]
 
 
-# =============================================================================
-# Test 2: Metadata Inheritance - Complete Propagation
-# =============================================================================
-
-def test_metadata_inheritance(chunker, sample_document):
-    """Test that all document metadata is inherited by chunks."""
-    chunks = chunker.split_document(sample_document)
-    
-    for chunk in chunks:
-        # All document metadata should be present
-        assert chunk.metadata["source_path"] == "data/documents/sample.pdf"
-        assert chunk.metadata["doc_type"] == "pdf"
-        assert chunk.metadata["title"] == "Sample Document"
-        assert chunk.metadata["page_count"] == 3
+def test_placeholder_id_missing_from_doc_images(fake_chunker):
+    doc = _make_document(f"幽灵引用 {image_placeholder('ghost_0_0')}", images=[_img("h1_0_0")])
+    chunks = fake_chunker().split_document(doc)
+    # image_refs 与占位符一致；images 仅含文档中实际存在的子集（此处为空）。
+    assert chunks[0].metadata["image_refs"] == ["ghost_0_0"]
+    assert chunks[0].metadata["images"] == []
 
 
-def test_metadata_independence(chunker, sample_document):
-    """Test that each chunk gets its own metadata dict (not shared reference)."""
-    chunks = chunker.split_document(sample_document)
-    
-    # Modify first chunk's metadata
-    chunks[0].metadata["custom_field"] = "test_value"
-    
-    # Other chunks should not be affected
-    assert "custom_field" not in chunks[1].metadata, \
-        "Chunks should have independent metadata dicts"
+def test_document_without_images_no_fields(fake_chunker):
+    doc = _make_document(f"只有占位符 {image_placeholder('x_0_0')}")  # 文档级无 images
+    chunks = fake_chunker().split_document(doc)
+    assert chunks[0].metadata["image_refs"] == ["x_0_0"]
+    assert chunks[0].metadata["images"] == []
 
 
-def test_metadata_with_empty_document_metadata(chunker):
-    """Test chunking when document has minimal metadata."""
-    doc = Document(
-        id="doc_minimal",
-        text="Paragraph 1.\n\nParagraph 2.",
-        metadata={"source_path": "minimal.txt"}  # Only required field
+# ---------------------------------------------------------------------------
+# 配置驱动与工厂集成
+# ---------------------------------------------------------------------------
+
+
+def test_chunker_uses_factory_created_splitter_with_config(fake_chunker):
+    chunker = fake_chunker()
+    assert isinstance(chunker.splitter, _FakeSplitter)
+    assert chunker.splitter.config.provider == "recursive"  # 默认 splitter 节
+
+
+def test_unknown_provider_raises_at_construction(tmp_path, clean_registry):
+    settings = _settings(tmp_path, splitter_yaml="\nsplitter:\n  provider: nonexistent\n")
+    with pytest.raises(SplitterProviderError):
+        DocumentChunker(settings)
+
+
+def test_config_driven_chunk_size_changes_chunk_count(tmp_path):
+    """真实 RecursiveSplitter：chunk_size 越小产出 chunk 越多。"""
+    body = "\n\n".join(
+        f"## Section {i}\n" + ("关于模块化检索架构的说明文字。" * 12) for i in range(8)
     )
-    
-    chunks = chunker.split_document(doc)
-    
-    # Should still work with minimal metadata
-    assert len(chunks) == 2
-    assert chunks[0].metadata["source_path"] == "minimal.txt"
-
-
-# =============================================================================
-# Test 3: chunk_index - Sequential Position Tracking
-# =============================================================================
-
-def test_chunk_index_sequential(chunker, sample_document):
-    """Test that chunk_index starts at 0 and increments sequentially."""
-    chunks = chunker.split_document(sample_document)
-    
-    # Verify sequential indices: 0, 1, 2, ...
-    for i, chunk in enumerate(chunks):
-        assert chunk.metadata["chunk_index"] == i, \
-            f"Chunk at position {i} should have chunk_index={i}"
-
-
-def test_chunk_index_added_to_all_chunks(chunker, sample_document):
-    """Test that every chunk has chunk_index field."""
-    chunks = chunker.split_document(sample_document)
-    
-    for chunk in chunks:
-        assert "chunk_index" in chunk.metadata, \
-            "All chunks must have chunk_index field"
-        assert isinstance(chunk.metadata["chunk_index"], int), \
-            "chunk_index must be an integer"
-
-
-# =============================================================================
-# Test 4: source_ref - Parent-Child Traceability
-# =============================================================================
-
-def test_source_ref_points_to_document(chunker, sample_document):
-    """Test that source_ref correctly references parent document ID."""
-    chunks = chunker.split_document(sample_document)
-    
-    for chunk in chunks:
-        assert chunk.metadata["source_ref"] == sample_document.id, \
-            f"source_ref should point to document ID '{sample_document.id}'"
-
-
-def test_source_ref_added_to_all_chunks(chunker, sample_document):
-    """Test that every chunk has source_ref field."""
-    chunks = chunker.split_document(sample_document)
-    
-    for chunk in chunks:
-        assert "source_ref" in chunk.metadata, \
-            "All chunks must have source_ref field"
-
-
-# =============================================================================
-# Test 5: Type Contract - core.types.Chunk Compliance
-# =============================================================================
-
-def test_chunks_are_chunk_type(chunker, sample_document):
-    """Test that output items are Chunk objects."""
-    chunks = chunker.split_document(sample_document)
-    
-    for chunk in chunks:
-        assert isinstance(chunk, Chunk), \
-            f"Output should be Chunk objects, got: {type(chunk)}"
-
-
-def test_chunk_serialization(chunker, sample_document):
-    """Test that chunks can be serialized to dict."""
-    chunks = chunker.split_document(sample_document)
-    
-    for chunk in chunks:
-        chunk_dict = chunk.to_dict()
-        
-        # Verify dict structure
-        assert "id" in chunk_dict
-        assert "text" in chunk_dict
-        assert "metadata" in chunk_dict
-        assert isinstance(chunk_dict["metadata"], dict)
-
-
-def test_chunk_fields_complete(chunker, sample_document):
-    """Test that chunks have all required Chunk fields."""
-    chunks = chunker.split_document(sample_document)
-    
-    for chunk in chunks:
-        # Required Chunk fields
-        assert hasattr(chunk, "id") and chunk.id
-        assert hasattr(chunk, "text") and chunk.text
-        assert hasattr(chunk, "metadata") and isinstance(chunk.metadata, dict)
-
-
-# =============================================================================
-# Test 6: Configuration-Driven Behavior
-# =============================================================================
-
-def test_different_splitter_config_produces_different_chunks(fake_settings, monkeypatch):
-    """Test that changing splitter config affects chunk output."""
-    # This test verifies that DocumentChunker respects splitter configuration
-    
-    from src.libs.splitter import splitter_factory
-    
-    # Create two different fake splitters with different behaviors
-    class SmallChunkSplitter(BaseSplitter):
-        def split_text(self, text: str) -> list[str]:
-            # Split by sentence (period)
-            return [s.strip() + "." for s in text.split(".") if s.strip()]
-    
-    class LargeChunkSplitter(BaseSplitter):
-        def split_text(self, text: str) -> list[str]:
-            # Return entire text as one chunk
-            return [text]
-    
-    document = Document(
-        id="doc_test",
-        text="First sentence. Second sentence. Third sentence.",
-        metadata={"source_path": "test.txt"}
-    )
-    
-    # Test with small chunks
-    def mock_create_small(settings):
-        return SmallChunkSplitter()
-    
-    monkeypatch.setattr(splitter_factory.SplitterFactory, "create", mock_create_small)
-    chunker_small = DocumentChunker(fake_settings)
-    chunks_small = chunker_small.split_document(document)
-    
-    # Test with large chunks
-    def mock_create_large(settings):
-        return LargeChunkSplitter()
-    
-    monkeypatch.setattr(splitter_factory.SplitterFactory, "create", mock_create_large)
-    chunker_large = DocumentChunker(fake_settings)
-    chunks_large = chunker_large.split_document(document)
-    
-    # Different configs should produce different number of chunks
-    assert len(chunks_small) != len(chunks_large), \
-        "Different splitter configs should produce different chunk counts"
-
-
-# =============================================================================
-# Test 7: Edge Cases and Error Handling
-# =============================================================================
-
-def test_empty_document_raises_error(chunker):
-    """Test that empty document raises clear error."""
-    doc = Document(
-        id="doc_empty",
-        text="",
-        metadata={"source_path": "empty.txt"}
-    )
-    
-    with pytest.raises(ValueError, match="has no text content"):
-        chunker.split_document(doc)
-
-
-def test_whitespace_only_document_raises_error(chunker):
-    """Test that whitespace-only document raises error."""
-    doc = Document(
-        id="doc_whitespace",
-        text="   \n\n   \t  ",
-        metadata={"source_path": "whitespace.txt"}
-    )
-    
-    with pytest.raises(ValueError, match="has no text content"):
-        chunker.split_document(doc)
-
-
-def test_splitter_returns_empty_list_raises_error(chunker, monkeypatch):
-    """Test that if splitter returns no chunks, a clear error is raised."""
-    from src.libs.splitter import splitter_factory
-    
-    class EmptySplitter(BaseSplitter):
-        def split_text(self, text: str) -> list[str]:
-            return []  # Return no chunks
-    
-    def mock_create(settings):
-        return EmptySplitter()
-    
-    monkeypatch.setattr(splitter_factory.SplitterFactory, "create", mock_create)
-    
-    doc = Document(
-        id="doc_test",
-        text="Some content",
-        metadata={"source_path": "test.txt"}
-    )
-    
-    chunker_empty = DocumentChunker(chunker._settings)
-    
-    with pytest.raises(ValueError, match="Splitter returned no chunks"):
-        chunker_empty.split_document(doc)
-
-
-# =============================================================================
-# Test 8: Integration Smoke Test
-# =============================================================================
-
-def test_end_to_end_smoke(chunker, sample_document):
-    """Smoke test verifying complete end-to-end chunking flow."""
-    # Execute full split
-    chunks = chunker.split_document(sample_document)
-    
-    # Basic sanity checks
-    assert len(chunks) > 0, "Should produce at least one chunk"
-    
-    # Verify each chunk passes all requirements
-    for i, chunk in enumerate(chunks):
-        # ID requirements
-        assert chunk.id
-        assert chunk.id.startswith(sample_document.id)
-        
-        # Text requirements
-        assert chunk.text
-        assert chunk.text.strip()
-        
-        # Metadata requirements
-        assert chunk.metadata["source_path"] == sample_document.metadata["source_path"]
-        assert chunk.metadata["chunk_index"] == i
-        assert chunk.metadata["source_ref"] == sample_document.id
-        
-        # Type requirements
-        assert isinstance(chunk, Chunk)
+    doc = _make_document(body)
+    small = DocumentChunker(_settings(tmp_path / "a", "\nsplitter:\n  chunk_size: 120\n  chunk_overlap: 0\n"))
+    large = DocumentChunker(_settings(tmp_path / "b", "\nsplitter:\n  chunk_size: 1200\n  chunk_overlap: 0\n"))
+    n_small = len(small.split_document(doc))
+    n_large = len(large.split_document(doc))
+    assert n_small > n_large >= 1

@@ -1,0 +1,31 @@
+{
+  "_comment": "S1.4 契约 fixture（SIRCHMUNK_INTEGRATION_SPEC 4.8）：真实 sidecar /api/v1/search (response_format=context) 响应的脱敏投影。上游升级时若本断言失败 = 响应契约漂移，需重跑 S0 验收。",
+  "success": true,
+  "data": {
+    "answer": "BM25 uses k1=1.5 and b=0.75 in bm25_indexer.py.",
+    "total_llm_tokens": 1024,
+    "llm_usages": [
+      {"total_tokens": 512},
+      {"total_tokens": 512}
+    ],
+    "loop_count": 1,
+    "cluster": {
+      "confidence": 0.88,
+      "search_results": ["data/documents/bm25_indexer.py"],
+      "evidences": [
+        {
+          "file_or_url": "data/documents/bm25_indexer.py",
+          "summary": "Okapi BM25 scoring implementation",
+          "snippets": [
+            {"snippet": "self._k1 = 1.5  # Okapi BM25 k1", "start": 120, "end": 180, "score": 0.83, "reasoning": "exact match"}
+          ]
+        },
+        {
+          "file_or_url": "data/documents/bm25_indexer.py",
+          "summary": "FAST fallback evidence",
+          "snippets": ["plain-string snippet from FAST path"]
+        }
+      ]
+    }
+  }
+}

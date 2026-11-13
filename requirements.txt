@@ -1,0 +1,15 @@
+# Runtime dependencies
+# 后续阶段会按需补充：chromadb、openai、mcp 等
+pyyaml>=6.0
+langchain-text-splitters>=0.3.0
+chromadb>=0.5.0
+pypdf>=4.0
+fastapi>=0.115,<1.0
+uvicorn>=0.30
+python-multipart>=0.0.9
+httpx>=0.27
+
+# Test dependencies（与 pyproject.toml 的 dev extra 同步；CI 以 pip install -e ".[dev,ingest-formats]" 为准）
+pytest>=8.0
+pytest-check>=2.0
+pytest-socket>=0.7

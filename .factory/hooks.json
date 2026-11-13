@@ -1,0 +1,24 @@
+{
+  "UserPromptSubmit": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "python3 \"$FACTORY_PROJECT_DIR\"/.factory/hooks/docs_guard.py snapshot",
+          "timeout": 10
+        }
+      ]
+    }
+  ],
+  "Stop": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "python3 \"$FACTORY_PROJECT_DIR\"/.factory/hooks/docs_guard.py stop",
+          "timeout": 45
+        }
+      ]
+    }
+  ]
+}

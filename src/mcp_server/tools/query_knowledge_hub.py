@@ -1,522 +1,194 @@
-"""MCP Tool: query_knowledge_hub
+"""MCP Tool：query_knowledge_hub — 阶段 E3。
 
-This tool provides knowledge retrieval capabilities through the MCP protocol.
-It combines HybridSearch (Dense + Sparse + RRF Fusion) with optional Reranking
-to find relevant documents and return formatted results with citations.
+主检索入口（DEV_SPEC 3.2.4）：HybridSearch + Reranker → 带引用的
+MCP 响应（Markdown content + structuredContent.citations）。
 
-Usage via MCP:
-    Tool name: query_knowledge_hub
-    Input schema:
-        - query (string, required): The search query
-        - top_k (integer, optional): Number of results to return (default: 5)
-        - collection (string, optional): Limit search to specific collection
+设计要点：
+- **懒初始化**：检索栈（HybridSearch / Reranker）在首次调用时才按
+  ``Settings`` 构建，避免 server 启动即触发网络/凭据依赖；后续调用
+  复用同一实例。
+- **可注入**：``QueryKnowledgeHubTool(search=..., reranker=...)``
+  支持测试注入 fake 查询栈（离线单测零网络零持久化）。
+- **参数校验**：query 必填非空字符串、top_k 为正整数、collection 为
+  字符串；非法参数抛 ``ValueError``/``TypeError``（由 E2
+  ProtocolHandler 统一转换为 JSON-RPC error）。
+- 与 ``scripts/query.py``（D7 调试入口）共享 Core 层，各自独立装配。
 """
 
 from __future__ import annotations
 
-import asyncio
-import logging
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+import sys
+from typing import Any
 
-from mcp import types
+if __package__ in (None, ""):  # pragma: no cover - 直接运行兜底
+    sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[2]))
 
-from src.core.response.response_builder import ResponseBuilder, MCPToolResponse
-from src.core.settings import load_settings, resolve_path, Settings
-from src.core.trace import TraceContext, TraceCollector
-from src.core.types import RetrievalResult
+from core.response import ResponseBuilder
+from core.response.multimodal_assembler import MultimodalAssembler
+from core.trace.persist import persist_trace
+from core.trace.trace_context import TRACE_TYPE_QUERY, TraceContext
+from mcp_server.protocol_handler import ToolDefinition, ToolInvalidParams
 
-if TYPE_CHECKING:
-    from src.core.query_engine.hybrid_search import HybridSearch
-    from src.core.query_engine.reranker import CoreReranker
+__all__ = [
+    "TOOL_NAME",
+    "TOOL_DESCRIPTION",
+    "TOOL_INPUT_SCHEMA",
+    "QueryKnowledgeHubTool",
+    "create_query_knowledge_hub_tool",
+    "create_query_knowledge_hub_definition",
+]
 
-logger = logging.getLogger(__name__)
-
-
-# Tool metadata
 TOOL_NAME = "query_knowledge_hub"
-TOOL_DESCRIPTION = """Search the knowledge base for relevant documents.
-
-This tool uses hybrid search (semantic + keyword) to find the most relevant 
-documents matching your query. Results include source citations for reference.
-
-Parameters:
-- query: Your search question or keywords
-- top_k: Maximum number of results (default: 5)
-- collection: Limit search to a specific document collection
-"""
-
-TOOL_INPUT_SCHEMA: Dict[str, Any] = {
+TOOL_DESCRIPTION = (
+    "Search the private knowledge hub with hybrid retrieval "
+    "(dense embeddings + BM25 keywords, RRF fusion) followed by optional "
+    "reranking. Returns readable Markdown with [1]/[2] citation markers and "
+    "structured citations (source, page, chunk_id, score)."
+)
+TOOL_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "query": {
             "type": "string",
-            "description": "The search query or question to find relevant documents for.",
+            "description": "The standalone (context-complete) user query.",
         },
         "top_k": {
             "type": "integer",
-            "description": "Maximum number of results to return.",
-            "default": 5,
             "minimum": 1,
-            "maximum": 20,
+            "description": "Maximum number of results to return.",
         },
         "collection": {
             "type": "string",
-            "description": "Optional collection name to limit the search scope.",
+            "description": "Restrict search to a specific collection.",
         },
     },
     "required": ["query"],
 }
 
 
-@dataclass
-class QueryKnowledgeHubConfig:
-    """Configuration for query_knowledge_hub tool.
-    
-    Attributes:
-        default_top_k: Default number of results if not specified
-        max_top_k: Maximum allowed top_k value
-        default_collection: Default collection if not specified
-        enable_rerank: Whether to apply reranking
-    """
-    default_top_k: int = 5
-    max_top_k: int = 20
-    default_collection: str = "default"
-    enable_rerank: bool = True
-
-
 class QueryKnowledgeHubTool:
-    """MCP Tool for knowledge base queries.
-    
-    This class encapsulates the query_knowledge_hub tool logic,
-    coordinating HybridSearch and Reranker to produce formatted results.
-    
-    Design Principles:
-    - Lazy initialization: Components created on first use
-    - Error resilience: Graceful handling of search/rerank failures
-    - Configurable: All parameters from settings.yaml
-    
-    Example:
-        >>> tool = QueryKnowledgeHubTool(settings)
-        >>> result = await tool.execute(query="Azure 配置", top_k=5)
-        >>> print(result.content)
-    """
-    
+    """query_knowledge_hub 的可调用实现（协议无关，直接吃 arguments dict）。"""
+
     def __init__(
         self,
-        settings: Optional[Settings] = None,
-        config: Optional[QueryKnowledgeHubConfig] = None,
-        hybrid_search: Optional[HybridSearch] = None,
-        reranker: Optional[CoreReranker] = None,
-        response_builder: Optional[ResponseBuilder] = None,
+        search: Any | None = None,
+        reranker: Any | None = None,
+        *,
+        settings: Any | None = None,
+        response_builder: ResponseBuilder | None = None,
+        rerank_enabled: bool = True,
+        multimodal_assembler: MultimodalAssembler | None = None,
     ) -> None:
-        """Initialize QueryKnowledgeHubTool.
-        
-        Args:
-            settings: Application settings. If None, loaded from default path.
-            config: Tool configuration. If None, uses defaults.
-            hybrid_search: Optional pre-configured HybridSearch instance.
-            reranker: Optional pre-configured CoreReranker instance.
-            response_builder: Optional pre-configured ResponseBuilder instance.
+        """Args:
+            search: 具备 ``search(query, top_k, filters, trace=...)`` 签法的
+                检索器（缺省首次调用时构建 ``HybridSearch(settings)``）。
+            reranker: 具备 ``rerank(query, results, trace=...)`` 签法的精排器
+                （缺省首次调用时构建 ``Reranker(settings)``）。
+            settings: 全局配置（构建默认检索栈用；缺省 ``load_settings()``）。
+            response_builder: 响应构建器（缺省 ``ResponseBuilder()``）。
+            rerank_enabled: False 时跳过精排（直接返回融合排名）。
+            multimodal_assembler: 多模态组装器（缺省
+                ``MultimodalAssembler()``；``None`` 之外的注入实例优先；
+                传 ``False`` 可禁用图像返回——见 ``_get_assembler``）。
         """
-        self._settings = settings
-        self.config = config or QueryKnowledgeHubConfig()
-        self._hybrid_search = hybrid_search
+        self._search = search
         self._reranker = reranker
-        self._embedding_client = None
+        self._settings = settings
         self._response_builder = response_builder or ResponseBuilder()
-        
-        # Track initialization state
-        self._initialized = False
-        self._current_collection: Optional[str] = None
-    
-    @property
-    def settings(self) -> Settings:
-        """Get settings, loading if necessary."""
+        self._rerank_enabled = rerank_enabled
+        self._multimodal_assembler = multimodal_assembler
+
+    # ------------------------------------------------------------------ #
+    # 懒初始化
+    # ------------------------------------------------------------------ #
+    def _get_search(self) -> Any:
+        if self._search is None:
+            from core.query_engine import HybridSearch
+
+            self._search = HybridSearch(self._get_settings())
+        return self._search
+
+    def _get_reranker(self) -> Any:
+        if self._reranker is None:
+            from core.query_engine import Reranker
+
+            self._reranker = Reranker(self._get_settings())
+        return self._reranker
+
+    def _get_settings(self) -> Any:
         if self._settings is None:
+            from core.settings import load_settings
+
             self._settings = load_settings()
         return self._settings
-    
-    def _ensure_initialized(self, collection: str) -> None:
-        """Ensure search components are initialized for the given collection.
-        
-        Caching strategy (balances speed vs freshness):
-        - **Fully cached** (stateless, never go stale): embedding client,
-          reranker, query processor, settings.
-        - **Cached until collection changes**: vector store (ChromaDB
-          PersistentClient reads from SQLite — sees data written by other
-          processes), dense retriever, hybrid search.
-        - **Auto-refreshes on every query**: BM25 sparse index — the
-          ``SparseRetriever._ensure_index_loaded()`` always reloads from
-          disk, so the cached SparseRetriever object is fine.
-        
-        Only when *collection* changes do we tear down and rebuild.
-        
-        Args:
-            collection: Target collection name.
-        """
-        # Always rebuild vector_store and retriever components so that
-        # data ingested by other processes (e.g. Dashboard) is visible
-        # immediately without requiring an MCP Server restart.
-        
-        logger.info(f"Initializing query components for collection: {collection}")
-        
-        # Import here to avoid circular imports and allow lazy loading
-        from src.core.query_engine.query_processor import QueryProcessor
-        from src.core.query_engine.hybrid_search import create_hybrid_search
-        from src.core.query_engine.dense_retriever import create_dense_retriever
-        from src.core.query_engine.sparse_retriever import create_sparse_retriever
-        from src.core.query_engine.reranker import create_core_reranker
-        from src.ingestion.storage.bm25_indexer import BM25Indexer
-        from src.libs.embedding.embedding_factory import EmbeddingFactory
-        from src.libs.vector_store.vector_store_factory import VectorStoreFactory
-        
-        # === Fully cached components (stateless, never go stale) ===
-        if self._embedding_client is None:
-            self._embedding_client = EmbeddingFactory.create(self.settings)
-        
-        if self._reranker is None:
-            self._reranker = create_core_reranker(settings=self.settings)
-        
-        # === Rebuild for new collection ===
-        # ChromaDB PersistentClient uses SQLite under the hood —
-        # concurrent readers see committed writes from other processes
-        # (dashboard ingestion), so caching the client is safe.
-        vector_store = VectorStoreFactory.create(
-            self.settings,
-            collection_name=collection,
-        )
-        
-        dense_retriever = create_dense_retriever(
-            settings=self.settings,
-            embedding_client=self._embedding_client,
-            vector_store=vector_store,
-        )
-        
-        # BM25Indexer just holds the index dir path; the SparseRetriever
-        # calls _ensure_index_loaded() on every search, which always
-        # reloads from disk — so it picks up dashboard-written data.
-        bm25_indexer = BM25Indexer(index_dir=str(resolve_path(f"data/db/bm25/{collection}")))
-        sparse_retriever = create_sparse_retriever(
-            settings=self.settings,
-            bm25_indexer=bm25_indexer,
-            vector_store=vector_store,
-        )
-        sparse_retriever.default_collection = collection
-        
-        query_processor = QueryProcessor()
-        self._hybrid_search = create_hybrid_search(
-            settings=self.settings,
-            query_processor=query_processor,
-            dense_retriever=dense_retriever,
-            sparse_retriever=sparse_retriever,
-        )
-        
-        self._current_collection = collection
-        self._initialized = True
-        logger.info(f"Query components initialized for collection: {collection}")
-    
-    async def execute(
-        self,
-        query: str,
-        top_k: Optional[int] = None,
-        collection: Optional[str] = None,
-    ) -> MCPToolResponse:
-        """Execute the query_knowledge_hub tool.
-        
-        Args:
-            query: Search query string.
-            top_k: Maximum results to return.
-            collection: Target collection name.
-            
-        Returns:
-            MCPToolResponse with formatted content and citations.
-            
+
+    # ------------------------------------------------------------------ #
+    # Tool 入口
+    # ------------------------------------------------------------------ #
+    def __call__(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        """执行检索并返回 MCP tool result（content + structuredContent）。
+
         Raises:
-            ValueError: If query is empty or invalid.
+            TypeError: arguments 非 dict。
+            ValueError: query 缺失/为空、top_k/collection 非法。
         """
-        # Validate query
-        if not query or not query.strip():
-            raise ValueError("Query cannot be empty")
-        
-        # Apply defaults
-        effective_top_k = min(
-            top_k or self.config.default_top_k,
-            self.config.max_top_k
+        query, top_k, collection = self._validate_arguments(arguments)
+        trace = TraceContext(
+            trace_type=TRACE_TYPE_QUERY,
+            metadata={"query": query, "collection": collection},
         )
-        effective_collection = collection or self.config.default_collection
-        
-        logger.info(
-            f"Executing query_knowledge_hub: query='{query[:50]}...', "
-            f"top_k={effective_top_k}, collection={effective_collection}"
-        )
-        
-        trace = TraceContext(trace_type="query")
-        trace.metadata["query"] = query[:200]
-        trace.metadata["top_k"] = effective_top_k
-        trace.metadata["collection"] = effective_collection
-        trace.metadata["source"] = "mcp"
+        filters = {"collection": collection} if collection else None
 
-        try:
-            # Initialize components for collection
-            # Run blocking I/O (embedding API, ChromaDB, BM25) in a thread
-            # to avoid blocking the async event loop / MCP stdio transport
-            import time as _time
-            _init_t0 = _time.monotonic()
-            await asyncio.to_thread(self._ensure_initialized, effective_collection)
-            _init_elapsed = (_time.monotonic() - _init_t0) * 1000.0
-            trace.record_stage("initialization", {
-                "collection": effective_collection,
-                "cold_start": _init_elapsed > 500,  # >500ms ≈ cold
-            }, elapsed_ms=_init_elapsed)
-            
-            # Perform hybrid search (blocking: embedding API + DB queries)
-            results = await asyncio.to_thread(
-                self._perform_search, query, effective_top_k, trace,
-            )
-            
-            # Apply reranking if enabled (may call LLM API)
-            if self.config.enable_rerank and results:
-                results = await asyncio.to_thread(
-                    self._apply_rerank, query, results, effective_top_k, trace,
-                )
-            
-            # Build response
-            response = self._response_builder.build(
-                results=results,
-                query=query,
-                collection=effective_collection,
-            )
-            
-            # Store final results in trace for dashboard display
-            trace.metadata["final_results"] = [
-                {
-                    "chunk_id": r.chunk_id,
-                    "score": round(r.score, 4),
-                    "text": r.text or "",
-                    "source": r.metadata.get("source_path", r.metadata.get("source", "")),
-                    "title": r.metadata.get("title", ""),
-                }
-                for r in results
-            ]
+        results = self._get_search().search(query, top_k=top_k, filters=filters, trace=trace)
+        if self._rerank_enabled and results:
+            results = self._get_reranker().rerank(query, results, trace=trace)
+        if self._settings is not None:
+            persist_trace(trace, log_file=self._settings.observability.log_file)
+        tool_result = self._response_builder.build(results, query)
+        assembler = self._get_assembler()
+        if assembler is not None and results:
+            assembler.assemble(tool_result, results)
+        return tool_result
 
-            logger.info(
-                f"query_knowledge_hub completed: {len(results)} results, "
-                f"is_empty={response.is_empty}"
-            )
-            
-            TraceCollector().collect(trace)
-            return response
-            
-        except Exception as e:
-            logger.exception(f"query_knowledge_hub failed: {e}")
-            TraceCollector().collect(trace)
-            # Return error response
-            return self._build_error_response(query, effective_collection, str(e))
-    
-    def _perform_search(
-        self,
-        query: str,
-        top_k: int,
-        trace: Optional[Any] = None,
-    ) -> List[RetrievalResult]:
-        """Perform hybrid search.
-        
-        Args:
-            query: Search query.
-            top_k: Maximum results.
-            trace: Optional TraceContext for observability.
-            
-        Returns:
-            List of RetrievalResult.
-        """
-        if self._hybrid_search is None:
-            raise RuntimeError("HybridSearch not initialized")
-        
-        # Use a larger initial retrieval for reranking
-        initial_top_k = top_k * 2 if self.config.enable_rerank else top_k
-        
-        try:
-            results = self._hybrid_search.search(
-                query=query,
-                top_k=initial_top_k,
-                filters=None,
-                trace=trace,
-                return_details=False,
-            )
-            return results if isinstance(results, list) else results.results
-        except Exception as e:
-            logger.warning(f"Hybrid search failed: {e}")
-            return []
-    
-    def _apply_rerank(
-        self,
-        query: str,
-        results: List[RetrievalResult],
-        top_k: int,
-        trace: Optional[Any] = None,
-    ) -> List[RetrievalResult]:
-        """Apply reranking to search results.
-        
-        Args:
-            query: Original query.
-            results: Search results to rerank.
-            top_k: Final number of results.
-            trace: Optional TraceContext for observability.
-            
-        Returns:
-            Reranked results (or original if reranking fails).
-        """
-        if self._reranker is None or not self._reranker.is_enabled:
-            return results[:top_k]
-        
-        try:
-            rerank_result = self._reranker.rerank(
-                query=query,
-                results=results,
-                top_k=top_k,
-                trace=trace,
-            )
-            
-            if rerank_result.used_fallback:
-                logger.warning(
-                    f"Reranker fallback: {rerank_result.fallback_reason}"
-                )
-            
-            return rerank_result.results
-        except Exception as e:
-            logger.warning(f"Reranking failed, using original order: {e}")
-            return results[:top_k]
-    
-    def _build_error_response(
-        self,
-        query: str,
-        collection: str,
-        error_message: str,
-    ) -> MCPToolResponse:
-        """Build error response.
-        
-        Args:
-            query: Original query.
-            collection: Target collection.
-            error_message: Error description.
-            
-        Returns:
-            MCPToolResponse indicating error.
-        """
-        content = f"## 查询失败\n\n"
-        content += f"查询: **{query}**\n"
-        content += f"集合: `{collection}`\n\n"
-        content += f"**错误信息:** {error_message}\n\n"
-        content += "请检查:\n"
-        content += "- 数据库连接是否正常\n"
-        content += "- 集合是否已创建并包含数据\n"
-        content += "- 配置文件是否正确\n"
-        
-        return MCPToolResponse(
-            content=content,
-            citations=[],
-            metadata={
-                "query": query,
-                "collection": collection,
-                "error": error_message,
-            },
-            is_empty=True,
-        )
+    def _get_assembler(self) -> Any:
+        if self._multimodal_assembler is None:
+            self._multimodal_assembler = MultimodalAssembler()
+        return self._multimodal_assembler if self._multimodal_assembler is not False else None
+
+    @staticmethod
+    def _validate_arguments(arguments: dict[str, Any]) -> tuple[str, int | None, str | None]:
+        if not isinstance(arguments, dict):
+            raise TypeError(f"arguments must be an object, got {type(arguments).__name__}")
+        query = arguments.get("query")
+        if not isinstance(query, str) or not query.strip():
+            raise ToolInvalidParams("'query' must be a non-empty string")
+        top_k = arguments.get("top_k")
+        if top_k is not None and (isinstance(top_k, bool) or not isinstance(top_k, int) or top_k < 1):
+            raise ToolInvalidParams(f"'top_k' must be a positive integer, got {top_k!r}")
+        collection = arguments.get("collection")
+        if collection is not None and (not isinstance(collection, str) or not collection.strip()):
+            raise ToolInvalidParams(f"'collection' must be a non-empty string, got {collection!r}")
+        return query, top_k, collection
 
 
-# Module-level tool instance (lazy-initialized)
-_tool_instance: Optional[QueryKnowledgeHubTool] = None
+def create_query_knowledge_hub_tool(
+    search: Any | None = None,
+    reranker: Any | None = None,
+    **kwargs: Any,
+) -> QueryKnowledgeHubTool:
+    """构建 tool 实例（测试注入便捷入口）。"""
+    return QueryKnowledgeHubTool(search=search, reranker=reranker, **kwargs)
 
 
-def get_tool_instance(settings: Optional[Settings] = None) -> QueryKnowledgeHubTool:
-    """Get or create the tool instance.
-    
-    Args:
-        settings: Optional settings to use for initialization.
-        
-    Returns:
-        QueryKnowledgeHubTool instance.
-    """
-    global _tool_instance
-    if _tool_instance is None:
-        _tool_instance = QueryKnowledgeHubTool(settings=settings)
-    return _tool_instance
-
-
-async def query_knowledge_hub_handler(
-    query: str,
-    top_k: int = 5,
-    collection: Optional[str] = None,
-) -> types.CallToolResult:
-    """Handler function for MCP tool registration.
-    
-    This function is registered with the ProtocolHandler and called
-    when the MCP client invokes the query_knowledge_hub tool.
-    
-    Supports multimodal responses - if search results contain images,
-    the response will include ImageContent blocks alongside TextContent.
-    
-    Args:
-        query: Search query string.
-        top_k: Maximum number of results.
-        collection: Optional collection name.
-        
-    Returns:
-        MCP CallToolResult with content blocks (text and optionally images).
-    """
-    tool = get_tool_instance()
-    
-    try:
-        response = await tool.execute(
-            query=query,
-            top_k=top_k,
-            collection=collection,
-        )
-        
-        # Use to_mcp_content() which handles multimodal (text + images)
-        content_blocks = response.to_mcp_content()
-        
-        return types.CallToolResult(
-            content=content_blocks,
-            isError=response.is_empty and "error" in response.metadata,
-        )
-        
-    except ValueError as e:
-        # Invalid parameters
-        return types.CallToolResult(
-            content=[
-                types.TextContent(
-                    type="text",
-                    text=f"参数错误: {e}",
-                )
-            ],
-            isError=True,
-        )
-    except Exception as e:
-        # Internal error
-        logger.exception(f"query_knowledge_hub handler error: {e}")
-        return types.CallToolResult(
-            content=[
-                types.TextContent(
-                    type="text",
-                    text=f"内部错误: 查询处理失败",
-                )
-            ],
-            isError=True,
-        )
-
-
-def register_tool(protocol_handler) -> None:
-    """Register query_knowledge_hub tool with the protocol handler.
-    
-    Args:
-        protocol_handler: ProtocolHandler instance to register with.
-    """
-    protocol_handler.register_tool(
+def create_query_knowledge_hub_definition(
+    search: Any | None = None,
+    reranker: Any | None = None,
+    **kwargs: Any,
+) -> ToolDefinition:
+    """构建可注册到 ``ProtocolHandler`` 的 ``ToolDefinition``（懒初始化栈）。"""
+    return ToolDefinition(
         name=TOOL_NAME,
         description=TOOL_DESCRIPTION,
         input_schema=TOOL_INPUT_SCHEMA,
-        handler=query_knowledge_hub_handler,
+        handler=create_query_knowledge_hub_tool(search=search, reranker=reranker, **kwargs),
     )
-    logger.info(f"Registered MCP tool: {TOOL_NAME}")

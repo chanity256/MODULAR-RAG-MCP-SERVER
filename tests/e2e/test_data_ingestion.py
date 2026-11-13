@@ -1,369 +1,373 @@
-"""End-to-End tests for the data ingestion script.
+"""数据摄取端到端测试（阶段 C15，同时承接 C14 遗留的 e2e 验收）。
 
-This module tests the complete ingestion workflow via the command-line interface,
-including:
-- Single file ingestion
-- Directory ingestion
-- Force re-processing
-- Skip already processed files
-- Error handling for invalid inputs
+C14 的 spec 原定 ``tests/integration/test_ingestion_pipeline.py`` 需要真实
+Chroma/嵌入网络，按离线确定性纪律当时改成了纯单元；本文件按 C15 spec
+（``tests/e2e/test_data_ingestion.py``，尽量用临时目录）补齐真实端到端：
+
+- **真实组件**：真 PdfLoader（pypdf 解析真 PDF 字节流，含嵌入图片）、
+  DocumentChunker、C5-C7 规则 transform（LLM 关闭）、BatchProcessor +
+  SparseEncoder、BM25Indexer（JSON 落盘）、SQLiteIntegrityChecker、
+  ImageStorage（SQLite + 文件）、ChromaStore（嵌入式 PersistentClient，
+  离线可用），全部持久化落在 ``tmp_path``。
+- **唯一注入的边界**：DenseEncoder 的 embedding client 用确定性哈希向量
+  （真 embedding provider 需网络/API Key）。
+- **入口**：直接调 ``scripts/ingest.py`` 的 ``main(argv, pipeline=...)``，
+  覆盖参数解析 → 目录收集 → 逐文件 dispatch → 聚合 → 退出码全链路。
+
+环境门控（对齐 ``RAG_LLM_INTEGRATION`` 先例）：
+- 默认（离线）：全部测试确定性运行，无网络。
+- ``RAG_E2E_INTEGRATION=1`` 时额外运行真实 provider 的子进程 CLI 冒烟
+  （真 ``python scripts/ingest.py``，使用仓库默认配置的真实 embedding），
+  会在临时 CWD 下的 ``data/db`` 产生真实产物。
 """
 
+from __future__ import annotations
+
+import hashlib
+import importlib.util
 import os
-import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
+from textwrap import dedent
 
 import pytest
 
-# Project root for script execution
-PROJECT_ROOT = Path(__file__).parent.parent.parent
+from core.settings import load_settings
+from ingestion.embedding import BatchProcessor, DenseEncoder, SparseEncoder
+from ingestion.pipeline import IngestionPipeline
+from ingestion.storage import BM25Indexer, ImageStorage, VectorUpserter
+from libs.embedding.base_embedding import BaseEmbedding
+from libs.loader.file_integrity import SQLiteIntegrityChecker
+from libs.vector_store.vector_store_factory import VectorStoreFactory
+
+pytestmark = pytest.mark.e2e
+
+_INTEGRATION_ENABLED = os.environ.get("RAG_E2E_INTEGRATION") == "1"
+
+_SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "ingest.py"
 
 
-class TestDataIngestion:
-    """E2E tests for scripts/ingest.py."""
-    
-    @pytest.fixture
-    def temp_data_dir(self, tmp_path):
-        """Create a temporary data directory for test outputs.
-        
-        Yields:
-            Path to temporary directory
-        """
-        # Create subdirectories matching production structure
-        (tmp_path / "db" / "chroma").mkdir(parents=True)
-        (tmp_path / "db" / "bm25").mkdir(parents=True)
-        (tmp_path / "images").mkdir(parents=True)
-        
-        yield tmp_path
-        
-        # Cleanup is handled by pytest tmp_path fixture
-    
-    @pytest.fixture
-    def sample_pdf(self):
-        """Get path to sample PDF for testing.
-        
-        Returns:
-            Path to a sample PDF file
-        """
-        pdf_path = PROJECT_ROOT / "tests" / "fixtures" / "sample_documents" / "simple.pdf"
-        if not pdf_path.exists():
-            pytest.skip("Sample PDF not found")
-        return pdf_path
-    
-    @pytest.fixture
-    def complex_pdf(self):
-        """Get path to complex technical document for testing.
-        
-        Returns:
-            Path to a complex PDF with images
-        """
-        pdf_path = PROJECT_ROOT / "tests" / "fixtures" / "sample_documents" / "complex_technical_doc.pdf"
-        if not pdf_path.exists():
-            pytest.skip("Complex PDF not found")
-        return pdf_path
-    
-    def run_ingest_script(
-        self,
-        path: str,
-        collection: str = "test_collection",
-        force: bool = False,
-        config: str = None,
-        dry_run: bool = False,
-        verbose: bool = False
-    ) -> subprocess.CompletedProcess:
-        """Run the ingest script as a subprocess.
-        
-        Args:
-            path: Path to file or directory
-            collection: Collection name
-            force: Whether to force re-processing
-            config: Custom config path
-            dry_run: Whether to run in dry-run mode
-            verbose: Whether to enable verbose output
-            
-        Returns:
-            CompletedProcess with stdout, stderr, and return code
-        """
-        cmd = [
-            sys.executable,
-            str(PROJECT_ROOT / "scripts" / "ingest.py"),
-            "--path", str(path),
-            "--collection", collection
-        ]
-        
-        if force:
-            cmd.append("--force")
-        
-        if config:
-            cmd.extend(["--config", config])
-        
-        if dry_run:
-            cmd.append("--dry-run")
-        
-        if verbose:
-            cmd.append("--verbose")
-        
-        # Set PYTHONUTF8=1 to avoid encoding issues on Windows
-        env = os.environ.copy()
-        env["PYTHONUTF8"] = "1"
-        
-        return subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            cwd=str(PROJECT_ROOT),
-            timeout=600,  # 10 minute timeout for LLM calls (complex docs with vision)
-            env=env,
-            encoding='utf-8',
-            errors='replace'
-        )
-    
-    def test_ingest_help(self):
-        """Test that --help flag works."""
-        result = subprocess.run(
-            [sys.executable, str(PROJECT_ROOT / "scripts" / "ingest.py"), "--help"],
-            capture_output=True,
-            text=True,
-            cwd=str(PROJECT_ROOT)
-        )
-        
-        assert result.returncode == 0
-        assert "--path" in result.stdout
-        assert "--collection" in result.stdout
-        assert "--force" in result.stdout
-    
-    def test_ingest_nonexistent_file(self):
-        """Test error handling for non-existent file."""
-        result = self.run_ingest_script(
-            path="/nonexistent/path/document.pdf"
-        )
-        
-        assert result.returncode == 2
-        assert "does not exist" in result.stdout or "not found" in result.stdout.lower()
-    
-    def test_ingest_invalid_config(self, sample_pdf):
-        """Test error handling for invalid config file."""
-        result = self.run_ingest_script(
-            path=str(sample_pdf),
-            config="/nonexistent/config.yaml"
-        )
-        
-        assert result.returncode == 2
-        assert "not found" in result.stdout.lower() or "Configuration" in result.stdout
-    
-    def test_ingest_dry_run(self, sample_pdf):
-        """Test dry-run mode doesn't process files."""
-        result = self.run_ingest_script(
-            path=str(sample_pdf),
-            dry_run=True
-        )
-        
-        assert result.returncode == 0
-        assert "Dry run" in result.stdout or "dry run" in result.stdout.lower()
-        assert "1 file" in result.stdout
-    
-    def test_ingest_unsupported_file_type(self, tmp_path):
-        """Test error handling for unsupported file types."""
-        # Create a text file
-        text_file = tmp_path / "document.txt"
-        text_file.write_text("This is a text file")
-        
-        result = self.run_ingest_script(
-            path=str(text_file)
-        )
-        
-        assert result.returncode == 2
-        assert "Unsupported" in result.stdout or "unsupported" in result.stdout.lower()
-    
-    @pytest.mark.integration
-    def test_ingest_simple_pdf(self, sample_pdf):
-        """Test ingesting a simple PDF file.
-        
-        This test requires Azure API credentials to be configured.
-        """
-        result = self.run_ingest_script(
-            path=str(sample_pdf),
-            collection="e2e_test_simple",
-            force=True,  # Force to ensure fresh processing
-            verbose=True
-        )
-        
-        print("STDOUT:", result.stdout)
-        print("STDERR:", result.stderr)
-        
-        # Should succeed or partially succeed
-        assert result.returncode in [0, 1], f"Unexpected return code: {result.returncode}"
-        assert "Processing" in result.stdout
-        assert "SUMMARY" in result.stdout
-    
-    @pytest.mark.integration
-    def test_ingest_complex_pdf_with_images(self, complex_pdf):
-        """Test ingesting a complex PDF with images.
-        
-        This test requires Azure API credentials and Vision LLM to be configured.
-        Tests the full pipeline including image captioning.
-        """
-        result = self.run_ingest_script(
-            path=str(complex_pdf),
-            collection="e2e_test_complex",
-            force=True,
-            verbose=True
-        )
-        
-        print("STDOUT:", result.stdout)
-        print("STDERR:", result.stderr)
-        
-        # Should succeed or partially succeed
-        assert result.returncode in [0, 1], f"Unexpected return code: {result.returncode}"
-        assert "Processing" in result.stdout
-        assert "SUMMARY" in result.stdout
-        
-        # If successful, should report chunks and possibly images
-        if result.returncode == 0:
-            assert "chunks" in result.stdout.lower()
-    
-    @pytest.mark.integration
-    def test_ingest_skip_already_processed(self, sample_pdf):
-        """Test that already processed files are skipped.
-        
-        Runs ingestion twice and verifies second run skips the file.
-        """
-        # First run - should process
-        result1 = self.run_ingest_script(
-            path=str(sample_pdf),
-            collection="e2e_test_skip",
-            force=True  # Ensure fresh start
-        )
-        
-        print("First run STDOUT:", result1.stdout)
-        
-        # Skip test if first run failed
-        if result1.returncode == 2:
-            pytest.skip("First ingestion failed - cannot test skip behavior")
-        
-        # Second run - should skip
-        result2 = self.run_ingest_script(
-            path=str(sample_pdf),
-            collection="e2e_test_skip",
-            force=False  # Don't force, should skip
-        )
-        
-        print("Second run STDOUT:", result2.stdout)
-        
-        # Should succeed but with skip
-        assert result2.returncode == 0
-        assert "skip" in result2.stdout.lower() or "already processed" in result2.stdout.lower()
-    
-    @pytest.mark.integration
-    def test_ingest_force_reprocess(self, sample_pdf):
-        """Test that --force flag causes re-processing."""
-        # First run
-        result1 = self.run_ingest_script(
-            path=str(sample_pdf),
-            collection="e2e_test_force",
-            force=True
-        )
-        
-        # Skip test if first run failed
-        if result1.returncode == 2:
-            pytest.skip("First ingestion failed - cannot test force behavior")
-        
-        # Second run with force - should process again
-        result2 = self.run_ingest_script(
-            path=str(sample_pdf),
-            collection="e2e_test_force",
-            force=True,
-            verbose=True
-        )
-        
-        print("Second run STDOUT:", result2.stdout)
-        
-        # Should succeed and process (not skip)
-        assert result2.returncode in [0, 1]
-        # When forced, should not show "skipped"
-        if "Success" in result2.stdout:
-            assert "chunks" in result2.stdout.lower() or "processed" in result2.stdout.lower()
-    
-    @pytest.mark.integration
-    def test_ingest_directory(self, tmp_path, sample_pdf):
-        """Test ingesting all PDFs in a directory."""
-        # Create a directory with multiple PDFs (copy sample)
-        test_dir = tmp_path / "pdfs"
-        test_dir.mkdir()
-        
-        shutil.copy(sample_pdf, test_dir / "doc1.pdf")
-        shutil.copy(sample_pdf, test_dir / "doc2.pdf")
-        
-        result = self.run_ingest_script(
-            path=str(test_dir),
-            collection="e2e_test_dir",
-            force=True,
-            verbose=True
-        )
-        
-        print("STDOUT:", result.stdout)
-        
-        # Should find both files
-        assert "2 file" in result.stdout
-        
-        # Should attempt to process both
-        assert "[1/2]" in result.stdout
-        assert "[2/2]" in result.stdout
-    
-    def test_ingest_empty_directory(self, tmp_path):
-        """Test handling of directory with no PDFs."""
-        empty_dir = tmp_path / "empty"
-        empty_dir.mkdir()
-        
-        result = self.run_ingest_script(
-            path=str(empty_dir)
-        )
-        
-        assert result.returncode == 0
-        assert "0 file" in result.stdout or "No files" in result.stdout
+def _load_cli():
+    name = "scripts_ingest_e2e"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, _SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
-class TestIngestScriptIntegration:
-    """Integration tests that verify data persistence."""
-    
-    @pytest.mark.integration
-    def test_creates_vector_store_data(self, tmp_path):
-        """Verify that ingestion creates vector store data."""
-        # This test verifies the pipeline creates the expected output files
-        # It's marked as integration because it requires the full stack
-        
-        sample_pdf = PROJECT_ROOT / "tests" / "fixtures" / "sample_documents" / "simple.pdf"
-        if not sample_pdf.exists():
-            pytest.skip("Sample PDF not found")
-        
-        result = subprocess.run(
+cli = _load_cli()
+
+# ---------------------------------------------------------------------------
+# 极简 PDF 构造器（与 tests/unit/test_loader_pdf_contract.py 同法：正确计算
+# xref 偏移的最小合法 PDF，pypdf 可解析；仓库无预置 PDF fixture）
+# ---------------------------------------------------------------------------
+
+_FONT = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+_IMAGE_PIXELS = b"\xff\x00\x00\x00\xff\x00\x00\x00\xff\xff\xff\xff"
+
+
+def _build_pdf(objects: list[bytes]) -> bytes:
+    out = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets: list[int] = []
+    for i, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += f"{i} 0 obj\n".encode("latin-1") + body + b"\nendobj\n"
+    xref_pos = len(out)
+    out += f"xref\n0 {len(objects) + 1}\n".encode("latin-1")
+    out += b"0000000000 65535 f \n"
+    for off in offsets:
+        out += f"{off:010d} 00000 n \n".encode("latin-1")
+    out += (
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
+        f"startxref\n{xref_pos}\n%%EOF"
+    ).encode("latin-1")
+    return bytes(out)
+
+
+def _content_stream(text: str) -> bytes:
+    payload = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode("latin-1")
+    return b"<< /Length %d >>\nstream\n" % len(payload) + payload + b"\nendstream"
+
+
+def _page(parent: int, contents: int, resources: bytes) -> bytes:
+    return (
+        f"<< /Type /Page /Parent {parent} 0 R /MediaBox [0 0 612 792] "
+        f"/Contents {contents} 0 R /Resources {resources.decode('latin-1')} >>"
+    ).encode("latin-1")
+
+
+def _image_xobject() -> bytes:
+    return (
+        b"<< /Type /XObject /Subtype /Image /Width 2 /Height 2 "
+        b"/ColorSpace /DeviceRGB /BitsPerComponent 8 /Length 12 >>\n"
+        b"stream\n" + _IMAGE_PIXELS + b"\nendstream"
+    )
+
+
+def _write_simple_pdf(path: Path) -> Path:
+    path.write_bytes(
+        _build_pdf(
             [
-                sys.executable,
-                str(PROJECT_ROOT / "scripts" / "ingest.py"),
-                "--path", str(sample_pdf),
-                "--collection", "e2e_test_persistence",
-                "--force"
-            ],
-            capture_output=True,
-            text=True,
-            cwd=str(PROJECT_ROOT),
-            timeout=300
+                b"<< /Type /Catalog /Pages 2 0 R >>",
+                b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                _page(2, 4, b"<< /Font << /F1 5 0 R >> >>"),
+                _content_stream("Hello ingestion e2e simple document"),
+                _FONT,
+            ]
         )
-        
-        print("STDOUT:", result.stdout)
-        print("STDERR:", result.stderr)
-        
-        # Verify data directories exist after successful ingestion
-        if result.returncode == 0:
-            chroma_dir = PROJECT_ROOT / "data" / "db" / "chroma"
-            bm25_dir = PROJECT_ROOT / "data" / "db" / "bm25" / "e2e_test_persistence"
-            
-            assert chroma_dir.exists(), "ChromaDB directory should exist"
-            # BM25 index directory may or may not exist based on implementation
+    )
+    return path
 
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v", "-s"])
+def _write_pdf_with_images(path: Path) -> Path:
+    path.write_bytes(
+        _build_pdf(
+            [
+                b"<< /Type /Catalog /Pages 2 0 R >>",
+                b"<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>",
+                _page(2, 4, b"<< /Font << /F1 5 0 R >> /XObject << /Im0 7 0 R >> >>"),
+                _content_stream("First page about system architecture overview"),
+                _FONT,
+                _page(2, 8, b"<< /Font << /F1 5 0 R >> >>"),
+                _image_xobject(),
+                _content_stream("Second page conclusion with embedded figure"),
+            ]
+        )
+    )
+    return path
+
+
+# ---------------------------------------------------------------------------
+# 确定性离线 embedding + 真实组件组装
+# ---------------------------------------------------------------------------
+
+
+class HashEmbedding(BaseEmbedding):
+    """确定性哈希向量（同文本同向量，dim=16），零网络。"""
+
+    def __init__(self, dimension: int = 16) -> None:
+        self._dimension = dimension
+
+    @property
+    def dimension(self) -> int:
+        return self._dimension
+
+    def embed(self, texts, *, trace=None, **kwargs):
+        return [
+            [
+                round(
+                    int(hashlib.sha256(t.encode()).hexdigest()[i * 2 : i * 2 + 2], 16) % 97 / 97.0,
+                    6,
+                )
+                for i in range(self._dimension)
+            ]
+            for t in texts
+        ]
+
+
+def _settings_yaml(tmp_path: Path) -> str:
+    return dedent(
+        f"""\
+        llm:
+          provider: azure
+          model: gpt-4o
+        embedding:
+          provider: openai
+          model: text-embedding-3-small
+        vision_llm:
+          provider: azure
+          model: gpt-4o
+        vector_store:
+          backend: chroma
+          persist_path: {tmp_path / "db" / "chroma"}
+        retrieval:
+          sparse_backend: bm25
+          fusion_algorithm: rrf
+        rerank:
+          backend: none
+        evaluation:
+          backends: [custom]
+        splitter:
+          provider: recursive
+          chunk_size: 60
+          chunk_overlap: 10
+        ingestion:
+          chunk_refiner:
+            use_llm: false
+          metadata_enricher:
+            use_llm: false
+          image_captioner:
+            enabled: false
+          batch_size: 4
+        """
+    )
+
+
+def _build_real_pipeline(tmp_path: Path):
+    """全真实组件（loader 走 pipeline 扩展名路由 = 真 PdfLoader），
+    唯一注入 HashEmbedding；所有持久化落在 tmp_path。"""
+    settings_path = tmp_path / "settings.yaml"
+    settings_path.write_text(_settings_yaml(tmp_path), encoding="utf-8")
+    settings = load_settings(settings_path)
+
+    store = VectorStoreFactory.create(settings)  # 真 ChromaStore（嵌入式，离线）
+    embedding = HashEmbedding()
+    bm25 = BM25Indexer(settings, index_path=tmp_path / "db" / "bm25" / "index.json")
+    integrity = SQLiteIntegrityChecker(db_path=tmp_path / "db" / "ingestion_history.db")
+    image_storage = ImageStorage(
+        images_root=str(tmp_path / "images"),
+        db_path=str(tmp_path / "db" / "image_index.db"),
+    )
+    pipeline = IngestionPipeline(
+        settings,
+        integrity_checker=integrity,
+        dense_encoder=DenseEncoder(settings, embedding),
+        sparse_encoder=SparseEncoder(settings),
+        batch_processor=BatchProcessor(settings),
+        bm25_indexer=bm25,
+        vector_upserter=VectorUpserter(settings, store=store),
+        image_storage=image_storage,
+    )
+    return pipeline, {"settings": settings, "store": store, "bm25": bm25, "image_storage": image_storage}
+
+
+def _docs_dir(tmp_path: Path) -> Path:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    _write_simple_pdf(docs / "simple.pdf")
+    _write_pdf_with_images(docs / "with_images.pdf")
+    # IR7.3 起 .md 已登记，不受支持扩展名的哨兵改用 .txt
+    (docs / "notes.txt").write_text("忽略的非支持扩展名文件")
+    return docs
+
+
+def _run(argv: list[str], pipeline) -> tuple[int, list[str]]:
+    lines: list[str] = []
+    code = cli.main(argv, pipeline=pipeline, out=lines.append)
+    return code, lines
+
+
+# ---------------------------------------------------------------------------
+# 验收：命令行可运行并在 data/db 产生产物（tmp_path 扮演 data 根）
+# ---------------------------------------------------------------------------
+
+
+def test_cli_directory_ingest_end_to_end_artifacts(tmp_path):
+    pipeline, parts = _build_real_pipeline(tmp_path)
+    docs = _docs_dir(tmp_path)
+
+    code, lines = _run(["--path", str(docs), "--collection", "e2e-docs", "--verbose"], pipeline)
+
+    assert code == 0
+    joined = "\n".join(lines)
+    assert "2 total | 2 ingested | 0 skipped | 0 failed" in joined
+    # 逐文件行 + 进度行（verbose 透传 on_progress）
+    assert "success" in joined and "load 1/1" in joined
+
+    # 向量库：真 ChromaDB 持久化 + collection 元数据过滤可用（D 阶段契约）
+    store = parts["store"]
+    vector_count = store.count()
+    assert vector_count > 0
+    probe = HashEmbedding().embed(["system architecture overview"])[0]
+    hits = store.query(probe, top_k=vector_count)
+    assert hits, "expected queryable vectors after ingestion"
+    assert all(h.metadata.get("collection") == "e2e-docs" for h in hits)
+
+    # BM25：索引文件落盘且可重载，docs 数与向量数一致（每个 chunk 一条）
+    bm25_path = tmp_path / "db" / "bm25" / "index.json"
+    assert bm25_path.exists()
+    reloaded = BM25Indexer(parts["settings"], index_path=bm25_path).load()
+    assert reloaded.num_docs == vector_count
+
+    # 图片：提取字节已登记 SQLite 索引且文件存在
+    storage = parts["image_storage"]
+    assert storage.count() == 1
+    record = storage.list_images()[0]
+    assert Path(record.file_path).exists()
+    assert record.file_path.startswith(str(tmp_path / "images"))
+
+    # trace：两文件均有 trace id（CLI 输出行内）
+    assert joined.count("trace=") == 2
+
+
+def test_cli_rerun_skips_unchanged_and_force_reingests(tmp_path):
+    pipeline, parts = _build_real_pipeline(tmp_path)
+    docs = _docs_dir(tmp_path)
+    first_code, first_lines = _run(["--path", str(docs), "--collection", "e2e"], pipeline)
+    assert first_code == 0
+    count_after_first = parts["store"].count()
+
+    # 重跑（从磁盘状态全新构建组件，验证持久化驱动跳过）：全部 skipped。
+    fresh_pipeline, fresh_parts = _build_real_pipeline(tmp_path)
+    second_code, second_lines = _run(["--path", str(docs), "--collection", "e2e"], fresh_pipeline)
+    assert second_code == 0
+    assert "2 total | 0 ingested | 2 skipped | 0 failed" in "\n".join(second_lines)
+    assert fresh_parts["store"].count() == count_after_first  # 无重复写入
+    fresh_bm25 = BM25Indexer(fresh_parts["settings"], index_path=tmp_path / "db" / "bm25" / "index.json").load()
+    assert fresh_bm25.num_docs == count_after_first
+
+    # --force：强制重摄取，幂等替换（计数不增长）。
+    force_code, force_lines = _run(
+        ["--path", str(docs), "--collection", "e2e", "--force"], fresh_pipeline
+    )
+    assert force_code == 0
+    assert "2 total | 2 ingested | 0 skipped | 0 failed" in "\n".join(force_lines)
+    assert fresh_parts["store"].count() == count_after_first
+
+
+def test_cli_single_file_path(tmp_path):
+    pipeline, parts = _build_real_pipeline(tmp_path)
+    pdf = _write_simple_pdf(tmp_path / "solo.pdf")
+
+    code, lines = _run(["--path", str(pdf), "--collection", "solo"], pipeline)
+
+    assert code == 0
+    assert "1 total | 1 ingested | 0 skipped | 0 failed" in "\n".join(lines)
+    assert parts["store"].count() > 0
+
+
+def test_cli_broken_pdf_maps_to_failed_file_not_crash(tmp_path):
+    pipeline, parts = _build_real_pipeline(tmp_path)
+    docs = _docs_dir(tmp_path)
+    (docs / "broken.pdf").write_bytes(b"%PDF-1.4\nthis is not a real pdf body\n%%EOF")
+
+    code, lines = _run(["--path", str(docs), "--collection", "e2e"], pipeline)
+
+    assert code == 1
+    joined = "\n".join(lines)
+    assert "2 ingested" in joined and "1 failed" in joined
+    assert "broken.pdf" in joined
+    # 好文件仍然完整落库
+    assert parts["store"].count() > 0
+    assert parts["image_storage"].count() == 1
+
+
+# ---------------------------------------------------------------------------
+# 真实 provider 的子进程 CLI 冒烟（默认跳过，RAG_E2E_INTEGRATION=1 启用）
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not _INTEGRATION_ENABLED, reason="requires real embedding provider; set RAG_E2E_INTEGRATION=1")
+def test_real_provider_subprocess_cli(tmp_path):
+    """真 ``python scripts/ingest.py``：默认配置 + 真 embedding provider。
+
+    CWD 切到 tmp_path，使相对路径产物（data/db/...）落在临时目录，
+    同时默认配置路径是绝对路径不受 CWD 影响。
+    """
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    _write_simple_pdf(docs / "sample.pdf")
+    proc = subprocess.run(
+        [sys.executable, str(_SCRIPT_PATH), "--path", str(docs), "--collection", "gated"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    assert proc.returncode == 0, f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+    assert (tmp_path / "data" / "db" / "bm25" / "index.json").exists()
+    assert (tmp_path / "data" / "db" / "chroma").exists()

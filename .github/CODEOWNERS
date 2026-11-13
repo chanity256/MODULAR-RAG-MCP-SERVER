@@ -1,0 +1,10 @@
+# AI_NATIVE_SDLC_SPEC SD1.7：门的自我保护。以下路径的改动必须由 code owner 审批
+# （需在 main 的 branch protection 勾选 "Require review from Code Owners" 才生效）。
+/.github/workflows/         @chanity256
+/.github/CODEOWNERS         @chanity256
+/.factory/hooks.json        @chanity256
+/.factory/hooks/            @chanity256
+/scripts/check_redlines.py  @chanity256
+/scripts/sync_skills.py     @chanity256
+/REVIEW.md                  @chanity256
+/.factory/skills/review-guidelines/  @chanity256

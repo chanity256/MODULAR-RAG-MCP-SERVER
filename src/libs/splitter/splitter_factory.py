@@ -1,116 +1,66 @@
-"""Factory for creating Splitter instances.
+"""Splitter 工厂（阶段 B3）。
 
-This module implements the Factory Pattern to instantiate the appropriate
-Splitter provider based on configuration, enabling configuration-driven selection
-of different splitting strategies without code changes.
+根据 ``Settings.splitter.provider`` 动态实例化对应的 ``BaseSplitter`` 实现。
+
+注册机制与 ``LLMFactory`` / ``EmbeddingFactory`` 一致：
+- 各策略实现通过 ``SplitterFactory.register(provider)`` 装饰器登记构造函数。
+- 工厂在 ``create`` 时按 ``settings.splitter.provider`` 路由。
+- 未知 provider 抛出可读错误（不泄露敏感配置）。
+
+阶段 B3 仅定义工厂与注册机制；真实策略实现见 B7.5（Recursive）等。
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, Callable
 
-from src.libs.splitter.base_splitter import BaseSplitter
+from core.settings import Settings, SplitterConfig
+from libs.splitter.base_splitter import BaseSplitter
 
-if TYPE_CHECKING:
-    from src.core.settings import Settings
+__all__ = ["SplitterFactory", "SplitterProviderError"]
 
 
-def _register_builtin_providers() -> None:
-    """Register built-in splitter providers.
-    
-    This function is called automatically when the module is imported.
-    It registers all available splitter implementations with the factory.
-    """
-    # Import here to avoid circular imports and handle missing dependencies gracefully
-    try:
-        from src.libs.splitter.recursive_splitter import RecursiveSplitter
-        SplitterFactory.register_provider("recursive", RecursiveSplitter)
-    except ImportError:
-        pass  # RecursiveSplitter not available (missing langchain dependency)
+class SplitterProviderError(RuntimeError):
+    """Splitter provider 路由/构造错误。"""
 
 
 class SplitterFactory:
-    """Factory for creating Splitter provider instances.
-    
-    This factory reads the splitter configuration from settings and instantiates
-    the corresponding Splitter implementation. Supported providers will be added
-    in subsequent tasks (B7.5).
-    
-    Design Principles Applied:
-    - Factory Pattern: Centralizes object creation logic.
-    - Config-Driven: Provider selection based on settings.yaml.
-    - Fail-Fast: Raises clear errors for unknown providers.
-    """
-    
-    _PROVIDERS: dict[str, type[BaseSplitter]] = {}
-    
-    @classmethod
-    def register_provider(cls, name: str, provider_class: type[BaseSplitter]) -> None:
-        """Register a new Splitter provider implementation.
-        
-        Args:
-            name: The provider identifier (e.g., 'recursive', 'semantic', 'fixed').
-            provider_class: The BaseSplitter subclass implementing the provider.
-        
-        Raises:
-            ValueError: If provider_class doesn't inherit from BaseSplitter.
-        """
-        if not issubclass(provider_class, BaseSplitter):
-            raise ValueError(
-                f"Provider class {provider_class.__name__} must inherit from BaseSplitter"
-            )
-        cls._PROVIDERS[name.lower()] = provider_class
-    
-    @classmethod
-    def create(cls, settings: Settings, **override_kwargs: Any) -> BaseSplitter:
-        """Create a Splitter instance based on configuration.
-        
-        Args:
-            settings: The application settings containing ingestion configuration.
-            **override_kwargs: Optional parameters to override config values.
-        
-        Returns:
-            An instance of the configured Splitter provider.
-        
-        Raises:
-            ValueError: If the configured provider is not supported or missing.
-        """
-        try:
-            ingestion_settings = settings.ingestion
-            if ingestion_settings is None:
-                raise AttributeError("settings.ingestion is None")
-            provider_name = ingestion_settings.splitter.lower()
-        except AttributeError as e:
-            raise ValueError(
-                "Missing required configuration: settings.ingestion.splitter. "
-                "Please ensure 'ingestion.splitter' is specified in settings.yaml"
-            ) from e
-        
-        provider_class = cls._PROVIDERS.get(provider_name)
-        if provider_class is None:
-            available = ", ".join(sorted(cls._PROVIDERS.keys())) if cls._PROVIDERS else "none"
-            raise ValueError(
-                f"Unsupported Splitter provider: '{provider_name}'. "
-                f"Available providers: {available}. "
-                "Provider implementations will be added in task B7.5."
-            )
-        
-        try:
-            return provider_class(settings=settings, **override_kwargs)
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to instantiate Splitter provider '{provider_name}': {e}"
-            ) from e
-    
-    @classmethod
-    def list_providers(cls) -> list[str]:
-        """List all registered provider names.
-        
-        Returns:
-            Sorted list of available provider identifiers.
-        """
-        return sorted(cls._PROVIDERS.keys())
+    """Splitter 工厂：按配置 provider 路由到具体实现。"""
 
+    # provider 名 -> 构造函数 (splitter_config: SplitterConfig, **kwargs) -> BaseSplitter
+    _registry: dict[str, Callable[..., BaseSplitter]] = {}
 
-# Auto-register built-in providers when module is imported
-_register_builtin_providers()
+    @classmethod
+    def register(cls, provider: str) -> Callable[[Callable[..., BaseSplitter]], Callable[..., BaseSplitter]]:
+        """装饰器：注册一个 provider 的构造函数。"""
+
+        def decorator(ctor: Callable[..., BaseSplitter]) -> Callable[..., BaseSplitter]:
+            cls._registry[provider] = ctor
+            return ctor
+
+        return decorator
+
+    @classmethod
+    def is_registered(cls, provider: str) -> bool:
+        return provider in cls._registry
+
+    @classmethod
+    def available_providers(cls) -> list[str]:
+        return sorted(cls._registry)
+
+    @classmethod
+    def create(cls, settings: Settings, **kwargs: Any) -> BaseSplitter:
+        """根据 ``settings.splitter.provider`` 创建 ``BaseSplitter`` 实例。
+
+        Raises:
+            SplitterProviderError: provider 未注册时。
+        """
+        splitter_config: SplitterConfig = settings.splitter
+        provider = splitter_config.provider
+        ctor = cls._registry.get(provider)
+        if ctor is None:
+            raise SplitterProviderError(
+                f"unknown splitter provider: {provider!r}. "
+                f"registered: {cls.available_providers() or '(none)'}."
+            )
+        return ctor(splitter_config, **kwargs)

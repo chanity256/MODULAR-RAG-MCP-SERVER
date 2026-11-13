@@ -1,17 +1,17 @@
-"""
-Reranker Module.
+"""Reranker 抽象层包。
 
-This package contains reranker abstractions and implementations:
-- Base reranker class
-- Reranker factory
-- Implementations (LLM Rerank, CrossEncoder, None)
+导入本包即触发 ``none`` 和 ``llm`` backend 的注册。
+``none`` 在工厂中始终注册；``llm`` 在此处补充注册。
 """
 
-from src.libs.reranker.base_reranker import BaseReranker, NoneReranker
-from src.libs.reranker.reranker_factory import RerankerFactory
+from libs.reranker.base_reranker import BaseReranker, NoneReranker, RerankCandidate
+from libs.reranker.reranker_factory import RerankerFactory
 
-__all__ = [
-	"BaseReranker",
-	"NoneReranker",
-	"RerankerFactory",
-]
+# 触发 provider 注册。
+from libs.reranker import cross_encoder_reranker as _cross_encoder_reranker  # noqa: F401
+from libs.reranker import llm_reranker as _llm_reranker  # noqa: F401
+
+_cross_encoder_reranker.register_cross_encoder_provider()
+_llm_reranker.register_llm_provider()
+
+__all__ = ["BaseReranker", "NoneReranker", "RerankCandidate", "RerankerFactory"]

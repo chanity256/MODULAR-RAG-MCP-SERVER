@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-PROGRESS_FILE = REPO_ROOT / ".github" / "skills" / "qa-tester" / "QA_TEST_PROGRESS.md"
+PROGRESS_FILE = REPO_ROOT / ".factory" / "skills" / "qa-tester" / "QA_TEST_PROGRESS.md"
 
 # ── Patterns that indicate INFERRED rather than EXECUTED results ──
 
@@ -43,14 +43,13 @@ INFERENCE_PATTERNS = [
     (r"(?i)\bsimilar\s+to\s+[A-Z]-\d", "Cross-references another test ID"),
 
     # Missing execution evidence keywords
-    # A valid ✅ note should contain at least one of: exit=, stdout, AppTest:, output, returned, =
+    # A valid ✅ note should contain at least one of: exit=, stdout, output, returned, =
 ]
 
 # A valid PASS note MUST contain at least one of these evidence markers
 EVIDENCE_MARKERS = [
     r"exit[_=]",
     r"stdout",
-    r"AppTest:",
     r"output",
     r"returned",
     r"score[=s]",

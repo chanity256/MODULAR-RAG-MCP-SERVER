@@ -1,56 +1,29 @@
-"""
-Query Engine Module.
+"""查询引擎模块（阶段 D）：查询预处理 / 混合检索 / 融合 / 重排。"""
 
-This package contains the hybrid search engine components:
-- Query preprocessing
-- Dense retrieval (embedding-based)
-- Sparse retrieval (BM25)
-- Result fusion (RRF)
-- Reranking
-"""
-
-from src.core.query_engine.query_processor import (
-    QueryProcessor,
-    QueryProcessorConfig,
-    create_query_processor,
+from core.query_engine.dense_retriever import DenseRetrievalError, DenseRetriever
+from core.query_engine.fusion import DEFAULT_RRF_K, RRFFusion, rrf_fuse_rankings
+from core.query_engine.hybrid_search import HybridSearch, HybridSearchError
+from core.query_engine.query_processor import (
     DEFAULT_STOPWORDS,
-    CHINESE_STOPWORDS,
-    ENGLISH_STOPWORDS,
+    QueryProcessingError,
+    QueryProcessor,
+    default_tokenize,
 )
-from src.core.query_engine.dense_retriever import (
-    DenseRetriever,
-    create_dense_retriever,
-)
-from src.core.query_engine.sparse_retriever import (
-    SparseRetriever,
-    create_sparse_retriever,
-)
-from src.core.query_engine.fusion import (
-    RRFFusion,
-    rrf_score,
-)
-from src.core.query_engine.hybrid_search import (
-    HybridSearch,
-    HybridSearchConfig,
-    HybridSearchResult,
-    create_hybrid_search,
-)
+from core.query_engine.reranker import Reranker
+from core.query_engine.sparse_retriever import SparseRetriever
 
 __all__ = [
     "QueryProcessor",
-    "QueryProcessorConfig",
-    "create_query_processor",
+    "QueryProcessingError",
+    "default_tokenize",
     "DEFAULT_STOPWORDS",
-    "CHINESE_STOPWORDS",
-    "ENGLISH_STOPWORDS",
     "DenseRetriever",
-    "create_dense_retriever",
+    "DenseRetrievalError",
     "SparseRetriever",
-    "create_sparse_retriever",
     "RRFFusion",
-    "rrf_score",
+    "rrf_fuse_rankings",
+    "DEFAULT_RRF_K",
     "HybridSearch",
-    "HybridSearchConfig",
-    "HybridSearchResult",
-    "create_hybrid_search",
+    "HybridSearchError",
+    "Reranker",
 ]

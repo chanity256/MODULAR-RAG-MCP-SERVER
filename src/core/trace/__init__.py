@@ -1,12 +1,17 @@
-"""
-Trace Module.
+"""Core Trace 模块。"""
 
-This package contains tracing components:
-- Trace context
-- Trace collector
-"""
+from core.trace.persist import persist_trace
+from core.trace.trace_collector import TraceCollector
+from core.trace.trace_context import (
+    TRACE_TYPE_INGESTION,
+    TRACE_TYPE_QUERY,
+    TraceContext,
+)
 
-from src.core.trace.trace_context import TraceContext
-from src.core.trace.trace_collector import TraceCollector
-
-__all__ = ['TraceContext', 'TraceCollector']
+__all__ = [
+    "TRACE_TYPE_INGESTION",
+    "TRACE_TYPE_QUERY",
+    "TraceCollector",
+    "TraceContext",
+    "persist_trace",
+]

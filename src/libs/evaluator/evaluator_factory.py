@@ -1,135 +1,91 @@
-"""Factory for creating Evaluator provider instances.
+"""Evaluator 工厂（阶段 B6）。
 
-This module implements the Factory Pattern to instantiate the appropriate
-Evaluator provider based on configuration.
+按名称实例化对应的 ``BaseEvaluator`` 实现。
+
+注册机制与其它工厂一致：
+- 各评估器实现通过 ``EvaluatorFactory.register(name)`` 装饰器登记构造函数。
+- ``custom`` 评估器在工厂初始化时默认注册。
+- ``create(name)`` 按名称路由，未知名称抛出可读错误。
+- ``create_from_settings(settings)`` 按 ``settings.evaluation.backends`` 批量创建
+  （供阶段 H2 CompositeEvaluator 组合使用）。
+
+真实框架适配见 H1（RagasEvaluator）。
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, Callable
 
-from src.libs.evaluator.base_evaluator import BaseEvaluator, NoneEvaluator
-from src.libs.evaluator.custom_evaluator import CustomEvaluator
+from core.settings import Settings
+from libs.evaluator.base_evaluator import BaseEvaluator
+from libs.evaluator.custom_evaluator import CustomEvaluator
 
-if TYPE_CHECKING:
-    from src.core.settings import Settings
-
-
-def _get_ragas_evaluator() -> type[BaseEvaluator]:
-    """Lazy import RagasEvaluator to avoid hard dependency on ragas."""
-    from src.observability.evaluation.ragas_evaluator import RagasEvaluator
-    return RagasEvaluator
+__all__ = ["EvaluatorFactory", "EvaluatorBackendError"]
 
 
-def _get_composite_evaluator() -> type[BaseEvaluator]:
-    """Lazy import CompositeEvaluator."""
-    from src.observability.evaluation.composite_evaluator import CompositeEvaluator
-    return CompositeEvaluator
+class EvaluatorBackendError(RuntimeError):
+    """Evaluator backend 路由/构造错误。"""
+
+
+def _custom_ctor(**kwargs: Any) -> CustomEvaluator:
+    return CustomEvaluator()
+
+
+def _ragas_ctor(**kwargs: Any) -> BaseEvaluator:
+    # 延迟导入避免与 observability.evaluation（H1/H2，引用本工厂）循环。
+    from observability.evaluation.ragas_evaluator import RagasEvaluator
+
+    return RagasEvaluator(**kwargs)
 
 
 class EvaluatorFactory:
-    """Factory for creating Evaluator provider instances.
+    """Evaluator 工厂：按名称路由到具体实现。"""
 
-    Design Principles Applied:
-    - Factory Pattern: Centralizes object creation logic.
-    - Config-Driven: Provider selection based on settings.yaml.
-    - Fallback: Disabled evaluation returns NoneEvaluator.
-    - Fail-Fast: Raises clear errors for unknown providers.
-    """
-
-    _PROVIDERS: dict[str, type[BaseEvaluator]] = {
-        "custom": CustomEvaluator,
-    }
-
-    # Lazy-loaded providers (import on demand to avoid hard dependencies)
-    _LAZY_PROVIDERS: dict[str, Any] = {
-        "ragas": _get_ragas_evaluator,
-        "composite": _get_composite_evaluator,
+    # name -> 构造函数 (**kwargs) -> BaseEvaluator
+    _registry: dict[str, Callable[..., BaseEvaluator]] = {
+        "custom": _custom_ctor,
+        "ragas": _ragas_ctor,
     }
 
     @classmethod
-    def register_provider(cls, name: str, provider_class: type[BaseEvaluator]) -> None:
-        """Register a new Evaluator provider implementation.
+    def register(cls, name: str) -> Callable[[Callable[..., BaseEvaluator]], Callable[..., BaseEvaluator]]:
+        """装饰器：注册一个评估器的构造函数。"""
 
-        Args:
-            name: The provider identifier (e.g., 'ragas', 'custom').
-            provider_class: The BaseEvaluator subclass implementing the provider.
+        def decorator(ctor: Callable[..., BaseEvaluator]) -> Callable[..., BaseEvaluator]:
+            cls._registry[name] = ctor
+            return ctor
 
-        Raises:
-            ValueError: If provider_class doesn't inherit from BaseEvaluator.
-        """
-        if not issubclass(provider_class, BaseEvaluator):
-            raise ValueError(
-                f"Provider class {provider_class.__name__} must inherit from BaseEvaluator"
-            )
-        cls._PROVIDERS[name.lower()] = provider_class
+        return decorator
 
     @classmethod
-    def create(cls, settings: Settings, **override_kwargs: Any) -> BaseEvaluator:
-        """Create an Evaluator instance based on configuration.
-
-        Args:
-            settings: The application settings containing evaluation config.
-            **override_kwargs: Optional parameters to override config values.
-
-        Returns:
-            An instance of the configured Evaluator provider.
-
-        Raises:
-            ValueError: If the configured provider is not supported or missing.
-            RuntimeError: If provider initialization fails.
-        """
-        try:
-            # Accept either full Settings (with .evaluation attr) or
-            # a bare EvaluationSettings object directly.
-            if hasattr(settings, "evaluation"):
-                evaluation_settings = settings.evaluation
-            elif hasattr(settings, "provider") and hasattr(settings, "enabled"):
-                evaluation_settings = settings
-            else:
-                raise AttributeError("settings has no 'evaluation' attribute")
-            if evaluation_settings is None:
-                raise AttributeError("settings.evaluation is None")
-            provider_name = evaluation_settings.provider.lower()
-            enabled = bool(evaluation_settings.enabled)
-        except AttributeError as e:
-            raise ValueError(
-                "Missing required configuration: settings.evaluation.provider. "
-                "Please ensure 'evaluation.provider' is specified in settings.yaml"
-            ) from e
-
-        if not enabled or provider_name in {"none", "disabled"}:
-            return NoneEvaluator(settings=settings, **override_kwargs)
-
-        provider_class = cls._PROVIDERS.get(provider_name)
-        if provider_class is None and provider_name in cls._LAZY_PROVIDERS:
-            try:
-                provider_class = cls._LAZY_PROVIDERS[provider_name]()
-                cls._PROVIDERS[provider_name] = provider_class  # cache for next call
-            except ImportError as e:
-                raise ValueError(
-                    f"Provider '{provider_name}' requires additional dependencies: {e}"
-                ) from e
-        if provider_class is None:
-            all_providers = sorted(set(cls._PROVIDERS.keys()) | set(cls._LAZY_PROVIDERS.keys()))
-            available = ", ".join(all_providers) if all_providers else "none"
-            raise ValueError(
-                f"Unsupported Evaluator provider: '{provider_name}'. "
-                f"Available providers: {available}."
-            )
-
-        try:
-            return provider_class(settings=settings, **override_kwargs)
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to instantiate Evaluator provider '{provider_name}': {e}"
-            ) from e
+    def is_registered(cls, name: str) -> bool:
+        return name in cls._registry
 
     @classmethod
-    def list_providers(cls) -> list[str]:
-        """List all registered provider names.
+    def available_backends(cls) -> list[str]:
+        return sorted(cls._registry)
 
-        Returns:
-            Sorted list of available provider identifiers.
+    @classmethod
+    def create(cls, name: str, **kwargs: Any) -> BaseEvaluator:
+        """按名称创建 ``BaseEvaluator`` 实例。
+
+        Raises:
+            EvaluatorBackendError: name 未注册时。
         """
-        return sorted(cls._PROVIDERS.keys())
+        ctor = cls._registry.get(name)
+        if ctor is None:
+            raise EvaluatorBackendError(
+                f"unknown evaluator backend: {name!r}. "
+                f"registered: {cls.available_backends() or '(none)'}."
+            )
+        return ctor(**kwargs)
+
+    @classmethod
+    def create_from_settings(cls, settings: Settings, **kwargs: Any) -> list[BaseEvaluator]:
+        """按 ``settings.evaluation.backends`` 批量创建评估器列表。
+
+        Raises:
+            EvaluatorBackendError: 任一 backend 未注册时。
+        """
+        backends = settings.evaluation.backends
+        return [cls.create(name, **kwargs) for name in backends]

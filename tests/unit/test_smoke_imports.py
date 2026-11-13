@@ -1,122 +1,51 @@
-"""Smoke tests for package imports.
+"""冒烟测试：校验关键顶层包可被导入。
 
-This module verifies that all key packages can be imported successfully.
-It serves as a basic sanity check for the project structure.
+对应 DEV_SPEC 阶段 A2：建立 pytest 运行基座，至少 1 个冒烟测试做关键包 import 校验。
+后续阶段的测试在此基础上增量补充。
 """
 
-import pytest
+from __future__ import annotations
 
 
-@pytest.mark.unit
-class TestSmokeImports:
-    """Smoke tests to verify all key packages are importable."""
+def test_import_top_level_packages() -> None:
+    """五个顶层包（对应 src/ 下的目录）均可导入。"""
+    import importlib
 
-    def test_import_src_package(self) -> None:
-        """Test that the src package can be imported."""
-        import src
-        assert src is not None
+    for name in ["mcp_server", "core", "ingestion", "libs", "observability"]:
+        importlib.import_module(name)
 
-    def test_import_mcp_server(self) -> None:
-        """Test that the mcp_server package can be imported."""
-        from src import mcp_server
-        assert mcp_server is not None
 
-    def test_import_mcp_server_tools(self) -> None:
-        """Test that the mcp_server.tools subpackage can be imported."""
-        from src.mcp_server import tools
-        assert tools is not None
+def test_observability_logger_get_logger() -> None:
+    """占位 logger 可用且不抛异常。"""
+    from observability.logger import get_logger
 
-    def test_import_core(self) -> None:
-        """Test that the core package can be imported."""
-        from src import core
-        assert core is not None
+    logger = get_logger("smoke-test")
+    assert logger is not None
+    logger.info("smoke test logger works")
 
-    def test_import_core_query_engine(self) -> None:
-        """Test that the core.query_engine subpackage can be imported."""
-        from src.core import query_engine
-        assert query_engine is not None
 
-    def test_import_core_response(self) -> None:
-        """Test that the core.response subpackage can be imported."""
-        from src.core import response
-        assert response is not None
+def test_config_settings_yaml_loadable() -> None:
+    """config/settings.yaml 可被 PyYAML 解析。"""
+    from pathlib import Path
 
-    def test_import_core_trace(self) -> None:
-        """Test that the core.trace subpackage can be imported."""
-        from src.core import trace
-        assert trace is not None
+    import yaml
 
-    def test_import_ingestion(self) -> None:
-        """Test that the ingestion package can be imported."""
-        from src import ingestion
-        assert ingestion is not None
+    config_path = Path(__file__).resolve().parents[2] / "config" / "settings.yaml"
+    assert config_path.exists(), f"配置文件缺失: {config_path}"
 
-    def test_import_ingestion_embedding(self) -> None:
-        """Test that the ingestion.embedding subpackage can be imported."""
-        from src.ingestion import embedding
-        assert embedding is not None
+    data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert isinstance(data, dict)
+    # 阶段 A 最小校验：关键顶层配置节存在。
+    for key in ["llm", "embedding", "vector_store", "retrieval", "rerank"]:
+        assert key in data, f"settings.yaml 缺少顶层字段: {key}"
 
-    def test_import_ingestion_storage(self) -> None:
-        """Test that the ingestion.storage subpackage can be imported."""
-        from src.ingestion import storage
-        assert storage is not None
 
-    def test_import_ingestion_transform(self) -> None:
-        """Test that the ingestion.transform subpackage can be imported."""
-        from src.ingestion import transform
-        assert transform is not None
+def test_prompt_files_exist() -> None:
+    """三个 prompt 占位文件存在且非空。"""
+    from pathlib import Path
 
-    def test_import_libs(self) -> None:
-        """Test that the libs package can be imported."""
-        from src import libs
-        assert libs is not None
-
-    def test_import_libs_embedding(self) -> None:
-        """Test that the libs.embedding subpackage can be imported."""
-        from src.libs import embedding
-        assert embedding is not None
-
-    def test_import_libs_evaluator(self) -> None:
-        """Test that the libs.evaluator subpackage can be imported."""
-        from src.libs import evaluator
-        assert evaluator is not None
-
-    def test_import_libs_llm(self) -> None:
-        """Test that the libs.llm subpackage can be imported."""
-        from src.libs import llm
-        assert llm is not None
-
-    def test_import_libs_loader(self) -> None:
-        """Test that the libs.loader subpackage can be imported."""
-        from src.libs import loader
-        assert loader is not None
-
-    def test_import_libs_reranker(self) -> None:
-        """Test that the libs.reranker subpackage can be imported."""
-        from src.libs import reranker
-        assert reranker is not None
-
-    def test_import_libs_splitter(self) -> None:
-        """Test that the libs.splitter subpackage can be imported."""
-        from src.libs import splitter
-        assert splitter is not None
-
-    def test_import_libs_vector_store(self) -> None:
-        """Test that the libs.vector_store subpackage can be imported."""
-        from src.libs import vector_store
-        assert vector_store is not None
-
-    def test_import_observability(self) -> None:
-        """Test that the observability package can be imported."""
-        from src import observability
-        assert observability is not None
-
-    def test_import_observability_dashboard(self) -> None:
-        """Test that the observability.dashboard subpackage can be imported."""
-        from src.observability import dashboard
-        assert dashboard is not None
-
-    def test_import_observability_evaluation(self) -> None:
-        """Test that the observability.evaluation subpackage can be imported."""
-        from src.observability import evaluation
-        assert evaluation is not None
+    prompts_dir = Path(__file__).resolve().parents[2] / "config" / "prompts"
+    for name in ["image_captioning.txt", "chunk_refinement.txt", "rerank.txt"]:
+        path = prompts_dir / name
+        assert path.exists(), f"prompt 文件缺失: {path}"
+        assert path.stat().st_size > 0, f"prompt 文件为空: {path}"

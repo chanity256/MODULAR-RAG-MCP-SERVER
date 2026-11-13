@@ -1,9 +1,8 @@
-"""Chunking module - document splitting adapter layer.
+"""Ingestion Chunking 模块（阶段 C4）。
 
-This module provides the business adapter for text splitting, transforming
-Document objects into Chunk objects with proper metadata and traceability.
+``DocumentChunker``：``libs.splitter`` 与 Ingestion Pipeline 之间的业务适配层。
 """
 
-from src.ingestion.chunking.document_chunker import DocumentChunker
+from ingestion.chunking.document_chunker import DocumentChunker
 
 __all__ = ["DocumentChunker"]

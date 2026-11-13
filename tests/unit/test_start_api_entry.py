@@ -1,0 +1,97 @@
+"""``scripts/start_api.py`` 入口单测：不真正启动 uvicorn。"""
+
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+
+import pytest
+import uvicorn
+
+_SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "start_api.py"
+_spec = importlib.util.spec_from_file_location("start_api_script", _SCRIPT)
+start_api = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(start_api)
+
+
+@pytest.fixture
+def run_calls(monkeypatch):
+    calls = []
+    monkeypatch.setattr(uvicorn, "run", lambda app, **kwargs: calls.append(kwargs))
+    monkeypatch.delenv("RAG_API_TOKEN", raising=False)
+    return calls
+
+
+def test_disabled_by_default_refuses_to_start(run_calls, capsys):
+    assert start_api.main([]) == 2
+    assert run_calls == []
+    assert "api.enabled is false" in capsys.readouterr().err
+
+
+def test_force_starts_on_default_loopback(run_calls):
+    assert start_api.main(["--force"]) == 0
+    assert run_calls == [{"host": "127.0.0.1", "port": 8600, "log_level": "info", "log_config": None}]
+
+
+def test_start_enables_daily_app_log(run_calls, isolated_log_root):
+    import logging
+
+    from observability.logger import DailyFileHandler
+
+    assert start_api.main(["--force"]) == 0
+    handlers = [h for h in logging.getLogger().handlers if isinstance(h, DailyFileHandler)]
+    assert len(handlers) == 1
+    path = handlers[0].current_path
+    assert path.name.startswith("api-") and path.is_file()
+    assert path.resolve().is_relative_to(isolated_log_root.resolve())
+
+
+def test_refused_start_does_not_enable_app_log(run_calls):
+    import logging
+
+    from observability.logger import DailyFileHandler
+
+    assert start_api.main([]) == 2
+    assert not any(isinstance(h, DailyFileHandler) for h in logging.getLogger().handlers)
+
+
+def test_cli_overrides_host_and_port(run_calls, monkeypatch):
+    monkeypatch.setenv("RAG_API_TOKEN", "t")
+    assert start_api.main(["--force", "--host", "0.0.0.0", "--port", "9001"]) == 0
+    assert run_calls[0]["host"] == "0.0.0.0" and run_calls[0]["port"] == 9001
+
+
+def test_non_loopback_without_token_fails_fast(run_calls, capsys):
+    assert start_api.main(["--force", "--host", "0.0.0.0"]) == 2
+    assert run_calls == []
+    assert "RAG_API_TOKEN" in capsys.readouterr().err
+
+
+def test_missing_config_is_a_clean_error(run_calls, tmp_path, capsys):
+    assert start_api.main(["--force", "--config", str(tmp_path / "nope.yaml")]) == 2
+    assert run_calls == []
+    assert "configuration error" in capsys.readouterr().err
+
+
+def test_serve_ui_flag_overrides_config(run_calls, tmp_path):
+    (tmp_path / "index.html").write_text("<html></html>", encoding="utf-8")
+    import yaml
+
+    data = yaml.safe_load(start_api.DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"))
+    data["api"]["static_dir"] = str(tmp_path)
+    config = tmp_path / "settings.yaml"
+    config.write_text(yaml.safe_dump(data), encoding="utf-8")
+    assert start_api.main(["--force", "--config", str(config), "--serve-ui"]) == 0
+    assert run_calls
+
+
+def test_serve_ui_with_missing_build_fails_fast(run_calls, tmp_path, capsys):
+    import yaml
+
+    data = yaml.safe_load(start_api.DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"))
+    data["api"]["static_dir"] = str(tmp_path / "missing")
+    config = tmp_path / "settings.yaml"
+    config.write_text(yaml.safe_dump(data), encoding="utf-8")
+    assert start_api.main(["--force", "--config", str(config), "--serve-ui"]) == 2
+    assert run_calls == []
+    assert "static_dir" in capsys.readouterr().err

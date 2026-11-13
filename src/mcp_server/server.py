@@ -1,131 +1,193 @@
-"""MCP Server entry point using official MCP SDK.
+"""MCP Server 入口（Stdio Transport）— 阶段 E1。
 
-This module implements the MCP server using the official Python MCP SDK
-with stdio transport. It ensures stdout only contains protocol messages
-while all logs go to stderr.
+约束（对齐 DEV_SPEC 3.2.2）：
+- ``stdout`` 仅输出合法 MCP JSON-RPC 消息（每行一个 JSON 对象）。
+- 所有日志/调试信息一律走 ``stderr``（复用 ``observability.logger``）。
+
+阶段 E1 保证：启动 server 能完成 ``initialize`` 握手、通知静默接收、
+stdin EOF 优雅退出。协议解析与方法路由（``initialize`` / ``tools/list`` /
+``tools/call`` / 错误码规范）由 E2 的 ``protocol_handler.ProtocolHandler``
+提供，本模块缺省将其作为 ``message_handler`` 接入。
 """
 
 from __future__ import annotations
 
-import asyncio
+import json
 import sys
-from typing import TYPE_CHECKING
+from typing import Any, BinaryIO, Callable, TextIO
 
-from src.mcp_server.protocol_handler import create_mcp_server
-from src.observability.logger import get_logger
+if __package__ in (None, ""):  # pragma: no cover - 直接运行兜底
+    sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1]))
 
-if TYPE_CHECKING:
-    pass
+from observability.logger import get_logger
+from mcp_server.protocol_handler import (
+    PROTOCOL_VERSION,
+    SERVER_NAME,
+    SERVER_VERSION,
+    ProtocolHandler,
+)
+
+# JSON-RPC 2.0 错误码
+PARSE_ERROR = -32700
+
+# E2+ 的完整消息处理器经 ``MCPServer(message_handler=...)`` 注入；
+# 缺省使用 ``ProtocolHandler.handle_message``。
+MessageHandler = Callable[[dict], "dict | None"]
 
 
-SERVER_NAME = "modular-rag-mcp-server"
-SERVER_VERSION = "0.1.0"
+class MCPServer:
+    """MCP Stdio Server。
 
-
-def _redirect_all_loggers_to_stderr() -> None:
-    """Redirect all root logger handlers to stderr.
-
-    MCP stdio transport reserves stdout for JSON-RPC messages.
-    Any logging to stdout corrupts the protocol stream.
+    Args:
+        message_handler: 单条消息处理器，返回响应 dict 或 None（通知）。
+            缺省使用 E1 的最小实现（仅 initialize）。
+        logger: 注入 logger（缺省 stderr logger）。
     """
-    import logging as _logging
 
-    root = _logging.getLogger()
-    stderr_handler = _logging.StreamHandler(sys.stderr)
-    stderr_handler.setFormatter(
-        _logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
-    )
-    # Replace any existing stream handlers that might point to stdout
-    for handler in root.handlers[:]:
-        if isinstance(handler, _logging.StreamHandler) and not isinstance(
-            handler, _logging.FileHandler
-        ):
-            root.removeHandler(handler)
-    root.addHandler(stderr_handler)
+    def __init__(
+        self,
+        message_handler: MessageHandler | None = None,
+        logger: Any = None,
+        protocol_handler: ProtocolHandler | None = None,
+    ) -> None:
+        if message_handler is None:
+            protocol_handler = protocol_handler or ProtocolHandler()
+            message_handler = protocol_handler.handle_message
+        self.message_handler = message_handler
+        self.logger = logger or get_logger("mcp_server")
 
+    def serve(self, stdin: TextIO | None = None, stdout: TextIO | None = None) -> int:
+        """运行 stdio 主循环，直到 stdin EOF 或 ``shutdown`` 请求。
 
-def _preload_heavy_imports() -> None:
-    """Eagerly import heavy third-party modules in the **main thread**.
-
-    MCP SDK uses anyio + background threads for stdin/stdout I/O.
-    When a tool handler runs ``asyncio.to_thread(fn)``, *fn* executes in
-    a new worker thread.  If it tries to ``import chromadb`` (which
-    transitively pulls in onnxruntime, numpy, sqlite3 C extensions …),
-    that import can deadlock with the stdin-reader thread because both
-    compete for Python's global *import lock*.
-
-    Pre-importing here – before anyio spins up its I/O threads – avoids
-    the deadlock entirely: subsequent ``import`` statements in worker
-    threads simply hit ``sys.modules`` and return immediately.
-    """
-    # chromadb is the heaviest culprit (onnxruntime, numpy, …)
-    try:
-        import chromadb  # noqa: F401
-        import chromadb.config  # noqa: F401
-    except ImportError:
-        pass  # optional at install time
-
-    # Internal modules that tools lazy-import inside asyncio.to_thread
-    try:
-        import src.core.query_engine.query_processor  # noqa: F401
-        import src.core.query_engine.hybrid_search  # noqa: F401
-        import src.core.query_engine.dense_retriever  # noqa: F401
-        import src.core.query_engine.sparse_retriever  # noqa: F401
-        import src.core.query_engine.reranker  # noqa: F401
-        import src.ingestion.storage.bm25_indexer  # noqa: F401
-        import src.libs.embedding.embedding_factory  # noqa: F401
-        import src.libs.vector_store.vector_store_factory  # noqa: F401
-    except ImportError:
-        pass
-
-
-async def run_stdio_server_async() -> int:
-    """Run MCP server over stdio asynchronously.
-
-    Returns:
-        Exit code.
-    """
-    # Import here to avoid import errors if mcp not installed
-    import mcp.server.stdio
-
-    # Ensure ALL logging goes to stderr (stdout is reserved for JSON-RPC)
-    _redirect_all_loggers_to_stderr()
-
-    # Pre-load heavy deps in main thread to prevent import-lock deadlocks
-    # when tool handlers later call asyncio.to_thread().
-    _preload_heavy_imports()
-
-    logger = get_logger(log_level="INFO")
-    logger.info("Starting MCP server (stdio transport) with official SDK.")
-
-    # Create server with protocol handler
-    server = create_mcp_server(SERVER_NAME, SERVER_VERSION)
-
-    # Run with stdio transport
-    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            server.create_initialization_options(),
+        Returns:
+            进程退出码（0=正常退出）。
+        """
+        stdin = stdin or sys.stdin
+        stdout = stdout or sys.stdout
+        self.logger.info(
+            "MCP server starting (stdio): name=%s version=%s protocol=%s",
+            SERVER_NAME,
+            SERVER_VERSION,
+            PROTOCOL_VERSION,
         )
+        for line in stdin:
+            line = line.strip()
+            if not line:
+                continue
+            response = self.process_line(line)
+            if response is _SHUTDOWN:
+                self.logger.info("MCP server shutting down")
+                break
+            if response is not None:
+                # stdout 只写 JSON-RPC 消息，每行一个 JSON 对象。
+                stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
+                stdout.flush()
+        self.logger.info("MCP server stopped")
+        return 0
 
-    logger.info("MCP server shutting down.")
-    return 0
+    def process_line(self, line: str) -> Any:
+        """处理单行输入，返回响应 dict / None（通知或无需响应）/ ``_SHUTDOWN``。"""
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError as exc:
+            self.logger.warning("Invalid JSON on stdin: %s", exc)
+            return {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {"code": PARSE_ERROR, "message": f"Parse error: {exc}"},
+            }
+        if not isinstance(message, dict):
+            self.logger.warning("Non-object JSON-RPC message ignored")
+            return {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {"code": PARSE_ERROR, "message": "Message must be a JSON object"},
+            }
+        if message.get("method") == "shutdown":
+            return _SHUTDOWN
+        try:
+            response = self.message_handler(message)
+        except Exception as exc:  # handler 异常不得污染 stdout 通道
+            self.logger.exception("Message handler failed")
+            if message.get("id") is None:
+                return None
+            return {
+                "jsonrpc": "2.0",
+                "id": message.get("id"),
+                "error": {"code": -32603, "message": "Internal error"},
+            }
+        self.logger.debug("Handled method=%s", message.get("method"))
+        return response
 
 
-def run_stdio_server() -> int:
-    """Run MCP server over stdio (synchronous wrapper).
+class _ShutdownSentinel:
+    """内部哨兵：收到 shutdown 请求时优雅退出主循环。"""
 
-    Returns:
-        Exit code.
+    __slots__ = ()
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return "<shutdown>"
+
+
+_SHUTDOWN = _ShutdownSentinel()
+
+
+def build_default_protocol_handler(settings: Any | None = None) -> ProtocolHandler:
+    """构建注册了 E3+ tools 的缺省 ProtocolHandler。
+
+    Tools 懒初始化（见 ``tools/query_knowledge_hub``），注册本身
+    不触发网络/凭据依赖；``agentic_search`` 仅当配置
+    ``agentic_search.enabled=true`` 时追加注册（S1.6，缺省关闭）。
+
+    Args:
+        settings: 全局配置（缺省尝试 ``load_settings()``；配置缺失时
+            agentic 工具按禁用处理，其余 tool 保持懒初始化语义）。
     """
-    return asyncio.run(run_stdio_server_async())
+    from mcp_server.tools.get_document_summary import create_get_document_summary_definition
+    from mcp_server.tools.list_collections import create_list_collections_definition
+    from mcp_server.tools.query_knowledge_hub import create_query_knowledge_hub_definition
+
+    handler = ProtocolHandler()
+    handler.register_tool(create_query_knowledge_hub_definition())
+    handler.register_tool(create_list_collections_definition())
+    handler.register_tool(create_get_document_summary_definition())
+
+    agentic_enabled = False
+    if settings is not None:
+        agentic_enabled = settings.agentic_search.enabled
+    else:
+        try:
+            from core.settings import ConfigError, load_settings
+
+            agentic_enabled = load_settings().agentic_search.enabled
+        except (ConfigError, FileNotFoundError, OSError):
+            agentic_enabled = False  # 无配置时按禁用处理，维持既有 tools/list 契约
+    if agentic_enabled:
+        from mcp_server.tools.agentic_search import create_agentic_search_definition
+
+        handler.register_tool(create_agentic_search_definition())
+    return handler
 
 
-def main() -> int:
-    """Entry point for stdio MCP server."""
-    return run_stdio_server()
+def main(stdin: TextIO | None = None, stdout: TextIO | None = None) -> int:
+    """模块级入口：``python -m mcp_server.server``。
+
+    配置可加载时启用应用日志（stderr + ``logs/app/mcp-YYYY-MM-DD.log``，不碰 stdout）；
+    无配置时维持原行为启动。
+    """
+    from core.settings import ConfigError, load_settings
+    from observability.logger import setup_app_logging
+
+    try:
+        settings = load_settings()
+    except (ConfigError, FileNotFoundError, OSError):
+        settings = None
+    if settings is not None:
+        setup_app_logging(settings, "mcp")
+    return MCPServer(protocol_handler=build_default_protocol_handler(settings)).serve(
+        stdin=stdin, stdout=stdout
+    )
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())

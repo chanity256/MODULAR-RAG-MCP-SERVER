@@ -1,479 +1,346 @@
-"""Unit tests for DenseRetriever.
+"""``DenseRetriever`` 单元测试（阶段 D2）。
 
-This module tests the DenseRetriever component with mock embedding client
-and vector store to ensure correct behavior in isolation.
+纯离线：注入 fake embedding（记录调用、可控输出）与 fake vector store
+（记录参数、可控返回），验证编排契约：
+
+- 调用顺序与参数：``embed([query])`` → ``store.query(vector, top_k, filters)``。
+- ``QueryResult → RetrievalResult`` 的字段映射（chunk_id/score/text/metadata）。
+- filters 透传（Pre-filter 语义归 store）。
+- fail-fast：非法 query/top_k/filters、embedding 单条输出契约破坏。
+- store 异常原样传播（降级决策归 D5 HybridSearch）。
+- trace 打点 ``dense_retrieval`` 阶段。
+- ``RetrievalResult`` 序列化契约（D2 验收项）。
 """
 
+from __future__ import annotations
+
+from dataclasses import replace
+from pathlib import Path
+from textwrap import dedent
+
 import pytest
-from unittest.mock import Mock, MagicMock, patch
-from typing import Any, Dict, List
 
-from src.core.query_engine.dense_retriever import DenseRetriever, create_dense_retriever
-from src.core.types import RetrievalResult
+from core.settings import Settings, load_settings
+from core.trace.trace_context import TraceContext
+from core.types import RetrievalResult
+from libs.embedding.base_embedding import BaseEmbedding
+from libs.vector_store.base_vector_store import BaseVectorStore, QueryResult
+from core.query_engine.dense_retriever import DenseRetrievalError, DenseRetriever
 
-
-# =============================================================================
-# Test Fixtures
-# =============================================================================
-
-class FakeEmbedding:
-    """Fake embedding client for testing."""
-    
-    def __init__(self, dimension: int = 384):
-        self.dimension = dimension
-        self.call_count = 0
-        self.last_texts = None
-    
-    def embed(self, texts: List[str], trace: Any = None, **kwargs) -> List[List[float]]:
-        """Return deterministic fake embeddings."""
-        self.call_count += 1
-        self.last_texts = texts
-        # Generate deterministic vectors based on text content
-        return [[float(i) / self.dimension for i in range(self.dimension)] for _ in texts]
-
-
-class FakeVectorStore:
-    """Fake vector store for testing."""
-    
-    def __init__(self, stored_records: List[Dict[str, Any]] = None):
-        self.stored_records = stored_records or []
-        self.call_count = 0
-        self.last_query_params = None
-    
-    def query(
-        self,
-        vector: List[float],
-        top_k: int = 10,
-        filters: Dict[str, Any] = None,
-        trace: Any = None,
-        **kwargs,
-    ) -> List[Dict[str, Any]]:
-        """Return stored records sorted by fake similarity."""
-        self.call_count += 1
-        self.last_query_params = {
-            "vector": vector,
-            "top_k": top_k,
-            "filters": filters,
-        }
-        # Return up to top_k records
-        return self.stored_records[:top_k]
+_VALID_YAML = dedent(
+    """\
+    llm:
+      provider: azure
+      model: gpt-4o
+    embedding:
+      provider: openai
+      model: text-embedding-3-small
+    vision_llm:
+      provider: azure
+      model: gpt-4o
+    vector_store:
+      backend: chroma
+      persist_path: ./data/db/chroma
+    retrieval:
+      sparse_backend: bm25
+      fusion_algorithm: rrf
+    rerank:
+      backend: none
+    evaluation:
+      backends: [custom]
+    """
+)
 
 
-@pytest.fixture
-def fake_embedding():
-    """Create a fake embedding client."""
-    return FakeEmbedding(dimension=384)
+def _settings(tmp_path: Path) -> Settings:
+    path = tmp_path / "settings.yaml"
+    path.write_text(_VALID_YAML, encoding="utf-8")
+    return load_settings(path)
 
 
-@pytest.fixture
-def fake_vector_store():
-    """Create a fake vector store with sample data."""
-    return FakeVectorStore(stored_records=[
-        {
-            "id": "doc1_chunk_001",
-            "score": 0.95,
-            "text": "Azure OpenAI is a cloud-based AI service...",
-            "metadata": {"source_path": "docs/azure.pdf", "chunk_index": 1},
-        },
-        {
-            "id": "doc1_chunk_002",
-            "score": 0.88,
-            "text": "To configure Azure OpenAI, you need to...",
-            "metadata": {"source_path": "docs/azure.pdf", "chunk_index": 2},
-        },
-        {
-            "id": "doc2_chunk_001",
-            "score": 0.72,
-            "text": "RAG (Retrieval Augmented Generation) combines...",
-            "metadata": {"source_path": "docs/rag-guide.pdf", "chunk_index": 1},
-        },
-    ])
+class _FakeEmbedding(BaseEmbedding):
+    """记录调用并返回可控向量序列的 fake。"""
+
+    def __init__(self, vectors: list[list[float]] | None = None):
+        self.calls: list[list[str]] = []
+        self._vectors = vectors if vectors is not None else [[0.1, 0.2, 0.3]]
+
+    @property
+    def dimension(self) -> int | None:
+        return len(self._vectors[0]) if self._vectors else None
+
+    def embed(self, texts, *, trace=None, **kwargs):
+        self.calls.append(list(texts))
+        return [list(v) for v in self._vectors]
 
 
-@pytest.fixture
-def retriever(fake_embedding, fake_vector_store):
-    """Create a DenseRetriever with fake dependencies."""
-    return DenseRetriever(
-        embedding_client=fake_embedding,
-        vector_store=fake_vector_store,
-        default_top_k=10,
+class _FakeStore(BaseVectorStore):
+    """记录 query 参数并返回可控结果的 fake。"""
+
+    def __init__(self, hits: list[QueryResult] | None = None, error: Exception | None = None):
+        self.query_calls: list[dict] = []
+        self._hits = hits or []
+        self._error = error
+
+    def upsert(self, records, *, trace=None, **kwargs):
+        return 0
+
+    def query(self, vector, top_k=10, *, filters=None, trace=None, **kwargs):
+        self.query_calls.append(
+            {"vector": list(vector), "top_k": top_k, "filters": dict(filters or {})}
+        )
+        if self._error is not None:
+            raise self._error
+        return list(self._hits)
+
+    def get_by_ids(self, ids, *, trace=None, **kwargs):
+        return []
+
+    def delete_by_metadata(self, filters, *, trace=None, **kwargs):
+        return 0
+
+    def get_by_metadata(self, filters=None, *, trace=None, **kwargs):
+        return []
+
+    def get_collection_stats(self, *, trace=None, **kwargs):
+        return {"name": "fake", "chunk_count": 0, "document_count": 0, "collections": []}
+
+
+# ---------------------------------------------------------------------------
+# 编排契约
+# ---------------------------------------------------------------------------
+
+
+def test_orchestrates_embed_then_query(tmp_path):
+    embedding = _FakeEmbedding()
+    store = _FakeStore()
+    retriever = DenseRetriever(_settings(tmp_path), embedding_client=embedding, vector_store=store)
+    results = retriever.retrieve("how to configure azure", 5)
+    assert embedding.calls == [["how to configure azure"]]
+    assert len(store.query_calls) == 1
+    call = store.query_calls[0]
+    assert call["vector"] == [0.1, 0.2, 0.3]
+    assert call["top_k"] == 5
+    assert call["filters"] == {}
+    assert results == []
+
+
+def test_maps_queryresult_to_retrievalresult(tmp_path):
+    hits = [
+        QueryResult(id="doc_0001_ab12", score=0.87, text="azure config", metadata={"page": 3}),
+        QueryResult(id="doc_0002_cd34", score=0.42, text="other", metadata={}),
+    ]
+    retriever = DenseRetriever(
+        _settings(tmp_path), embedding_client=_FakeEmbedding(), vector_store=_FakeStore(hits)
     )
+    results = retriever.retrieve("azure", 2)
+    assert len(results) == 2
+    first = results[0]
+    assert isinstance(first, RetrievalResult)
+    assert first.chunk_id == "doc_0001_ab12"
+    assert first.score == pytest.approx(0.87)
+    assert first.text == "azure config"
+    assert first.metadata == {"page": 3}
+    assert results[1].chunk_id == "doc_0002_cd34"
 
 
-# =============================================================================
-# Initialization Tests
-# =============================================================================
-
-class TestDenseRetrieverInit:
-    """Tests for DenseRetriever initialization."""
-    
-    def test_init_with_dependencies(self, fake_embedding, fake_vector_store):
-        """Test initialization with explicit dependencies."""
-        retriever = DenseRetriever(
-            embedding_client=fake_embedding,
-            vector_store=fake_vector_store,
-            default_top_k=5,
-        )
-        
-        assert retriever.embedding_client is fake_embedding
-        assert retriever.vector_store is fake_vector_store
-        assert retriever.default_top_k == 5
-    
-    def test_init_with_default_top_k(self, fake_embedding, fake_vector_store):
-        """Test initialization uses default top_k when not specified."""
-        retriever = DenseRetriever(
-            embedding_client=fake_embedding,
-            vector_store=fake_vector_store,
-        )
-        
-        assert retriever.default_top_k == 10  # Default value
-    
-    def test_init_with_settings_top_k(self, fake_embedding, fake_vector_store):
-        """Test initialization extracts top_k from settings."""
-        mock_settings = Mock()
-        mock_settings.retrieval = Mock()
-        mock_settings.retrieval.dense_top_k = 20
-        
-        retriever = DenseRetriever(
-            settings=mock_settings,
-            embedding_client=fake_embedding,
-            vector_store=fake_vector_store,
-        )
-        
-        assert retriever.default_top_k == 20
-    
-    def test_init_without_settings_retrieval(self, fake_embedding, fake_vector_store):
-        """Test initialization handles missing retrieval config gracefully."""
-        mock_settings = Mock()
-        mock_settings.retrieval = None
-        
-        retriever = DenseRetriever(
-            settings=mock_settings,
-            embedding_client=fake_embedding,
-            vector_store=fake_vector_store,
-            default_top_k=15,
-        )
-        
-        assert retriever.default_top_k == 15
-    
-    def test_init_without_dependencies(self):
-        """Test initialization without dependencies is allowed (for lazy config)."""
-        retriever = DenseRetriever()
-        
-        assert retriever.embedding_client is None
-        assert retriever.vector_store is None
+def test_score_coerced_to_float(tmp_path):
+    hits = [QueryResult(id="c1", score=1, text="t")]  # int score 也接受
+    retriever = DenseRetriever(
+        _settings(tmp_path), embedding_client=_FakeEmbedding(), vector_store=_FakeStore(hits)
+    )
+    results = retriever.retrieve("q", 1)
+    assert isinstance(results[0].score, float)
+    assert results[0].score == 1.0
 
 
-# =============================================================================
-# Retrieve Method Tests
-# =============================================================================
-
-class TestDenseRetrieverRetrieve:
-    """Tests for DenseRetriever.retrieve() method."""
-    
-    def test_retrieve_basic(self, retriever, fake_embedding, fake_vector_store):
-        """Test basic retrieval returns correct results."""
-        results = retriever.retrieve("What is Azure OpenAI?")
-        
-        assert len(results) == 3
-        assert fake_embedding.call_count == 1
-        assert fake_vector_store.call_count == 1
-    
-    def test_retrieve_returns_retrieval_result_objects(self, retriever):
-        """Test that results are RetrievalResult instances."""
-        results = retriever.retrieve("test query")
-        
-        for result in results:
-            assert isinstance(result, RetrievalResult)
-    
-    def test_retrieve_result_fields(self, retriever):
-        """Test that RetrievalResult has all expected fields."""
-        results = retriever.retrieve("test query")
-        
-        result = results[0]
-        assert result.chunk_id == "doc1_chunk_001"
-        assert result.score == 0.95
-        assert "Azure OpenAI" in result.text
-        assert result.metadata["source_path"] == "docs/azure.pdf"
-    
-    def test_retrieve_with_top_k(self, retriever, fake_vector_store):
-        """Test retrieval with custom top_k."""
-        results = retriever.retrieve("test query", top_k=2)
-        
-        assert fake_vector_store.last_query_params["top_k"] == 2
-        assert len(results) == 2
-    
-    def test_retrieve_with_default_top_k(self, fake_embedding, fake_vector_store):
-        """Test retrieval uses default_top_k when top_k not specified."""
-        retriever = DenseRetriever(
-            embedding_client=fake_embedding,
-            vector_store=fake_vector_store,
-            default_top_k=5,
-        )
-        
-        retriever.retrieve("test query")
-        
-        assert fake_vector_store.last_query_params["top_k"] == 5
-    
-    def test_retrieve_with_filters(self, retriever, fake_vector_store):
-        """Test retrieval passes filters to vector store."""
-        filters = {"collection": "api-docs", "doc_type": "pdf"}
-        retriever.retrieve("test query", filters=filters)
-        
-        assert fake_vector_store.last_query_params["filters"] == filters
-    
-    def test_retrieve_passes_trace(self, retriever, fake_embedding, fake_vector_store):
-        """Test retrieval passes trace context through."""
-        mock_trace = Mock()
-        retriever.retrieve("test query", trace=mock_trace)
-        
-        assert fake_embedding.last_texts == ["test query"]
-    
-    def test_retrieve_embeds_query_correctly(self, retriever, fake_embedding):
-        """Test that query is embedded correctly."""
-        retriever.retrieve("How to configure RAG?")
-        
-        assert fake_embedding.last_texts == ["How to configure RAG?"]
+def test_filters_passthrough_to_store(tmp_path):
+    store = _FakeStore()
+    retriever = DenseRetriever(
+        _settings(tmp_path), embedding_client=_FakeEmbedding(), vector_store=store
+    )
+    retriever.retrieve("q", 3, filters={"collection": "docs", "doc_type": "pdf"})
+    assert store.query_calls[0]["filters"] == {"collection": "docs", "doc_type": "pdf"}
 
 
-# =============================================================================
-# Input Validation Tests
-# =============================================================================
-
-class TestDenseRetrieverValidation:
-    """Tests for input validation in DenseRetriever."""
-    
-    def test_retrieve_empty_query_raises_error(self, retriever):
-        """Test that empty query raises ValueError."""
-        with pytest.raises(ValueError, match="cannot be empty"):
-            retriever.retrieve("")
-    
-    def test_retrieve_whitespace_query_raises_error(self, retriever):
-        """Test that whitespace-only query raises ValueError."""
-        with pytest.raises(ValueError, match="cannot be empty"):
-            retriever.retrieve("   \t\n  ")
-    
-    def test_retrieve_non_string_query_raises_error(self, retriever):
-        """Test that non-string query raises ValueError."""
-        with pytest.raises(ValueError, match="must be a string"):
-            retriever.retrieve(123)
-    
-    def test_retrieve_without_embedding_client_raises_error(self, fake_vector_store):
-        """Test that missing embedding client raises RuntimeError."""
-        retriever = DenseRetriever(
-            embedding_client=None,
-            vector_store=fake_vector_store,
-        )
-        
-        with pytest.raises(RuntimeError, match="requires an embedding_client"):
-            retriever.retrieve("test query")
-    
-    def test_retrieve_without_vector_store_raises_error(self, fake_embedding):
-        """Test that missing vector store raises RuntimeError."""
-        retriever = DenseRetriever(
-            embedding_client=fake_embedding,
-            vector_store=None,
-        )
-        
-        with pytest.raises(RuntimeError, match="requires a vector_store"):
-            retriever.retrieve("test query")
+def test_empty_store_returns_empty_list(tmp_path):
+    retriever = DenseRetriever(
+        _settings(tmp_path), embedding_client=_FakeEmbedding(), vector_store=_FakeStore()
+    )
+    assert retriever.retrieve("q", 10) == []
 
 
-# =============================================================================
-# Error Handling Tests
-# =============================================================================
-
-class TestDenseRetrieverErrorHandling:
-    """Tests for error handling in DenseRetriever."""
-    
-    def test_retrieve_embedding_failure(self, fake_vector_store):
-        """Test that embedding failure raises RuntimeError."""
-        mock_embedding = Mock()
-        mock_embedding.embed.side_effect = Exception("API connection failed")
-        
-        retriever = DenseRetriever(
-            embedding_client=mock_embedding,
-            vector_store=fake_vector_store,
-        )
-        
-        with pytest.raises(RuntimeError, match="Failed to embed query"):
-            retriever.retrieve("test query")
-    
-    def test_retrieve_vector_store_failure(self, fake_embedding):
-        """Test that vector store failure raises RuntimeError."""
-        mock_store = Mock()
-        mock_store.query.side_effect = Exception("Database connection failed")
-        
-        retriever = DenseRetriever(
-            embedding_client=fake_embedding,
-            vector_store=mock_store,
-        )
-        
-        with pytest.raises(RuntimeError, match="Failed to query vector store"):
-            retriever.retrieve("test query")
-    
-    def test_retrieve_handles_malformed_results(self, fake_embedding):
-        """Test that malformed results are skipped gracefully."""
-        mock_store = Mock()
-        mock_store.query.return_value = [
-            {"id": "valid", "score": 0.9, "text": "Valid text", "metadata": {}},
-            {"id": "", "score": "invalid", "text": ""},  # Malformed
-            {"id": "another", "score": 0.8, "text": "Another text", "metadata": {}},
-        ]
-        
-        retriever = DenseRetriever(
-            embedding_client=fake_embedding,
-            vector_store=mock_store,
-        )
-        
-        results = retriever.retrieve("test query")
-        
-        # Malformed result should be skipped (empty chunk_id raises ValueError)
-        assert len(results) == 2
-        assert results[0].chunk_id == "valid"
-        assert results[1].chunk_id == "another"
+# ---------------------------------------------------------------------------
+# fail-fast 契约
+# ---------------------------------------------------------------------------
 
 
-# =============================================================================
-# Empty Results Tests
-# =============================================================================
-
-class TestDenseRetrieverEmptyResults:
-    """Tests for handling empty results."""
-    
-    def test_retrieve_empty_vector_store(self, fake_embedding):
-        """Test retrieval from empty vector store."""
-        empty_store = FakeVectorStore(stored_records=[])
-        
-        retriever = DenseRetriever(
-            embedding_client=fake_embedding,
-            vector_store=empty_store,
-        )
-        
-        results = retriever.retrieve("test query")
-        
-        assert results == []
-    
-    def test_retrieve_returns_empty_list_not_none(self, fake_embedding):
-        """Test that empty results return empty list, not None."""
-        empty_store = FakeVectorStore(stored_records=[])
-        
-        retriever = DenseRetriever(
-            embedding_client=fake_embedding,
-            vector_store=empty_store,
-        )
-        
-        results = retriever.retrieve("test query")
-        
-        assert results is not None
-        assert isinstance(results, list)
+@pytest.mark.parametrize("bad_query", ["", "   ", "\n\t"])
+def test_blank_query_fails_fast(tmp_path, bad_query):
+    retriever = DenseRetriever(
+        _settings(tmp_path), embedding_client=_FakeEmbedding(), vector_store=_FakeStore()
+    )
+    with pytest.raises(ValueError):
+        retriever.retrieve(bad_query, 5)
 
 
-# =============================================================================
-# Factory Function Tests
-# =============================================================================
-
-class TestCreateDenseRetriever:
-    """Tests for create_dense_retriever factory function."""
-    
-    def test_create_with_injected_dependencies(self, fake_embedding, fake_vector_store):
-        """Test factory with pre-configured dependencies."""
-        mock_settings = Mock()
-        mock_settings.retrieval = Mock()
-        mock_settings.retrieval.dense_top_k = 15
-        
-        retriever = create_dense_retriever(
-            settings=mock_settings,
-            embedding_client=fake_embedding,
-            vector_store=fake_vector_store,
-        )
-        
-        assert retriever.embedding_client is fake_embedding
-        assert retriever.vector_store is fake_vector_store
-        assert retriever.default_top_k == 15
-    
-    @patch('src.libs.vector_store.vector_store_factory.VectorStoreFactory.create')
-    @patch('src.libs.embedding.embedding_factory.EmbeddingFactory.create')
-    def test_create_auto_creates_dependencies(
-        self, mock_embedding_create, mock_vector_create, fake_embedding, fake_vector_store
-    ):
-        """Test factory auto-creates dependencies when not provided."""
-        mock_embedding_create.return_value = fake_embedding
-        mock_vector_create.return_value = fake_vector_store
-        
-        mock_settings = Mock()
-        mock_settings.retrieval = None
-        
-        retriever = create_dense_retriever(settings=mock_settings)
-        
-        mock_embedding_create.assert_called_once_with(mock_settings)
-        mock_vector_create.assert_called_once_with(mock_settings)
-        assert retriever.embedding_client is fake_embedding
-        assert retriever.vector_store is fake_vector_store
+def test_non_string_query_fails_fast(tmp_path):
+    retriever = DenseRetriever(
+        _settings(tmp_path), embedding_client=_FakeEmbedding(), vector_store=_FakeStore()
+    )
+    with pytest.raises(TypeError):
+        retriever.retrieve(123, 5)  # type: ignore[arg-type]
 
 
-# =============================================================================
-# Integration with RetrievalResult Type Tests
-# =============================================================================
+@pytest.mark.parametrize("bad_top_k", [0, -1, 2.5, "3", None, True])
+def test_invalid_top_k_fails_fast(tmp_path, bad_top_k):
+    retriever = DenseRetriever(
+        _settings(tmp_path), embedding_client=_FakeEmbedding(), vector_store=_FakeStore()
+    )
+    with pytest.raises(ValueError):
+        retriever.retrieve("q", bad_top_k)
 
-class TestRetrievalResultIntegration:
-    """Tests for RetrievalResult type integration."""
-    
-    def test_retrieval_result_serialization(self, retriever):
-        """Test that RetrievalResult can be serialized to dict."""
-        results = retriever.retrieve("test query")
-        
-        result_dict = results[0].to_dict()
-        
-        assert "chunk_id" in result_dict
-        assert "score" in result_dict
-        assert "text" in result_dict
-        assert "metadata" in result_dict
-    
-    def test_retrieval_result_from_dict(self):
-        """Test creating RetrievalResult from dict."""
-        data = {
-            "chunk_id": "test_001",
-            "score": 0.85,
-            "text": "Test content",
-            "metadata": {"source": "test.pdf"},
+
+def test_non_dict_filters_fails_fast(tmp_path):
+    retriever = DenseRetriever(
+        _settings(tmp_path), embedding_client=_FakeEmbedding(), vector_store=_FakeStore()
+    )
+    with pytest.raises(TypeError):
+        retriever.retrieve("q", 5, filters=["collection"])  # type: ignore[arg-type]
+
+
+def test_embedding_multiple_vectors_raises_contract_error(tmp_path):
+    embedding = _FakeEmbedding(vectors=[[0.1], [0.2]])  # 单条 query 返回 2 个向量
+    retriever = DenseRetriever(
+        _settings(tmp_path), embedding_client=embedding, vector_store=_FakeStore()
+    )
+    with pytest.raises(DenseRetrievalError, match="2 vectors"):
+        retriever.retrieve("q", 5)
+
+
+def test_embedding_empty_vector_raises_contract_error(tmp_path):
+    embedding = _FakeEmbedding(vectors=[[]])
+    retriever = DenseRetriever(
+        _settings(tmp_path), embedding_client=embedding, vector_store=_FakeStore()
+    )
+    with pytest.raises(DenseRetrievalError, match="empty vector"):
+        retriever.retrieve("q", 5)
+
+
+def test_store_error_propagates(tmp_path):
+    store = _FakeStore(error=RuntimeError("chroma down"))
+    retriever = DenseRetriever(
+        _settings(tmp_path), embedding_client=_FakeEmbedding(), vector_store=store
+    )
+    with pytest.raises(RuntimeError, match="chroma down"):
+        retriever.retrieve("q", 5)
+
+
+# ---------------------------------------------------------------------------
+# trace 打点
+# ---------------------------------------------------------------------------
+
+
+def test_records_trace_stage(tmp_path):
+    hits = [QueryResult(id="c1", score=0.5, text="t", metadata={"k": "v"})]
+    retriever = DenseRetriever(
+        _settings(tmp_path), embedding_client=_FakeEmbedding(), vector_store=_FakeStore(hits)
+    )
+    trace = TraceContext()
+    retriever.retrieve("q", 4, filters={"collection": "x"}, trace=trace)
+    stage = trace.get_stage("dense_retrieval")
+    assert stage is not None
+    assert stage["method"] == "dense_retriever"
+    assert stage["details"]["top_k"] == 4
+    assert stage["details"]["hits"] == 1
+    assert stage["details"]["filter_keys"] == ["collection"]
+    assert "elapsed_ms" in stage["details"]
+
+
+def test_no_trace_no_error(tmp_path):
+    retriever = DenseRetriever(
+        _settings(tmp_path), embedding_client=_FakeEmbedding(), vector_store=_FakeStore()
+    )
+    assert retriever.retrieve("q", 1) == []
+
+
+# ---------------------------------------------------------------------------
+# RetrievalResult 契约（D2 前置任务验收项）
+# ---------------------------------------------------------------------------
+
+
+def test_retrievalresult_serialization_roundtrip():
+    result = RetrievalResult(
+        chunk_id="doc_0001_ab12cd", score=0.9123, text="azure 配置", metadata={"page": 2}
+    )
+    assert result.to_dict() == {
+        "chunk_id": "doc_0001_ab12cd",
+        "score": 0.9123,
+        "text": "azure 配置",
+        "metadata": {"page": 2},
+    }
+    cloned = RetrievalResult.from_dict(result.to_dict())
+    assert cloned == result
+    assert RetrievalResult.from_json(result.to_json()) == result
+
+
+def test_retrievalresult_from_dict_ignores_unknown_fields():
+    cloned = RetrievalResult.from_dict(
+        {
+            "chunk_id": "c1",
+            "score": 1,
+            "text": "t",
+            "metadata": {},
+            "future_field": "ignored",
         }
-        
-        result = RetrievalResult.from_dict(data)
-        
-        assert result.chunk_id == "test_001"
-        assert result.score == 0.85
-        assert result.text == "Test content"
-        assert result.metadata["source"] == "test.pdf"
-    
-    def test_retrieval_result_validation(self):
-        """Test RetrievalResult validation."""
-        # Empty chunk_id should raise
-        with pytest.raises(ValueError, match="chunk_id cannot be empty"):
-            RetrievalResult(chunk_id="", score=0.5, text="test")
-        
-        # Non-numeric score should raise
-        with pytest.raises(ValueError, match="score must be numeric"):
-            RetrievalResult(chunk_id="test", score="invalid", text="test")
+    )
+    assert cloned.chunk_id == "c1"
+    assert cloned.score == 1.0
 
 
-# =============================================================================
-# Chinese Query Tests (D1 Alignment)
-# =============================================================================
+@pytest.mark.parametrize(
+    "kwargs, exc",
+    [
+        ({"chunk_id": "", "score": 1.0, "text": "t"}, ValueError),
+        ({"chunk_id": "c", "score": "high", "text": "t"}, TypeError),
+        ({"chunk_id": "c", "score": True, "text": "t"}, TypeError),
+        ({"chunk_id": "c", "score": 1.0, "text": 5}, TypeError),
+        ({"chunk_id": "c", "score": 1.0, "text": "t", "metadata": []}, TypeError),
+    ],
+)
+def test_retrievalresult_construction_validation(kwargs, exc):
+    with pytest.raises(exc):
+        RetrievalResult(**kwargs)
 
-class TestDenseRetrieverChineseSupport:
-    """Tests for Chinese query support (aligns with D1 QueryProcessor)."""
-    
-    def test_retrieve_chinese_query(self, retriever, fake_embedding):
-        """Test retrieval with Chinese query."""
-        query = "如何配置 Azure OpenAI？"
-        retriever.retrieve(query)
-        
-        assert fake_embedding.last_texts == [query]
-    
-    def test_retrieve_mixed_language_query(self, retriever, fake_embedding):
-        """Test retrieval with mixed Chinese/English query."""
-        query = "Azure OpenAI 配置步骤"
-        retriever.retrieve(query)
-        
-        assert fake_embedding.last_texts == [query]
+
+def test_retrievalresult_exported_from_core_package():
+    import core
+
+    assert core.RetrievalResult is RetrievalResult
+
+
+def test_default_construction_uses_factories(tmp_path):
+    """未注入组件时经工厂创建（fake provider 注册验证路由）。"""
+    from libs.embedding.embedding_factory import EmbeddingFactory
+    from libs.vector_store.vector_store_factory import VectorStoreFactory
+
+    saved_emb = dict(EmbeddingFactory._registry)
+    saved_vs = dict(VectorStoreFactory._registry)
+    EmbeddingFactory._registry.clear()
+    VectorStoreFactory._registry.clear()
+    try:
+        EmbeddingFactory.register("openai")(lambda cfg, **kw: _FakeEmbedding())
+
+        class _CtorStore(_FakeStore):
+            def __init__(self, vs_config, **kwargs):
+                super().__init__()
+
+        VectorStoreFactory.register("chroma")(_CtorStore)
+        retriever = DenseRetriever(_settings(tmp_path))
+        assert isinstance(retriever.embedding_client, _FakeEmbedding)
+        assert isinstance(retriever.vector_store, _CtorStore)
+    finally:
+        EmbeddingFactory._registry.clear()
+        EmbeddingFactory._registry.update(saved_emb)
+        VectorStoreFactory._registry.clear()
+        VectorStoreFactory._registry.update(saved_vs)

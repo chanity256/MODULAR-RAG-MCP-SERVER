@@ -5,7 +5,7 @@ Scans all ✅ test entries and flags those whose Note column contains
 cross-referencing, inference, or missing execution evidence.
 
 Usage:
-    python .github/skills/qa-tester/scripts/qa_validate_notes.py
+    python .claude/skills/qa-tester/scripts/qa_validate_notes.py
 
 Exit code:
     0 — All notes pass validation
@@ -16,8 +16,8 @@ import re
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-PROGRESS_FILE = REPO_ROOT / "QA_TEST_PROGRESS.md"
+REPO_ROOT = Path(__file__).resolve().parents[4]
+PROGRESS_FILE = REPO_ROOT / ".factory" / "skills" / "qa-tester" / "QA_TEST_PROGRESS.md"
 
 # ── Patterns that indicate INFERRED rather than EXECUTED results ──
 
@@ -43,14 +43,13 @@ INFERENCE_PATTERNS = [
     (r"(?i)\bsimilar\s+to\s+[A-Z]-\d", "Cross-references another test ID"),
 
     # Missing execution evidence keywords
-    # A valid ✅ note should contain at least one of: exit=, stdout, AppTest:, output, returned, =
+    # A valid ✅ note should contain at least one of: exit=, stdout, output, returned, =
 ]
 
 # A valid PASS note MUST contain at least one of these evidence markers
 EVIDENCE_MARKERS = [
     r"exit[_=]",
     r"stdout",
-    r"AppTest:",
     r"output",
     r"returned",
     r"score[=s]",

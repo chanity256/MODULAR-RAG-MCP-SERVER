@@ -1,0 +1,29 @@
+{
+  "_comment": "SX0.3 文档类 golden 题（SIRCHMUNK_EXTENSION_SPEC 3.4）：与 golden_questions.json 的 Q3/Q4 合成「编译可覆盖子集」，原文件不动。答案只在 README.md / docs/**/*.md 中且需跨章节定位；来源文档均 >3,000 字符（可触发树索引），且不讨论 golden 集本身。题面与答案不写进 docs。定位（供人工判分）：D1 = MICROSERVICES_ANALYSIS 第 3 章表 + 4.3 + 4.4；D2 = INGESTION_ROBUSTNESS 3.2 + 4.1；D3 = README「分支说明」+「谁适合用」第 4 条；D4 = INGESTION_ROBUSTNESS 3.5 + 第 4 章（4.2 一致性）。",
+  "questions": [
+    {
+      "id": "D1",
+      "category": "doc_navigation",
+      "query": "The Dashboard and the MCP server run as separate processes. Which on-disk resources do they share, why is each a problem, and what evolution step does the architecture analysis propose for each one?",
+      "expected_sources": ["docs/analysis/MICROSERVICES_ANALYSIS.md"]
+    },
+    {
+      "id": "D2",
+      "category": "doc_navigation",
+      "query": "When the ingestion history database is upgraded to the v2 table, what happens to the old table, and how is that migration rolled back if something goes wrong? Why is there no automatic rollback command?",
+      "expected_sources": ["docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md"]
+    },
+    {
+      "id": "D3",
+      "category": "doc_navigation",
+      "query": "Which git branch should a reader with plenty of time start from to experience the whole spec-driven workflow, what does that branch contain, and how does it differ from the branch that keeps the full commit history?",
+      "expected_sources": ["README.md"]
+    },
+    {
+      "id": "D4",
+      "category": "doc_navigation",
+      "query": "Does retrying previously failed files resume ingestion from the failed stage? If a store-stage failure exhausts its retries, how are the separate stores brought back to a consistent state, and what happens if that cleanup itself fails?",
+      "expected_sources": ["docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md"]
+    }
+  ]
+}

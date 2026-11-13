@@ -1,38 +1,62 @@
 {
-  "typical_noise_scenario": {
-    "input": "\n\n   Chapter 3: Introduction   \n\n\nThis is a valuable paragraph with important information.\n\n────────────────────────────\nPage 15\n\n   Footer: Confidential © 2024   \n\n",
-    "expected_clean": "Chapter 3: Introduction\n\nThis is a valuable paragraph with important information."
-  },
-  "ocr_errors": {
-    "input": "The qu1ck br0wn f0x jumps 0ver the 1azy d0g. Th1s t3xt c0nta1ns OCR 3rr0rs.",
-    "expected_clean": "The qu1ck br0wn f0x jumps 0ver the 1azy d0g. Th1s t3xt c0nta1ns OCR 3rr0rs.",
-    "note": "Rule-based refiner preserves OCR errors; LLM can optionally correct them"
-  },
-  "page_header_footer": {
-    "input": "────────────────────────────\nPage 42 | Section 5.3\n────────────────────────────\n\nThe actual content starts here and continues with valuable information.\n\n────────────────────────────\nFooter: Company Name | 2024\n────────────────────────────",
-    "expected_clean": "The actual content starts here and continues with valuable information."
-  },
-  "excessive_whitespace": {
-    "input": "This    has     excessive     spaces.\n\n\n\n\nAnd    too   many\n\n\n\nnewlines.",
-    "expected_clean": "This has excessive spaces.\n\nAnd too many\n\nnewlines."
-  },
-  "format_markers": {
-    "input": "<div class=\"content\">This is the actual content.</div>\n<!-- This is a comment -->\n**Bold text** and *italic text*.",
-    "expected_clean": "This is the actual content.\n\n**Bold text** and *italic text*.",
-    "note": "Preserve Markdown formatting, remove HTML comments and tags"
-  },
-  "clean_text": {
-    "input": "This is already clean text with proper formatting.\n\nIt has normal paragraphs and spacing.",
-    "expected_clean": "This is already clean text with proper formatting.\n\nIt has normal paragraphs and spacing.",
-    "note": "Should not over-clean already good text"
-  },
-  "code_blocks": {
-    "input": "```python\ndef    hello_world():\n    print(\"Hello,    World!\")\n    return    True\n```\n\nThis function has intentional spacing.",
-    "expected_clean": "```python\ndef    hello_world():\n    print(\"Hello,    World!\")\n    return    True\n```\n\nThis function has intentional spacing.",
-    "note": "Must preserve code block formatting and internal spacing"
-  },
-  "mixed_noise": {
-    "input": "────────────────────────────\nPage 123\n────────────────────────────\n\n\n## Real Heading\n\nThis paragraph  has   mixed   issues:  \n- Extra    spaces  \n- Multiple\n\n\n\nblank lines\n\n<!-- HTML comment to remove -->\n\n────────────────────────────\nFooter Text\n────────────────────────────\n\n",
-    "expected_clean": "## Real Heading\n\nThis paragraph has mixed issues:\n- Extra spaces\n- Multiple\n\nblank lines"
-  }
+  "description": "8 个典型噪声场景（阶段 C5 ChunkRefiner 规则模式回归基线）。字段：input 原文；contains 清洗后必须包含；not_contains 清洗后不得包含；expect_equal 精确期望（可选）。",
+  "scenarios": [
+    {
+      "name": "typical_noise_scenario",
+      "description": "综合噪声：页脚 + HTML 注释 + 多余空行 + 分隔线",
+      "input": "第 1 页 / 共 12 页\n\n# 引言\n\n这是正文的第一段。\n<!-- internal note: draft -->\n\n\n\n\n第二段内容。\n\n----------------------------\n",
+      "contains": ["# 引言", "这是正文的第一段。", "第二段内容。"],
+      "not_contains": ["第 1 页", "<!--", "internal note", "----"]
+    },
+    {
+      "name": "ocr_errors",
+      "description": "OCR 噪声：换页控制字符 + 行内多余空格",
+      "input": "扫描页头部\u000c\n正文  有一些  多余空格。\n",
+      "contains": ["正文 有一些 多余空格。"],
+      "not_contains": ["\u000c", "正文  "]
+    },
+    {
+      "name": "page_header_footer",
+      "description": "页眉页脚：英文 Page 标记 + 独立行页码",
+      "input": "Page 1 of 10\n标题内容\nPage 2 of 10\n正文内容\n12\n",
+      "contains": ["标题内容", "正文内容"],
+      "not_contains": ["Page 1", "Page 2", "\n12\n"]
+    },
+    {
+      "name": "excessive_whitespace",
+      "description": "多余空白：连续空行 + 行内连续空格 + 行尾空格",
+      "input": "第一行\n\n\n\n\n第二行\n\n第三行   尾随空格   \n",
+      "contains": ["第一行\n\n第二行", "第三行 尾随空格"],
+      "not_contains": ["\n\n\n", "   "]
+    },
+    {
+      "name": "format_markers",
+      "description": "格式标记：单行/多行 HTML 注释，保留 Markdown 加粗",
+      "input": "<!-- 历史版本注释 -->\n正文**加粗**保持。\n<!-- 多行\n注释内容 -->\n",
+      "contains": ["正文**加粗**保持。"],
+      "not_contains": ["<!--", "历史版本", "注释内容"]
+    },
+    {
+      "name": "clean_text",
+      "description": "干净文本：不应被过度清理（精确不变）",
+      "input": "# 干净的文档\n\n第一段正文，语义完整。\n\n第二段正文。\n",
+      "contains": [],
+      "not_contains": [],
+      "expect_equal": "# 干净的文档\n\n第一段正文，语义完整。\n\n第二段正文。"
+    },
+    {
+      "name": "code_blocks",
+      "description": "代码块：围栏内格式逐字保留，围栏外正常清洗",
+      "input": "说明文字  有空格。\n\n```python\ndef   f():\n    return   1  # 注释\n```\n\n后续文字。\n",
+      "contains": ["```python\ndef   f():\n    return   1  # 注释\n```", "说明文字 有空格。", "后续文字。"],
+      "not_contains": ["说明文字  "]
+    },
+    {
+      "name": "mixed_noise",
+      "description": "真实混合场景：页码 + 空格折叠 + 注释 + 分隔线 + 代码块共存",
+      "input": "第 1 页\n# 标题\n\n正文  内容。\n<!-- note -->\n=====\n\n\n\n代码前文字\n```js\nconst  a  =  1;\n```\n",
+      "contains": ["# 标题", "正文 内容。", "const  a  =  1;", "代码前文字"],
+      "not_contains": ["第 1 页", "<!--", "====="]
+    }
+  ]
 }

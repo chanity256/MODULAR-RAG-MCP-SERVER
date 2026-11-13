@@ -1,303 +1,205 @@
-"""E2E Recall Regression Test.
+"""Recall 回归测试（阶段 H5，E2E）。
 
-Validates retrieval quality against a golden test set using
-hit@k threshold assertions.  This test is designed for CI/CD
-regression gating – if recall drops below the configured
-threshold, the test fails.
+离线真实组件：真 ``ChromaStore`` + 真 ``BM25Indexer`` + 真
+``QueryProcessor``/``RRFFusion``/``HybridSearch`` + 真 ``EvalRunner``，
+唯一注入确定性 bag-of-words embedding（免除网络）。
 
-Requirements:
-- Indexed data in the vector store (run ingest.py first).
-- Golden test set at ``tests/fixtures/golden_test_set.json``.
-
-Usage::
-
-    pytest tests/e2e/test_recall.py -v
+对 golden test set 断言最小召回阈值（阈值写死在测试里，便于回归）：
+- ``hit_at_k >= 0.8``（top_k=5）
+- ``mrr >= 0.5``
+- 全部 case 无错误
 """
 
 from __future__ import annotations
 
 import json
-import logging
+import shutil
+from collections import Counter
+from dataclasses import replace
 from pathlib import Path
-from typing import Any, Dict, List
+from textwrap import dedent
 
 import pytest
 
-logger = logging.getLogger(__name__)
+from core.query_engine.dense_retriever import DenseRetriever
+from core.query_engine.fusion import RRFFusion
+from core.query_engine.hybrid_search import HybridSearch
+from core.query_engine.query_processor import QueryProcessor
+from core.query_engine.sparse_retriever import SparseRetriever
+from core.settings import load_settings
+from ingestion.embedding import SparseDocStats
+from ingestion.embedding.sparse_encoder import default_tokenize
+from libs.embedding.base_embedding import BaseEmbedding
+from libs.evaluator.custom_evaluator import CustomEvaluator
+from libs.vector_store.base_vector_store import VectorRecord
+from libs.vector_store.chroma_store import ChromaStore
+from observability.evaluation.eval_runner import EvalRunner
+from ingestion.storage import BM25Indexer
 
-# ── Configuration ─────────────────────────────────────────────────────
+# 回归阈值（spec H5：写死在测试里）。
+HIT_AT_K_THRESHOLD = 0.8
+MRR_THRESHOLD = 0.5
+TOP_K = 5
 
-GOLDEN_TEST_SET_PATH = Path("tests/fixtures/golden_test_set.json")
-
-# Minimum acceptable thresholds for regression gating.
-# These are intentionally set conservatively – update as data improves.
-HIT_RATE_THRESHOLD = 0.0  # Minimum average hit_rate (0.0 = no regression check until data exists)
-MRR_THRESHOLD = 0.0  # Minimum average MRR
-
-
-# ── Helpers ───────────────────────────────────────────────────────────
-
-def _load_golden_set() -> List[Dict[str, Any]]:
-    """Load golden test set from JSON file."""
-    if not GOLDEN_TEST_SET_PATH.exists():
-        pytest.skip(f"Golden test set not found: {GOLDEN_TEST_SET_PATH}")
-
-    with GOLDEN_TEST_SET_PATH.open("r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    cases = data.get("test_cases", [])
-    if not cases:
-        pytest.skip("Golden test set has no test cases")
-
-    return cases
-
-
-def _try_create_search_engine() -> Any:
-    """Attempt to create HybridSearch from settings.
-
-    Skips test if infrastructure is not available.
+_VALID_YAML = dedent(
+    """\
+    llm:
+      provider: azure
+      model: gpt-4o
+    embedding:
+      provider: openai
+      model: text-embedding-3-small
+    vision_llm:
+      provider: azure
+      model: gpt-4o
+    vector_store:
+      backend: chroma
+      persist_path: ./data/db/chroma
+    retrieval:
+      sparse_backend: bm25
+      fusion_algorithm: rrf
+      top_k_dense: 20
+      top_k_sparse: 20
+      top_k_final: 10
+    rerank:
+      backend: none
+    evaluation:
+      backends: [custom]
     """
-    try:
-        from src.core.settings import load_settings
-        from src.core.query_engine.hybrid_search import HybridSearch
+)
 
-        settings = load_settings()
-        return HybridSearch(settings)
-    except Exception as exc:
-        pytest.skip(f"HybridSearch not available: {exc}")
+#: 测试语料：chunk_id -> (text, metadata)。
+_CORPUS = {
+    "doc_cfg_0000_a1": (
+        "azure openai configuration endpoint and api key setup",
+        {"collection": "docs", "source_path": "azure_setup.pdf", "page": 1},
+    ),
+    "doc_cfg_0001_b2": (
+        "azure active directory authentication single sign on",
+        {"collection": "docs", "source_path": "azure_setup.pdf", "page": 2},
+    ),
+    "doc_bm2_0000_c3": (
+        "bm25 inverted index scoring term frequency inverse document frequency",
+        {"collection": "docs", "source_path": "bm25_guide.pdf", "page": 1},
+    ),
+    "doc_bm2_0001_d4": (
+        "sparse retrieval keyword matching ranking algorithm",
+        {"collection": "docs", "source_path": "bm25_guide.pdf", "page": 4},
+    ),
+    "doc_ing_0000_e5": (
+        "pdf ingestion pipeline chunking embedding vector upsert",
+        {"collection": "docs", "source_path": "ingest_guide.pdf", "page": 1},
+    ),
+    "doc_ing_0001_f6": (
+        "file integrity sha256 incremental skip re ingestion",
+        {"collection": "docs", "source_path": "ingest_guide.pdf", "page": 7},
+    ),
+}
+
+_VOCAB = sorted(
+    {token for text, _ in _CORPUS.values() for token in default_tokenize(text)}
+)
+_VOCAB_SET = frozenset(_VOCAB)
 
 
-def _try_create_evaluator() -> Any:
-    """Create a CustomEvaluator for hit_rate/mrr computation."""
-    try:
-        from src.libs.evaluator.custom_evaluator import CustomEvaluator
+class _KeywordEmbedding(BaseEmbedding):
+    """确定性 bag-of-words embedding（同 test_hybrid_search.py 手法）。"""
 
-        return CustomEvaluator()
-    except Exception as exc:
-        pytest.skip(f"CustomEvaluator not available: {exc}")
+    @property
+    def dimension(self) -> int | None:
+        return len(_VOCAB)
+
+    def embed(self, texts, *, trace=None, **kwargs):
+        vectors = []
+        for text in texts:
+            counts = Counter(t for t in default_tokenize(text) if t in _VOCAB_SET)
+            vectors.append([float(counts.get(token, 0)) for token in _VOCAB])
+        return vectors
 
 
-# ── Test Class ────────────────────────────────────────────────────────
+@pytest.fixture
+def eval_stack(tmp_path: Path):
+    settings = load_settings(_write_settings(tmp_path))
+    persist = tmp_path / "chroma_db"
+    settings = replace(
+        settings, vector_store=replace(settings.vector_store, persist_path=str(persist))
+    )
+    store = ChromaStore(settings.vector_store, collection="recall_e2e")
+    indexer = BM25Indexer(index_path=tmp_path / "bm25" / "index.json")
 
-
-@pytest.mark.e2e
-class TestRecallRegression:
-    """E2E recall regression tests using the golden test set.
-
-    These tests ensure retrieval quality does not regress below
-    configured thresholds.  They require indexed data to be present.
-    """
-
-    @pytest.fixture(autouse=True)
-    def setup_components(self) -> None:
-        """Set up search engine and evaluator."""
-        self.golden_set = _load_golden_set()
-        self.search = _try_create_search_engine()
-        self.evaluator = _try_create_evaluator()
-
-    def test_golden_set_is_valid(self) -> None:
-        """Validate the golden test set has expected structure."""
-        assert len(self.golden_set) >= 1, "Golden set must have at least 1 case"
-
-        for idx, tc in enumerate(self.golden_set):
-            assert "query" in tc, f"Test case {idx} missing 'query'"
-            assert tc["query"].strip(), f"Test case {idx} has empty query"
-
-    def test_hit_rate_above_threshold(self) -> None:
-        """Assert average hit@k meets the minimum threshold.
-
-        hit@k = 1 if any expected chunk appears in the top-k results,
-        else 0.  Averaged across all test cases that have
-        expected_chunk_ids defined.
-        """
-        cases_with_ground_truth = [
-            tc for tc in self.golden_set
-            if tc.get("expected_chunk_ids")
-        ]
-
-        if not cases_with_ground_truth:
-            pytest.skip("No test cases with expected_chunk_ids defined")
-
-        hit_rates: List[float] = []
-        top_k = 10
-
-        for tc in cases_with_ground_truth:
-            query = tc["query"]
-            expected_ids = set(tc["expected_chunk_ids"])
-
-            # Run search
-            try:
-                results = self.search.search(query=query, top_k=top_k)
-                retrieved_ids = set()
-                for r in results:
-                    if hasattr(r, "chunk_id"):
-                        retrieved_ids.add(r.chunk_id)
-                    elif isinstance(r, dict) and "chunk_id" in r:
-                        retrieved_ids.add(r["chunk_id"])
-            except Exception as exc:
-                logger.warning("Search failed for '%s': %s", query[:40], exc)
-                hit_rates.append(0.0)
-                continue
-
-            # hit@k: 1 if any expected chunk in retrieved
-            hit = 1.0 if expected_ids & retrieved_ids else 0.0
-            hit_rates.append(hit)
-
-            logger.info(
-                "Query: %s | hit@%d=%.1f | expected=%s | retrieved=%s",
-                query[:40], top_k, hit, expected_ids, retrieved_ids,
-            )
-
-        avg_hit_rate = sum(hit_rates) / len(hit_rates) if hit_rates else 0.0
-
-        logger.info("Average hit@%d = %.4f (threshold=%.4f)", top_k, avg_hit_rate, HIT_RATE_THRESHOLD)
-
-        assert avg_hit_rate >= HIT_RATE_THRESHOLD, (
-            f"hit@{top_k} regression: {avg_hit_rate:.4f} < {HIT_RATE_THRESHOLD:.4f}"
+    records, stats = [], []
+    for chunk_id, (text, metadata) in _CORPUS.items():
+        records.append(
+            VectorRecord(id=chunk_id, vector=_KeywordEmbedding().embed([text])[0], text=text, metadata=dict(metadata))
         )
-
-    def test_mrr_above_threshold(self) -> None:
-        """Assert average MRR meets the minimum threshold.
-
-        MRR = 1/rank of the first relevant chunk.  Averaged across
-        all test cases with expected_chunk_ids.
-        """
-        cases_with_ground_truth = [
-            tc for tc in self.golden_set
-            if tc.get("expected_chunk_ids")
-        ]
-
-        if not cases_with_ground_truth:
-            pytest.skip("No test cases with expected_chunk_ids defined")
-
-        mrrs: List[float] = []
-        top_k = 10
-
-        for tc in cases_with_ground_truth:
-            query = tc["query"]
-            expected_ids = set(tc["expected_chunk_ids"])
-
-            try:
-                results = self.search.search(query=query, top_k=top_k)
-                retrieved_ids: List[str] = []
-                for r in results:
-                    if hasattr(r, "chunk_id"):
-                        retrieved_ids.append(r.chunk_id)
-                    elif isinstance(r, dict) and "chunk_id" in r:
-                        retrieved_ids.append(r["chunk_id"])
-            except Exception:
-                mrrs.append(0.0)
-                continue
-
-            # MRR: reciprocal rank of first relevant hit
-            mrr = 0.0
-            for rank, rid in enumerate(retrieved_ids, start=1):
-                if rid in expected_ids:
-                    mrr = 1.0 / rank
-                    break
-
-            mrrs.append(mrr)
-
-        avg_mrr = sum(mrrs) / len(mrrs) if mrrs else 0.0
-
-        logger.info("Average MRR = %.4f (threshold=%.4f)", avg_mrr, MRR_THRESHOLD)
-
-        assert avg_mrr >= MRR_THRESHOLD, (
-            f"MRR regression: {avg_mrr:.4f} < {MRR_THRESHOLD:.4f}"
+        tokens = default_tokenize(text)
+        stats.append(
+            SparseDocStats(chunk_id=chunk_id, term_freqs=dict(Counter(tokens)), length=len(tokens))
         )
+    store.upsert(records)
+    indexer.build(stats)
 
-    def test_all_queries_return_results(self) -> None:
-        """Verify every golden query returns at least one result.
-
-        This is a basic sanity check – if a query returns zero
-        results, there may be an indexing or search issue.
-        """
-        empty_queries: List[str] = []
-
-        for tc in self.golden_set:
-            query = tc["query"]
-            try:
-                results = self.search.search(query=query, top_k=5)
-                if not results:
-                    empty_queries.append(query)
-            except Exception as exc:
-                logger.warning("Search error for '%s': %s", query[:40], exc)
-                empty_queries.append(query)
-
-        if empty_queries:
-            logger.warning(
-                "Queries with empty results (%d/%d): %s",
-                len(empty_queries),
-                len(self.golden_set),
-                empty_queries,
-            )
-
-        # Informational – does not fail the test since data may not
-        # be indexed.  Uncomment the assert below when data is ready:
-        # assert not empty_queries, f"{len(empty_queries)} queries returned no results"
+    hybrid = HybridSearch(
+        settings,
+        query_processor=QueryProcessor(settings),
+        dense_retriever=DenseRetriever(settings, embedding_client=_KeywordEmbedding(), vector_store=store),
+        sparse_retriever=SparseRetriever(settings, bm25_indexer=indexer, vector_store=store),
+        fusion=RRFFusion(settings),
+    )
+    runner = EvalRunner(settings, hybrid_search=hybrid, evaluator=CustomEvaluator())
+    yield runner
+    shutil.rmtree(persist, ignore_errors=True)
 
 
-# ── Standalone runner ─────────────────────────────────────────────────
+def _write_settings(tmp_path: Path) -> Path:
+    path = tmp_path / "settings.yaml"
+    path.write_text(_VALID_YAML, encoding="utf-8")
+    return path
 
-class TestRecallUnit:
-    """Lightweight unit-level recall tests (no infrastructure needed).
 
-    These tests validate the recall computation logic itself,
-    independent of any search engine or indexed data.
-    """
+def _write_golden_set(tmp_path: Path) -> Path:
+    cases = [
+        {
+            "query": "how to configure azure openai endpoint",
+            "expected_chunk_ids": ["doc_cfg_0000_a1"],
+            "expected_sources": ["azure_setup.pdf"],
+        },
+        {
+            "query": "bm25 scoring formula",
+            "expected_chunk_ids": ["doc_bm2_0000_c3"],
+            "expected_sources": ["bm25_guide.pdf"],
+        },
+        {
+            "query": "azure authentication",
+            "expected_chunk_ids": ["doc_cfg_0001_b2"],
+            "expected_sources": ["azure_setup.pdf"],
+        },
+        {
+            "query": "incremental ingestion file hash",
+            "expected_chunk_ids": ["doc_ing_0001_f6"],
+            "expected_sources": ["ingest_guide.pdf"],
+        },
+        {
+            "query": "chunking and embedding pipeline",
+            "expected_chunk_ids": ["doc_ing_0000_e5"],
+            "expected_sources": ["ingest_guide.pdf"],
+        },
+    ]
+    path = tmp_path / "golden_test_set.json"
+    path.write_text(json.dumps({"test_cases": cases}, indent=2), encoding="utf-8")
+    return path
 
-    def test_hit_rate_computation(self) -> None:
-        """Verify hit_rate calculation logic."""
-        from src.libs.evaluator.custom_evaluator import CustomEvaluator
 
-        evaluator = CustomEvaluator()
+def test_recall_hits_threshold(eval_stack, tmp_path):
+    """golden set 全量回归：hit@5 与 mrr 达到写死阈值。"""
+    report = eval_stack.run(_write_golden_set(tmp_path), top_k=TOP_K)
 
-        # Perfect hit
-        metrics = evaluator.evaluate(
-            query="test",
-            retrieved_chunks=[{"id": "c1"}, {"id": "c2"}],
-            ground_truth={"ids": ["c1"]},
-        )
-        assert metrics["hit_rate"] == 1.0
+    assert report.failed == 0, [q.error for q in report.per_query if q.error]
+    assert report.evaluated == report.total == 5
+    assert report.metrics["hit_at_k"] >= HIT_AT_K_THRESHOLD, report.metrics
+    assert report.metrics["mrr"] >= MRR_THRESHOLD, report.metrics
 
-        # Miss
-        metrics = evaluator.evaluate(
-            query="test",
-            retrieved_chunks=[{"id": "c3"}],
-            ground_truth={"ids": ["c1"]},
-        )
-        assert metrics["hit_rate"] == 0.0
 
-    def test_mrr_computation(self) -> None:
-        """Verify MRR calculation logic."""
-        from src.libs.evaluator.custom_evaluator import CustomEvaluator
-
-        evaluator = CustomEvaluator()
-
-        # First position hit → MRR = 1.0
-        metrics = evaluator.evaluate(
-            query="test",
-            retrieved_chunks=[{"id": "c1"}, {"id": "c2"}],
-            ground_truth={"ids": ["c1"]},
-        )
-        assert metrics["mrr"] == 1.0
-
-        # Second position hit → MRR = 0.5
-        metrics = evaluator.evaluate(
-            query="test",
-            retrieved_chunks=[{"id": "c2"}, {"id": "c1"}],
-            ground_truth={"ids": ["c1"]},
-        )
-        assert metrics["mrr"] == 0.5
-
-    def test_golden_test_set_loadable(self) -> None:
-        """Verify the golden test set can be loaded and parsed."""
-        from src.observability.evaluation.eval_runner import load_test_set
-
-        if not GOLDEN_TEST_SET_PATH.exists():
-            pytest.skip("Golden test set not found")
-
-        cases = load_test_set(GOLDEN_TEST_SET_PATH)
-        assert len(cases) >= 1
-        for tc in cases:
-            assert tc.query.strip(), "Each test case must have a non-empty query"
+def test_recall_report_json_serializable(eval_stack, tmp_path):
+    report = eval_stack.run(_write_golden_set(tmp_path), top_k=TOP_K)
+    assert json.loads(json.dumps(report.to_dict()))["total"] == 5

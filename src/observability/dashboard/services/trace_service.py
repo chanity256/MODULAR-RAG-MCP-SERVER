@@ -1,118 +1,172 @@
-"""TraceService – read and parse traces from logs/traces.jsonl.
+"""TraceService：解析 trace 日志，按 trace_type 分类（阶段 G5）。
 
-Provides a typed, filterable interface over the raw JSONL trace log.
+路径以 ``.jsonl`` 结尾为单文件；否则为按日目录，读取其中全部
+``traces-YYYY-MM-DD.jsonl``（LOGGING_SPEC 3.4）。
 """
 
 from __future__ import annotations
 
 import json
-import logging
+import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from src.core.settings import resolve_path
+from core.settings import Settings
+from observability.log_files import TRACE_FILE_PREFIX, TRACE_FILE_SUFFIX, is_single_file, resolve_log_path
 
-logger = logging.getLogger(__name__)
+__all__ = ["KNOWN_SOURCES", "SOURCE_DEFAULT", "TraceService"]
 
-# Default path to the traces file (absolute, CWD-independent)
-DEFAULT_TRACES_PATH = resolve_path("logs/traces.jsonl")
+_DEFAULT_TRACES = Path("logs/traces")
+
+#: 来源标签：``metadata.routes`` 缺省（CLI / query_knowledge_hub）为 default。
+SOURCE_DEFAULT = "default"
+#: 页面筛选器固定提供的来源（即使当前日志里还没有该来源的 trace）。
+KNOWN_SOURCES: tuple[str, ...] = (SOURCE_DEFAULT, "agentic", "chat")
 
 
 class TraceService:
-    """Read-only service for querying recorded traces.
+    """读取 JSON Lines trace 日志，供 Ingestion / Query 追踪页使用。"""
 
-    Args:
-        traces_path: Path to the JSONL file.  Defaults to
-            ``logs/traces.jsonl``.
-    """
-
-    def __init__(self, traces_path: Optional[str | Path] = None) -> None:
-        self.traces_path = Path(traces_path) if traces_path else DEFAULT_TRACES_PATH
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
-    def list_traces(
+    def __init__(
         self,
-        trace_type: Optional[str] = None,
-        limit: int = 100,
-    ) -> List[Dict[str, Any]]:
-        """Return traces in reverse-chronological order.
+        traces_path: str | Path | None = None,
+        *,
+        settings: Settings | None = None,
+    ) -> None:
+        if traces_path is not None:
+            self._path = resolve_log_path(traces_path)
+        elif settings is not None:
+            self._path = resolve_log_path(settings.observability.log_file)
+        else:
+            self._path = resolve_log_path(_DEFAULT_TRACES)
+        self._cache_lock = threading.Lock()
+        # 按文件缓存：键为 (mtime_ns, size)。目录模式下历史日文件不再变化，只有当天文件会失效。
+        self._file_cache: dict[Path, tuple[tuple[int, int], list[dict[str, Any]]]] = {}
 
-        Args:
-            trace_type: Filter by ``trace_type`` field (e.g.
-                ``"ingestion"`` or ``"query"``).  ``None`` = all.
-            limit: Maximum number of traces to return.
+    @property
+    def path(self) -> Path:
+        return self._path
 
-        Returns:
-            List of trace dicts (newest first).
-        """
-        traces = self._load_all()
-
+    def list_traces(self, trace_type: str | None = None) -> list[dict[str, Any]]:
+        """按时间倒序返回 trace 列表（最新在前）。"""
+        records = self._load()
         if trace_type:
-            traces = [t for t in traces if t.get("trace_type") == trace_type]
+            records = [item for item in records if item.get("trace_type") == trace_type]
+        records.sort(key=lambda item: item.get("started_at") or "", reverse=True)
+        return records
 
-        # Newest first
-        traces.sort(key=lambda t: t.get("started_at", ""), reverse=True)
-
-        return traces[:limit]
-
-    def get_trace(self, trace_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieve a single trace by its ``trace_id``.
-
-        Returns:
-            Trace dict, or ``None`` if not found.
-        """
-        for t in self._load_all():
-            if t.get("trace_id") == trace_id:
-                return t
+    def get_trace(self, trace_id: str) -> dict[str, Any] | None:
+        if not trace_id:
+            return None
+        for item in self._load():
+            if item.get("trace_id") == trace_id:
+                return item
         return None
 
-    def get_stage_timings(self, trace: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Extract stage timings from a trace.
+    def latest(self, trace_type: str) -> dict[str, Any] | None:
+        traces = self.list_traces(trace_type)
+        return traces[0] if traces else None
 
-        Returns:
-            List of dicts with keys: stage_name, elapsed_ms, data.
-            Ordered by appearance.
-        """
-        stages = trace.get("stages", [])
-        timings: List[Dict[str, Any]] = []
-        for s in stages:
-            # The raw stage dict has: stage, timestamp, data (dict), elapsed_ms
-            # Extract the inner 'data' dict directly rather than flattening
-            stage_data = s.get("data", {})
-            if not isinstance(stage_data, dict):
-                stage_data = {}
-            timings.append(
-                {
-                    "stage_name": s.get("stage"),
-                    "elapsed_ms": s.get("elapsed_ms", 0),
-                    "data": stage_data,
-                }
-            )
-        return timings
+    @staticmethod
+    def trace_source(trace: dict[str, Any]) -> str:
+        """trace 来源标签：取 ``metadata.routes``（``chat`` / ``agentic`` ...），缺省为 ``default``。"""
+        routes = (trace.get("metadata") or {}).get("routes")
+        return str(routes).strip() if isinstance(routes, str) and routes.strip() else SOURCE_DEFAULT
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
+    def query_sources(self) -> list[str]:
+        """筛选器可选来源：固定的 KNOWN_SOURCES + 日志里出现过的其它来源。"""
+        seen = {self.trace_source(item) for item in self.list_traces("query")}
+        return [*KNOWN_SOURCES, *sorted(seen - set(KNOWN_SOURCES))]
 
-    def _load_all(self) -> List[Dict[str, Any]]:
-        """Parse every line in the JSONL file.
+    def search_query_traces(self, keyword: str, source: str | None = None) -> list[dict[str, Any]]:
+        """按关键词（query / trace_id）与可选来源筛选 query trace；``source`` 为空表示不筛选。"""
+        needle = (keyword or "").strip().lower()
+        traces = self.list_traces("query")
+        if source:
+            traces = [item for item in traces if self.trace_source(item) == source]
+        if not needle:
+            return traces
+        matched: list[dict[str, Any]] = []
+        for item in traces:
+            metadata = item.get("metadata") or {}
+            query = str(metadata.get("query") or "")
+            if needle in query.lower() or needle in str(item.get("trace_id") or "").lower():
+                matched.append(item)
+        return matched
 
-        Silently skips malformed lines.
-        """
-        if not self.traces_path.exists():
+    def stage_timings(self, trace: dict[str, Any], stages: list[str] | None = None) -> list[dict[str, Any]]:
+        """按指定阶段名提取耗时（同名阶段累加，用于瀑布图）。"""
+        wanted = list(stages or [])
+        totals: dict[str, float] = {name: 0.0 for name in wanted}
+        extras: list[dict[str, Any]] = []
+        for record in trace.get("stages") or []:
+            name = str(record.get("stage") or "")
+            elapsed = float(record.get("elapsed_ms") or (record.get("details") or {}).get("elapsed_ms") or 0.0)
+            if wanted and name in totals:
+                totals[name] += elapsed
+            elif not wanted:
+                extras.append({"stage": name, "elapsed_ms": elapsed, "method": record.get("method")})
+        if wanted:
+            return [{"stage": name, "elapsed_ms": totals[name]} for name in wanted]
+        return extras
+
+    def _trace_files(self) -> list[Path]:
+        if is_single_file(self._path):
+            return [self._path]
+        if not self._path.is_dir():
             return []
+        return sorted(self._path.glob(f"{TRACE_FILE_PREFIX}-*{TRACE_FILE_SUFFIX}"))
 
-        traces: List[Dict[str, Any]] = []
-        with self.traces_path.open("r", encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    traces.append(json.loads(line))
-                except json.JSONDecodeError:
-                    logger.debug("Skipping malformed trace line: %s", line[:80])
-        return traces
+    def _load(self) -> list[dict[str, Any]]:
+        """解析 trace 日志（单文件或按日目录）；逐文件以 (mtime_ns, size) 为键缓存。
+
+        返回新列表（调用方可原地排序），其中的 trace dict 与缓存共享，调用方只读。
+        """
+        files = self._trace_files()
+        records: list[dict[str, Any]] = []
+        for path in files:
+            records.extend(self._load_file(path))
+        with self._cache_lock:
+            for stale in set(self._file_cache) - set(files):
+                del self._file_cache[stale]
+        return records
+
+    def _load_file(self, path: Path) -> list[dict[str, Any]]:
+        try:
+            stat = path.stat()
+        except OSError:
+            return []
+        if not path.is_file():
+            return []
+        key = (stat.st_mtime_ns, stat.st_size)
+        with self._cache_lock:
+            cached = self._file_cache.get(path)
+            if cached is not None and cached[0] == key:
+                return cached[1]
+        try:
+            records = self._parse(path.read_text(encoding="utf-8"))
+        except OSError:
+            return []
+        with self._cache_lock:
+            self._file_cache[path] = (key, records)
+        return records
+
+    @staticmethod
+    def _parse(text: str) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(payload, dict):
+                continue
+            # JSONFormatter 把 extra 合并到顶层；兼容 {message, extra} 两种形态。
+            if "trace_id" not in payload and isinstance(payload.get("extra"), dict):
+                payload = dict(payload["extra"])
+            if payload.get("trace_id"):
+                records.append(payload)
+        return records

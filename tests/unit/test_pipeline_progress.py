@@ -1,137 +1,65 @@
-"""Tests for F5 – Pipeline on_progress callback.
+"""F5：Pipeline 进度回调 on_progress 测试。"""
 
-Verifies that IngestionPipeline.run() fires the optional on_progress
-callback at each pipeline stage with (stage_name, current, total).
-"""
+from __future__ import annotations
 
-from typing import List, Tuple
-from unittest.mock import MagicMock
+from unittest.mock import Mock
 
-import pytest
-
-from src.core.trace.trace_context import TraceContext
-from src.core.types import Document, Chunk
-from src.ingestion.pipeline import IngestionPipeline
-
-
-# ── Helpers ──────────────────────────────────────────────────────────
+from core.trace.trace_context import TraceContext
+from tests.unit.test_ingestion_pipeline import (
+    FakeLoader,
+    FakeVectorStore,
+    _build_pipeline,
+    _write_source,
+)
 
 
-def _make_fake_pipeline() -> object:
-    """Build a fake IngestionPipeline that doesn't require real settings."""
-
-    class FP:
-        collection = "test"
-        force = False
-
-    fp = FP()
-
-    # Stage 1: integrity
-    fp.integrity_checker = MagicMock()
-    fp.integrity_checker.compute_sha256.return_value = "hash123"
-    fp.integrity_checker.should_skip.return_value = False
-
-    # Stage 2: loader
-    fp.loader = MagicMock()
-    fp.loader.load.return_value = Document(
-        id="doc1", text="Hello world. " * 50, metadata={"source_path": "test.pdf", "images": []}
-    )
-
-    # Stage 3: chunker
-    chunks = [
-        Chunk(id=f"c{i}", text=f"Chunk {i} text. " * 5, metadata={"source_path": "test.pdf"})
-        for i in range(3)
-    ]
-    fp.chunker = MagicMock()
-    fp.chunker.split_document.return_value = chunks
-
-    # Stage 4: transforms
-    fp.chunk_refiner = MagicMock()
-    fp.chunk_refiner.transform.return_value = chunks
-    fp.metadata_enricher = MagicMock()
-    fp.metadata_enricher.transform.return_value = chunks
-    fp.image_captioner = MagicMock()
-    fp.image_captioner.transform.return_value = chunks
-
-    # Stage 5: encoding
-    batch_result = MagicMock()
-    batch_result.dense_vectors = [[0.1, 0.2]] * 3
-    batch_result.sparse_stats = [{"doc_id": f"c{i}"} for i in range(3)]
-    fp.batch_processor = MagicMock()
-    fp.batch_processor.process.return_value = batch_result
-
-    # Stage 6: storage
-    fp.vector_upserter = MagicMock()
-    fp.vector_upserter.upsert.return_value = ["v0", "v1", "v2"]
-    fp.bm25_indexer = MagicMock()
-    fp.image_storage = MagicMock()
-
-    return fp
+def _run(tmp_path, on_progress):
+    pipeline, _ = _build_pipeline(tmp_path, FakeLoader(tmp_path), FakeVectorStore())
+    source = _write_source(tmp_path)
+    result = pipeline.run(str(source), on_progress=on_progress)
+    return result
 
 
-def _collect_progress(fp) -> List[Tuple[str, int, int]]:
-    """Run pipeline with a callback and return collected calls."""
-    calls: List[Tuple[str, int, int]] = []
+def test_progress_callback_called_for_all_stages(tmp_path):
+    callback = Mock()
+    result = _run(tmp_path, callback)
 
-    def on_progress(stage: str, current: int, total: int) -> None:
-        calls.append((stage, current, total))
-
-    IngestionPipeline.run(fp, "test.pdf", on_progress=on_progress)
-    return calls
-
-
-# ── Tests ────────────────────────────────────────────────────────────
+    assert result.status == "success"
+    assert callback.call_count > 0
+    stage_names = [call.args[0] for call in callback.call_args_list]
+    # 五个阶段（03-tech-stack 契约）均至少上报一次。
+    for expected in ("load", "split", "transform", "embed", "upsert"):
+        assert expected in stage_names, f"stage {expected} not reported"
 
 
-class TestPipelineProgressCallback:
-    """Verify on_progress is called correctly."""
+def test_progress_callback_arguments_shape(tmp_path):
+    callback = Mock()
+    _run(tmp_path, callback)
 
-    def test_callback_called_for_all_stages(self) -> None:
-        fp = _make_fake_pipeline()
-        calls = _collect_progress(fp)
-        stage_names = [c[0] for c in calls]
-        assert "integrity" in stage_names
-        assert "load" in stage_names
-        assert "split" in stage_names
-        assert "transform" in stage_names
-        assert "embed" in stage_names
-        assert "upsert" in stage_names
+    for call in callback.call_args_list:
+        stage, current, total = call.args
+        assert isinstance(stage, str) and stage
+        assert isinstance(current, int) and isinstance(total, int)
+        assert 1 <= current <= total
 
-    def test_total_is_six(self) -> None:
-        fp = _make_fake_pipeline()
-        calls = _collect_progress(fp)
-        for _, _, total in calls:
-            assert total == 6
 
-    def test_current_is_monotonically_increasing(self) -> None:
-        fp = _make_fake_pipeline()
-        calls = _collect_progress(fp)
-        currents = [c[1] for c in calls]
-        assert currents == sorted(currents)
-        assert currents == list(range(1, 7))
+def test_progress_embed_reports_batch_granularity(tmp_path):
+    callback = Mock()
+    _run(tmp_path, callback)
 
-    def test_no_callback_no_crash(self) -> None:
-        """on_progress=None should not break anything."""
-        fp = _make_fake_pipeline()
-        result = IngestionPipeline.run(fp, "test.pdf", on_progress=None)
-        assert result.success
+    embed_calls = [c.args for c in callback.call_args_list if c.args[0] == "embed"]
+    assert embed_calls
+    last_current, last_total = embed_calls[-1][1], embed_calls[-1][2]
+    assert last_current == last_total  # 收尾时 embed 全部批次完成
 
-    def test_callback_with_trace(self) -> None:
-        """on_progress + trace both work together."""
-        fp = _make_fake_pipeline()
-        calls: List[Tuple[str, int, int]] = []
-        trace = TraceContext(trace_type="ingestion")
 
-        def on_progress(stage: str, current: int, total: int) -> None:
-            calls.append((stage, current, total))
+def test_progress_callback_none_behaves_identically(tmp_path):
+    """on_progress=None 不影响摄取结果（与不传完全一致）。"""
+    with_none = _run(tmp_path, None)
+    assert with_none.status == "success" and with_none.chunks > 0
 
-        IngestionPipeline.run(fp, "test.pdf", trace=trace, on_progress=on_progress)
-        assert len(calls) == 6
-        assert len(trace.stages) >= 5  # trace records from F4
 
-    def test_ordering(self) -> None:
-        fp = _make_fake_pipeline()
-        calls = _collect_progress(fp)
-        stage_names = [c[0] for c in calls]
-        expected_order = ["integrity", "load", "split", "transform", "embed", "upsert"]
-        assert stage_names == expected_order
+def test_progress_callback_exception_isolated(tmp_path):
+    """回调抛错不应中断摄取（_emit_progress 内部消化）。"""
+    result = _run(tmp_path, Mock(side_effect=RuntimeError("cb boom")))
+    assert result.status == "success"

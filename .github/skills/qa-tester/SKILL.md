@@ -1,11 +1,11 @@
 ---
 name: qa-tester
-description: "Fully autonomous QA testing agent for Modular RAG MCP Server. Reads test cases from QA_TEST_PLAN.md, executes ALL test types automatically without human intervention — CLI commands, Dashboard UI via Streamlit AppTest headless rendering, MCP protocol via subprocess JSON-RPC, provider switches, and data lifecycle checks. Diagnoses failures, applies fixes with up to 3 retry rounds, and records results in QA_TEST_PROGRESS.md. Use when user says 'run QA', 'QA test', 'QA 测试', '执行测试', '跑测试', 'test and fix', or wants to execute QA test plan."
+description: "Fully autonomous QA testing agent for Modular RAG MCP Server. Reads test cases from QA_TEST_PLAN.md, executes ALL test types automatically without human intervention — CLI commands, MCP protocol via subprocess JSON-RPC, provider switches, and data lifecycle checks. NOTE: the Dashboard UI test type (Streamlit AppTest, sections A–F) is RETIRED with Streamlit (2026-11-13) and must NOT be executed. Diagnoses failures, applies fixes with up to 3 retry rounds, and records results in QA_TEST_PROGRESS.md. Use when user says 'run QA', 'QA test', 'QA 测试', '执行测试', '跑测试', 'test and fix', or wants to execute QA test plan."
 ---
 
 # QA Tester
 
-All test types (CLI / Dashboard UI / MCP protocol) are **fully automated** — zero human intervention.
+All active test types (CLI / MCP protocol / provider switches / data lifecycle) are **fully automated** — zero human intervention. The Dashboard UI type (sections A–F) is retired with Streamlit and must not be executed.
 
 Optional modifiers: append section letter (`run QA G`) or test ID (`run QA G-01`).
 
@@ -14,7 +14,7 @@ Optional modifiers: append section letter (`run QA G`) or test ID (`run QA G-01`
 > ## ⛔ IRON RULES
 >
 > ### Rule 1: STRICTLY SERIAL
-> Pick ONE test → Run ONE command → Wait for output → Record ONE row in `.github/skills/qa-tester/QA_TEST_PROGRESS.md` → THEN pick next.
+> Pick ONE test → Run ONE command → Wait for output → Record ONE row in `.factory/skills/qa-tester/QA_TEST_PROGRESS.md` → THEN pick next.
 > NEVER run two tests in one command. NEVER record two rows in one file edit. NEVER use parallel tool calls. NEVER plan the next test before recording the current one.
 >
 > ### Rule 2: PASS = TERMINAL OUTPUT EVIDENCE
@@ -49,7 +49,7 @@ Optional modifiers: append section letter (`run QA G`) or test ID (`run QA G-01`
 3. Run ONE command — WAIT for output
 4. Verify ALL assertions from Expected Result vs ACTUAL output
 5. Fix if needed (≤3 rounds)
-6. ⛔ GATE: Edit `.github/skills/qa-tester/QA_TEST_PROGRESS.md` (row + counters) — ONE row per edit
+6. ⛔ GATE: Edit `.factory/skills/qa-tester/QA_TEST_PROGRESS.md` (row + counters) — ONE row per edit
 7. Only NOW return to step 1
 ```
 
@@ -59,8 +59,8 @@ Optional modifiers: append section letter (`run QA G`) or test ID (`run QA G-01`
 
 ## Step 1: Pick Target
 
-1. Read `.github/skills/qa-tester/QA_TEST_PLAN.md` for test steps and expected results.
-2. Read `.github/skills/qa-tester/QA_TEST_PROGRESS.md` for current status.
+1. Read `.factory/skills/qa-tester/QA_TEST_PLAN.md` for test steps and expected results.
+2. Read `.factory/skills/qa-tester/QA_TEST_PROGRESS.md` for current status.
 3. User-specified section/ID → scope to that. Otherwise → first ⬜ pending test.
 4. If any 🔧 tests exist, re-test those first.
 5. Execute in section order (A→O), within section in ID order.
@@ -69,7 +69,7 @@ Optional modifiers: append section letter (`run QA G`) or test ID (`run QA G-01`
 
 | Sections | Type | Execution Method |
 |----------|------|-----------------|
-| A–F | Dashboard UI | AppTest headless — see [references/test_patterns.md](references/test_patterns.md) |
+| A–F | Dashboard UI | ⚠️ Streamlit 已退役（2026-11-13），AppTest 模式失效，不要执行 — see [references/test_patterns.md](references/test_patterns.md) |
 | G, H, I | CLI | Terminal commands, check exit code + stdout |
 | J | MCP Protocol | JSON-RPC subprocess — see [references/test_patterns.md](references/test_patterns.md) |
 | K, L | Provider Switch | `qa_config.py apply <profile>` → run CLI/Dashboard |
@@ -100,7 +100,7 @@ Check state → `python .github/skills/qa-tester/scripts/qa_bootstrap.py status`
 
 ### CLI Tests (G, H, I, parts of K/L/M)
 
-1. Read the test's **Steps** column from `.github/skills/qa-tester/QA_TEST_PLAN.md`.
+1. Read the test's **Steps** column from `.factory/skills/qa-tester/QA_TEST_PLAN.md`.
 2. Run the exact command in terminal.
 3. Compare output against **Expected Result**:
    - **Ingest**: exit=0, output has stage names (load/split/transform/embed/upsert)
@@ -108,7 +108,9 @@ Check state → `python .github/skills/qa-tester/scripts/qa_bootstrap.py status`
    - **Error**: exit≠0, stderr has descriptive error (not raw stack trace)
    - **Idempotency**: second run shows "skipped", no duplicates
 
-### Dashboard Tests (A–F)
+### Dashboard Tests (A–F) — ⚠️ Streamlit 已退役，该模式失效
+
+> Streamlit 已于 2026-11-13 退役（页面层与 AppTest 测试已物理删除，见 `docs/frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md`）：本节与 AppTest 模板不再可执行，仅作历史参考，不要据此执行 A–F 用例。
 
 Read [references/test_patterns.md](references/test_patterns.md) for AppTest templates, interaction patterns, and file upload workarounds.
 
@@ -158,7 +160,7 @@ python .github/skills/qa-tester/scripts/qa_multistep.py <TEST_ID>
 
 The script executes every sub-step, prints ACTUAL values at each step, outputs `VERDICT: PASS/FAIL`. Copy the VERDICT and key step values into the Note.
 
-For tests NOT in the script, run commands from `.github/skills/qa-tester/QA_TEST_PLAN.md` manually and paste output.
+For tests NOT in the script, run commands from `.factory/skills/qa-tester/QA_TEST_PLAN.md` manually and paste output.
 
 ---
 
@@ -176,7 +178,7 @@ For tests NOT in the script, run commands from `.github/skills/qa-tester/QA_TEST
 
 **⛔ GATE — do this BEFORE picking the next test.**
 
-Edit `.github/skills/qa-tester/QA_TEST_PROGRESS.md`: update ONE test row + summary counters. ONE row per file edit.
+Edit `.factory/skills/qa-tester/QA_TEST_PROGRESS.md`: update ONE test row + summary counters. ONE row per file edit.
 
 ### ✅ PASS Requirements
 
@@ -225,12 +227,11 @@ Re-execute any flagged test. Do NOT proceed until 0 flags.
 
 | File | Purpose |
 |------|---------|
-| `.github/skills/qa-tester/QA_TEST_PLAN.md` | Test steps and expected results |
-| `.github/skills/qa-tester/QA_TEST_PROGRESS.md` | Execution status and notes |
+| `.factory/skills/qa-tester/QA_TEST_PLAN.md` | Test steps and expected results |
+| `.factory/skills/qa-tester/QA_TEST_PROGRESS.md` | Execution status and notes |
 | `config/settings.yaml` | System configuration |
 | `scripts/ingest.py` / `query.py` / `evaluate.py` | CLI commands |
 | `tests/e2e/test_mcp_client.py` | MCP E2E tests |
-| `tests/e2e/test_dashboard_smoke.py` | Dashboard smoke tests |
 | `tests/fixtures/sample_documents/` | Test PDFs |
 | `tests/fixtures/golden_test_set.json` | Evaluation golden set |
 

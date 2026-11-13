@@ -1,521 +1,311 @@
-"""ChromaDB VectorStore implementation.
+"""ChromaStore — Chroma 向量数据库适配器（阶段 B7.6）。
 
-This module provides a concrete implementation of BaseVectorStore using ChromaDB,
-a lightweight, open-source embedding database designed for local-first deployment.
+封装 ``chromadb`` 的嵌入式 API，实现 ``BaseVectorStore`` 契约。
+
+设计要点：
+- 使用 ``PersistentClient`` 本地持久化，目录由 ``VectorStoreConfig.persist_path`` 驱动。
+- ``upsert`` 幂等：相同 id 覆盖，Chroma 原生支持。
+- ``query`` 向量检索，返回 ``QueryResult`` 列表（按 score 降序）。
+- distance → score 转换：cosine 空间下 ``score = 1 - distance``（越高越相关）。
+- metadata filters 直接透传给 Chroma ``where`` 子句。
+- 距离度量默认 cosine，可通过 ``vs_config.extra["distance"]`` 覆盖。
+- 集合名由 ``vs_config.collection`` 或 kwargs ``collection`` 或默认 ``knowledge_hub`` 决定。
 """
 
 from __future__ import annotations
 
-import logging
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+import json
+from typing import Any, Sequence
 
-try:
-    import chromadb
-    from chromadb.config import Settings as ChromaSettings
-    CHROMADB_AVAILABLE = True
-except ImportError:
-    CHROMADB_AVAILABLE = False
+import chromadb
 
-from src.core.settings import resolve_path
-from src.libs.vector_store.base_vector_store import BaseVectorStore
+from core.settings import VectorStoreConfig
+from libs.vector_store.base_vector_store import BaseVectorStore, QueryResult, VectorRecord
 
-if TYPE_CHECKING:
-    from src.core.settings import Settings
+__all__ = ["ChromaStore", "register_chroma_provider"]
 
-logger = logging.getLogger(__name__)
+
+_DEFAULT_COLLECTION = "knowledge_hub"
+
+# Chroma metadata 仅接受 str/int/float/bool 标量与同构原始类型列表；
+# dict / 混合列表（如 metadata["images"] 的 dict 列表）会整个 upsert 失败。
+# 序列化为 JSON 字符串落库，读取侧由 core.types.parse_image_refs 兼容还原。
+_PRIMITIVE = (str, int, float, bool)
+
+
+def _chroma_safe_value(value: Any) -> Any | None:
+    """把单个 metadata 值转换为 Chroma 可存储的形态（不可存返回 None 表示丢弃）。"""
+    if isinstance(value, _PRIMITIVE):
+        return value
+    if isinstance(value, list) and all(isinstance(v, _PRIMITIVE) for v in value):
+        return value  # 同构原始类型列表 Chroma 原生支持
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return None  # 其余类型（None 等）无法存储，丢弃该键
 
 
 class ChromaStore(BaseVectorStore):
-    """ChromaDB implementation of VectorStore.
-    
-    This class provides local-first, persistent vector storage using ChromaDB.
-    It supports upsert, query, and metadata filtering operations.
-    
-    Design Principles Applied:
-    - Pluggable: Implements BaseVectorStore interface, swappable with other providers.
-    - Config-Driven: All settings (persist_directory, collection_name) from settings.yaml.
-    - Idempotent: upsert operations with same ID overwrite existing records.
-    - Observable: Accepts optional TraceContext (reserved for Stage F).
-    - Fail-Fast: Validates dependencies and configuration on initialization.
-    
-    Attributes:
-        client: ChromaDB client instance.
-        collection: ChromaDB collection for storing vectors.
-        collection_name: Name of the collection.
-        persist_directory: Directory path for persistent storage.
-    
-    Example:
-        >>> settings = Settings.load('config/settings.yaml')
-        >>> store = ChromaStore(settings=settings)
-        >>> records = [
-        ...     {
-        ...         'id': 'doc1_chunk0',
-        ...         'vector': [0.1, 0.2, 0.3],
-        ...         'metadata': {'source': 'doc1.pdf'}
-        ...     }
-        ... ]
-        >>> store.upsert(records)
-        >>> results = store.query([0.1, 0.2, 0.3], top_k=5)
-    """
-    
-    def __init__(self, settings: Settings, **kwargs: Any) -> None:
-        """Initialize ChromaStore with configuration.
-        
-        Args:
-            settings: Application settings containing vector_store configuration.
-            **kwargs: Optional overrides for collection_name or persist_directory.
-        
-        Raises:
-            ImportError: If chromadb package is not installed.
-            ValueError: If required configuration is missing.
-            RuntimeError: If ChromaDB client initialization fails.
-        """
-        if not CHROMADB_AVAILABLE:
-            raise ImportError(
-                "chromadb package is required for ChromaStore. "
-                "Install it with: pip install chromadb"
-            )
-        
-        # Extract configuration
-        try:
-            vector_store_config = settings.vector_store
-        except AttributeError as e:
-            raise ValueError(
-                "Missing required configuration: settings.vector_store. "
-                "Please ensure 'vector_store' section exists in settings.yaml"
-            ) from e
-        
-        # Collection name (allow override)
-        self.collection_name = kwargs.get(
-            'collection_name',
-            getattr(vector_store_config, 'collection_name', 'knowledge_hub')
+    """Chroma 向量库实现。"""
+
+    def __init__(self, vs_config: VectorStoreConfig, *, collection: str | None = None, **kwargs: Any):
+        self.vs_config = vs_config
+        self._collection_name = collection or vs_config.collection or _DEFAULT_COLLECTION
+        self._distance = vs_config.extra.get("distance", "cosine")
+        persist_path = vs_config.persist_path or "./data/db/chroma"
+        self._client = chromadb.PersistentClient(path=persist_path)
+        self._collection = self._client.get_or_create_collection(
+            name=self._collection_name,
+            metadata={"hnsw:space": self._distance},
         )
-        
-        # Persist directory (allow override)
-        persist_dir_str = kwargs.get(
-            'persist_directory',
-            getattr(vector_store_config, 'persist_directory', './data/db/chroma')
-        )
-        self.persist_directory = resolve_path(persist_dir_str)
-        
-        # Ensure persist directory exists
-        self.persist_directory.mkdir(parents=True, exist_ok=True)
-        
-        logger.info(
-            f"Initializing ChromaStore: collection='{self.collection_name}', "
-            f"persist_directory='{self.persist_directory}'"
-        )
-        
-        # Initialize ChromaDB client with persistent storage
-        try:
-            self.client = chromadb.PersistentClient(
-                path=str(self.persist_directory),
-                settings=ChromaSettings(
-                    anonymized_telemetry=False,
-                    allow_reset=True,
-                )
-            )
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to initialize ChromaDB client at '{self.persist_directory}': {e}"
-            ) from e
-        
-        # Get or create collection
-        try:
-            self.collection = self.client.get_or_create_collection(
-                name=self.collection_name,
-                metadata={"hnsw:space": "cosine"}  # Use cosine similarity
-            )
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to get or create collection '{self.collection_name}': {e}"
-            ) from e
-        
-        logger.info(
-            f"ChromaStore initialized successfully. "
-            f"Collection count: {self.collection.count()}"
-        )
-    
+
+    # -- BaseVectorStore 实现 ---------------------------------------------
+
     def upsert(
         self,
-        records: List[Dict[str, Any]],
-        trace: Optional[Any] = None,
+        records: Sequence[VectorRecord],
+        *,
+        trace: Any | None = None,
         **kwargs: Any,
-    ) -> None:
-        """Insert or update records in ChromaDB.
-        
-        Args:
-            records: List of records to upsert. Each record must have:
-                - 'id': Unique identifier (str)
-                - 'vector': Embedding vector (List[float])
-                - 'metadata': Optional metadata dict
-            trace: Optional TraceContext for observability (reserved for Stage F).
-            **kwargs: Provider-specific parameters (unused for Chroma).
-        
-        Raises:
-            ValueError: If records list is empty or contains invalid entries.
-            RuntimeError: If the upsert operation fails.
-        """
-        # Validate records
-        self.validate_records(records)
-        
-        # Prepare data for ChromaDB
-        ids = []
-        embeddings = []
-        metadatas = []
-        documents = []  # ChromaDB requires documents field
-        
-        for record in records:
-            ids.append(str(record['id']))
-            embeddings.append(record['vector'])
-            
-            # Metadata: extract or default to empty dict
-            metadata = record.get('metadata', {})
-            # Ensure all metadata values are JSON-serializable
-            # ChromaDB requires string, int, float, or bool values
-            sanitized_metadata = self._sanitize_metadata(metadata)
-            
-            # ChromaDB requires non-empty metadata dict
-            if not sanitized_metadata:
-                sanitized_metadata = {'_placeholder': 'true'}
-            
-            metadatas.append(sanitized_metadata)
-            
-            # Document: use metadata.text if available, otherwise use id
-            document = metadata.get('text', record['id'])
-            documents.append(str(document))
-        
-        # Perform upsert (ChromaDB's add() is idempotent with same IDs)
-        try:
-            self.collection.upsert(
-                ids=ids,
-                embeddings=embeddings,
-                metadatas=metadatas,
-                documents=documents,
-            )
-            logger.debug(f"Successfully upserted {len(records)} records to ChromaDB")
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to upsert {len(records)} records to ChromaDB: {e}"
-            ) from e
-    
+    ) -> int:
+        if not isinstance(records, (list, tuple)):
+            raise ValueError(f"records must be a list, got {type(records).__name__}")
+        if len(records) == 0:
+            return 0
+        ids = [r.id for r in records]
+        embeddings = [r.vector for r in records]
+        documents = [r.text for r in records]
+        # Chroma 拒绝空 dict metadata，用 None 替代；再净化 Chroma 不支持的
+        # 值类型（dict / 混合列表 → JSON 字符串，None 值丢弃），见 _chroma_safe_value。
+        metadatas = [self._sanitize(r.metadata) if r.metadata else None for r in records]
+        self._collection.upsert(
+            ids=ids,
+            embeddings=embeddings,
+            documents=documents,
+            metadatas=metadatas,
+        )
+        return len(records)
+
     def query(
         self,
-        vector: List[float],
+        vector: list[float],
         top_k: int = 10,
-        filters: Optional[Dict[str, Any]] = None,
-        trace: Optional[Any] = None,
+        *,
+        filters: dict[str, Any] | None = None,
+        trace: Any | None = None,
         **kwargs: Any,
-    ) -> List[Dict[str, Any]]:
-        """Query ChromaDB for similar vectors.
-        
+    ) -> list[QueryResult]:
+        if not isinstance(vector, list):
+            raise ValueError(f"vector must be a list, got {type(vector).__name__}")
+        if top_k <= 0:
+            return []
+        where = self._where(filters)
+        results = self._collection.query(
+            query_embeddings=[vector],
+            n_results=top_k,
+            where=where,
+        )
+        # Chroma 返回嵌套列表：每条 query 对应一个列表
+        ids_batch = results.get("ids", [[]])
+        distances_batch = results.get("distances", [[]])
+        documents_batch = results.get("documents", [[]])
+        metadatas_batch = results.get("metadatas", [[]])
+        ids = ids_batch[0] if ids_batch else []
+        distances = distances_batch[0] if distances_batch else []
+        documents = documents_batch[0] if documents_batch else []
+        metadatas = metadatas_batch[0] if metadatas_batch else []
+        out: list[QueryResult] = []
+        for i, rid in enumerate(ids):
+            dist = distances[i] if i < len(distances) else 0.0
+            score = self._distance_to_score(dist)
+            text = documents[i] if i < len(documents) else ""
+            meta = metadatas[i] if i < len(metadatas) and metadatas[i] else {}
+            out.append(QueryResult(id=rid, score=score, text=text, metadata=meta))
+        return out
+
+    # -- 辅助 -------------------------------------------------------------
+
+    def get_by_ids(
+        self,
+        ids: Sequence[str],
+        *,
+        trace: Any | None = None,
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        """按 id 批量获取记录（D3 SparseRetriever 契约）。
+
         Args:
-            vector: Query vector (embedding) to search for.
-            top_k: Maximum number of results to return.
-            filters: Optional metadata filters (e.g., {'source': 'doc1.pdf'}).
-            trace: Optional TraceContext for observability (reserved for Stage F).
-            **kwargs: Provider-specific parameters (unused for Chroma).
-        
+            ids: 待获取的记录 id 序列。
+
         Returns:
-            List of matching records, sorted by similarity (descending).
-            Each record contains:
-                - 'id': Record identifier
-                - 'score': Similarity score (1.0 = identical, 0.0 = orthogonal)
-                - 'metadata': Associated metadata
-        
-        Raises:
-            ValueError: If vector is empty or top_k is invalid.
-            RuntimeError: If the query operation fails.
+            命中记录的 ``{"id", "text", "metadata"}`` 列表；不存在的 id
+            跳过；顺序与请求顺序一致（重复 id 去重）。
         """
-        # Validate query parameters
-        self.validate_query_vector(vector, top_k)
-        
-        # Build ChromaDB where clause from filters
-        where_clause = self._build_where_clause(filters) if filters else None
-        
-        # Perform query
-        try:
-            results = self.collection.query(
-                query_embeddings=[vector],
-                n_results=top_k,
-                where=where_clause,
-                include=["metadatas", "distances", "documents"]
-            )
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to query ChromaDB with top_k={top_k}: {e}"
-            ) from e
-        
-        # Transform results to standard format
-        # ChromaDB returns nested lists: [[id1, id2, ...]]
-        output = []
-        
-        if results and results['ids'] and results['ids'][0]:
-            ids = results['ids'][0]
-            distances = results['distances'][0] if 'distances' in results else [0.0] * len(ids)
-            metadatas = results['metadatas'][0] if 'metadatas' in results else [{}] * len(ids)
-            documents = results['documents'][0] if 'documents' in results else [''] * len(ids)
-            
-            for i, record_id in enumerate(ids):
-                # Convert distance to similarity score
-                # ChromaDB returns cosine distance (0=identical, 2=opposite)
-                # Convert to similarity: score = 1 - (distance / 2)
-                distance = distances[i]
-                score = 1.0 - (distance / 2.0)
-                
-                output.append({
-                    'id': record_id,
-                    'score': max(0.0, score),  # Clamp to [0, 1]
-                    'text': documents[i] if documents[i] else '',  # Include text from documents
-                    'metadata': metadatas[i] if metadatas[i] else {}
-                })
-        
-        logger.debug(f"Query returned {len(output)} results")
-        return output
-    
-    def delete(
-        self,
-        ids: List[str],
-        trace: Optional[Any] = None,
-        **kwargs: Any,
-    ) -> None:
-        """Delete records from ChromaDB by IDs.
-        
-        Args:
-            ids: List of record IDs to delete.
-            trace: Optional TraceContext for observability.
-            **kwargs: Provider-specific parameters.
-        
-        Raises:
-            ValueError: If ids list is empty.
-            RuntimeError: If the delete operation fails.
-        """
-        if not ids:
-            raise ValueError("IDs list cannot be empty")
-        
-        try:
-            self.collection.delete(ids=[str(id_) for id_ in ids])
-            logger.debug(f"Successfully deleted {len(ids)} records from ChromaDB")
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to delete {len(ids)} records from ChromaDB: {e}"
-            ) from e
-    
-    def clear(
-        self,
-        collection_name: Optional[str] = None,
-        trace: Optional[Any] = None,
-        **kwargs: Any,
-    ) -> None:
-        """Clear all records from the ChromaDB collection.
-        
-        Args:
-            collection_name: Optional collection name to clear. If None, clears current collection.
-            trace: Optional TraceContext for observability.
-            **kwargs: Provider-specific parameters.
-        
-        Raises:
-            RuntimeError: If the clear operation fails.
-        """
-        try:
-            target_collection = collection_name or self.collection_name
-            
-            # Delete and recreate collection (most efficient way to clear in Chroma)
-            self.client.delete_collection(name=target_collection)
-            self.collection = self.client.get_or_create_collection(
-                name=target_collection,
-                metadata={"hnsw:space": "cosine"}
-            )
-            logger.info(f"Successfully cleared collection '{target_collection}'")
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to clear collection '{collection_name or self.collection_name}': {e}"
-            ) from e
+        if not isinstance(ids, (list, tuple)):
+            raise ValueError(f"ids must be a list, got {type(ids).__name__}")
+        requested: list[str] = []
+        for item in ids:
+            if not isinstance(item, str) or not item:
+                raise ValueError(f"ids must contain non-empty strings, got {item!r}")
+            requested.append(item)
+        if not requested:
+            return []
+        # Chroma 的 get 拒绝重复 id：先按首次出现顺序去重再请求。
+        unique_requested = list(dict.fromkeys(requested))
+        results = self._collection.get(ids=unique_requested, include=["documents", "metadatas"])
+        got_ids = results.get("ids") or []
+        documents = results.get("documents") or []
+        metadatas = results.get("metadatas") or []
+        by_id: dict[str, dict[str, Any]] = {}
+        for i, rid in enumerate(got_ids):
+            text = documents[i] if i < len(documents) and documents[i] else ""
+            metadata = metadatas[i] if i < len(metadatas) and metadatas[i] else {}
+            by_id[rid] = {"id": rid, "text": text, "metadata": metadata}
+        out: list[dict[str, Any]] = []
+        for rid in unique_requested:
+            record = by_id.get(rid)
+            if record is not None:
+                out.append(record)
+        return out
 
     def delete_by_metadata(
         self,
-        filter_dict: Dict[str, Any],
-        trace: Optional[Any] = None,
-    ) -> int:
-        """Delete records matching a metadata filter.
-
-        Args:
-            filter_dict: Metadata key/value pairs to match
-                (e.g. ``{"source_hash": "abc123"}``).
-            trace: Optional TraceContext for observability.
-
-        Returns:
-            Number of records deleted.
-
-        Raises:
-            ValueError: If *filter_dict* is empty.
-            RuntimeError: If the operation fails.
-        """
-        if not filter_dict:
-            raise ValueError("filter_dict cannot be empty")
-
-        try:
-            where = self._build_where_clause(filter_dict)
-            # Query matching IDs first
-            results = self.collection.get(where=where, include=[])
-            matching_ids = results.get("ids", [])
-
-            if not matching_ids:
-                logger.debug(f"delete_by_metadata: no records matched {filter_dict}")
-                return 0
-
-            self.collection.delete(ids=matching_ids)
-            logger.info(
-                f"delete_by_metadata: deleted {len(matching_ids)} records "
-                f"matching {filter_dict}"
-            )
-            return len(matching_ids)
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to delete by metadata {filter_dict}: {e}"
-            ) from e
-    
-    def _sanitize_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """Sanitize metadata to ensure ChromaDB compatibility.
-        
-        ChromaDB requires metadata values to be str, int, float, or bool.
-        This method converts or filters out incompatible types.
-        
-        Args:
-            metadata: Raw metadata dict.
-        
-        Returns:
-            Sanitized metadata dict.
-        """
-        sanitized = {}
-        for key, value in metadata.items():
-            if isinstance(value, (str, int, float, bool)):
-                sanitized[key] = value
-            elif value is None:
-                # Skip None values
-                continue
-            elif isinstance(value, (list, tuple)):
-                # Convert to comma-separated string
-                sanitized[key] = ",".join(str(v) for v in value)
-            else:
-                # Convert to string as fallback
-                sanitized[key] = str(value)
-        
-        return sanitized
-    
-    def _build_where_clause(self, filters: Dict[str, Any]) -> Dict[str, Any]:
-        """Build ChromaDB where clause from filters.
-        
-        Converts standard filter dict to ChromaDB's query format.
-        
-        Args:
-            filters: Standard filter dict (e.g., {'source': 'doc1.pdf'}).
-        
-        Returns:
-            ChromaDB where clause dict.
-        
-        Note:
-            ChromaDB supports operators like $eq, $ne, $gt, $lt, $in, etc.
-            For simplicity, we currently support only exact equality matches.
-            Future enhancement: support complex filters.
-        """
-        # Simple implementation: exact equality matches only
-        # For complex filters (e.g., {'score': {'$gt': 0.5}}), extend this method
-        where = {}
-        for key, value in filters.items():
-            if isinstance(value, dict):
-                # Already in ChromaDB operator format (e.g., {'$eq': 'value'})
-                where[key] = value
-            else:
-                # Simple equality
-                where[key] = value
-        
-        return where
-    
-    def get_collection_stats(self) -> Dict[str, Any]:
-        """Get statistics about the current collection.
-        
-        Returns:
-            Dict containing collection statistics:
-                - count: Number of records in collection
-                - name: Collection name
-                - metadata: Collection metadata
-        """
-        return {
-            'count': self.collection.count(),
-            'name': self.collection_name,
-            'metadata': self.collection.metadata
-        }
-    
-    def get_by_ids(
-        self,
-        ids: List[str],
-        trace: Optional[Any] = None,
+        filters: dict[str, Any],
+        *,
+        trace: Any | None = None,
         **kwargs: Any,
-    ) -> List[Dict[str, Any]]:
-        """Retrieve records by their IDs from ChromaDB.
-        
-        This method is used by SparseRetriever to fetch text and metadata
-        for chunks that were matched by BM25 search.
-        
-        Args:
-            ids: List of record IDs to retrieve.
-            trace: Optional TraceContext for observability.
-            **kwargs: Provider-specific parameters (unused for Chroma).
-        
-        Returns:
-            List of records in the same order as input ids.
-            Each record contains:
-                - 'id': Record identifier
-                - 'text': The stored text content
-                - 'metadata': Associated metadata
-            If an ID is not found, an empty dict is returned for that position.
-        
-        Raises:
-            ValueError: If ids list is empty.
-            RuntimeError: If the retrieval operation fails.
-        """
-        if not ids:
-            raise ValueError("IDs list cannot be empty")
-        
-        # Ensure all IDs are strings
-        str_ids = [str(id_) for id_ in ids]
-        
-        try:
-            # ChromaDB's get method retrieves records by IDs
-            results = self.collection.get(
-                ids=str_ids,
-                include=["metadatas", "documents"]
+    ) -> int:
+        """按 metadata 等值条件批量删除（G2 DocumentManager）。"""
+        where = self._where(self._require_filters(filters), allow_empty=False)
+        before = self._safe_count()
+        self._collection.delete(where=where)
+        deleted = max(0, before - self._safe_count())
+        return deleted
+
+    def get_by_metadata(
+        self,
+        filters: dict[str, Any] | None = None,
+        *,
+        trace: Any | None = None,
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        """按 metadata 等值条件批量读取（G1/G3 数据浏览）。"""
+        if filters is not None and not isinstance(filters, dict):
+            raise ValueError(f"filters must be a dict or None, got {type(filters).__name__}")
+        where = self._where(filters)
+        kwargs_get: dict[str, Any] = {"include": ["documents", "metadatas"]}
+        if where:
+            kwargs_get["where"] = where
+        results = self._collection.get(**kwargs_get)
+        ids = results.get("ids") or []
+        documents = results.get("documents") or []
+        metadatas = results.get("metadatas") or []
+        records: list[dict[str, Any]] = []
+        for i, rid in enumerate(ids):
+            text = documents[i] if i < len(documents) and documents[i] else ""
+            metadata = metadatas[i] if i < len(metadatas) and metadatas[i] else {}
+            records.append({"id": rid, "text": text, "metadata": dict(metadata)})
+        records.sort(key=lambda rec: rec["id"])
+        return records
+
+    def get_collection_stats(
+        self,
+        *,
+        trace: Any | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """返回当前物理集合统计（G1 系统总览）。"""
+        records = self.get_by_metadata()
+        sources = {
+            rec["metadata"].get("source_path")
+            for rec in records
+            if rec["metadata"].get("source_path")
+        }
+        by_collection: dict[str, dict[str, Any]] = {}
+        for rec in records:
+            name = rec["metadata"].get("collection") or self._collection_name
+            bucket = by_collection.setdefault(
+                name,
+                {"name": name, "chunk_count": 0, "sources": set()},
             )
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to get records by IDs from ChromaDB: {e}"
-            ) from e
-        
-        # Build a mapping from ID to result for O(1) lookup
-        id_to_result: Dict[str, Dict[str, Any]] = {}
-        
-        if results and results.get('ids'):
-            result_ids = results['ids']
-            documents = results.get('documents', [None] * len(result_ids))
-            metadatas = results.get('metadatas', [{}] * len(result_ids))
-            
-            for i, record_id in enumerate(result_ids):
-                id_to_result[record_id] = {
-                    'id': record_id,
-                    'text': documents[i] if documents and documents[i] else '',
-                    'metadata': metadatas[i] if metadatas and metadatas[i] else {}
-                }
-        
-        # Return results in the same order as input ids
-        output = []
-        for id_ in str_ids:
-            if id_ in id_to_result:
-                output.append(id_to_result[id_])
-            else:
-                # ID not found, return empty dict
-                output.append({})
-        
-        logger.debug(f"Retrieved {len([r for r in output if r])} of {len(ids)} records by IDs")
-        return output
+            bucket["chunk_count"] += 1
+            source = rec["metadata"].get("source_path")
+            if source:
+                bucket["sources"].add(source)
+        collections = [
+            {
+                "name": name,
+                "chunk_count": bucket["chunk_count"],
+                "document_count": len(bucket["sources"]),
+            }
+            for name, bucket in sorted(by_collection.items())
+        ]
+        return {
+            "name": self._collection_name,
+            "chunk_count": len(records),
+            "document_count": len(sources),
+            "collections": collections,
+        }
+
+    @staticmethod
+    def _sanitize(metadata: dict[str, Any]) -> dict[str, Any]:
+        """净化 metadata 为 Chroma 可存储形态（dict/混合列表 → JSON 字符串）。"""
+        out: dict[str, Any] = {}
+        for k, v in metadata.items():
+            safe = _chroma_safe_value(v)
+            if safe is not None:
+                out[k] = safe
+        return out
+
+    def _safe_count(self) -> int:
+        try:
+            return int(self._collection.count())
+        except Exception:
+            return 0
+
+    @staticmethod
+    def _require_filters(filters: Any) -> dict[str, Any]:
+        if not isinstance(filters, dict) or not filters:
+            raise ValueError("filters must be a non-empty dict (refuse to wipe all)")
+        return filters
+
+    @staticmethod
+    def _where(filters: dict[str, Any] | None, *, allow_empty: bool = True) -> dict[str, Any] | None:
+        """把等值 dict 转成 Chroma where；多键使用 ``$and``。"""
+        if not filters:
+            if allow_empty:
+                return None
+            raise ValueError("filters must be a non-empty dict (refuse to wipe all)")
+        if len(filters) == 1:
+            return dict(filters)
+        return {"$and": [{key: value} for key, value in filters.items()]}
+
+    def _distance_to_score(self, distance: float) -> float:
+        """将 Chroma distance 转换为相似度 score（越高越相关）。
+
+        - cosine: distance = 1 - cosine_similarity → score = 1 - distance
+        - l2:     distance = squared L2 → score = 1 / (1 + distance)
+        """
+        if self._distance == "cosine":
+            return 1.0 - distance
+        return 1.0 / (1.0 + distance)
+
+    def count(self) -> int:
+        """返回当前集合中的记录数。"""
+        return self._collection.count()
+
+    def delete_all(self) -> None:
+        """删除当前集合并重新创建（测试辅助）。"""
+        self._client.delete_collection(self._collection_name)
+        self._collection = self._client.get_or_create_collection(
+            name=self._collection_name,
+            metadata={"hnsw:space": self._distance},
+        )
+
+
+def register_chroma_provider() -> None:
+    """向 ``VectorStoreFactory`` 注册 chroma backend。"""
+    from libs.vector_store.vector_store_factory import VectorStoreFactory
+
+    @VectorStoreFactory.register("chroma")
+    def _ctor(vs_config: VectorStoreConfig, **kwargs: Any) -> ChromaStore:
+        return ChromaStore(vs_config, **kwargs)

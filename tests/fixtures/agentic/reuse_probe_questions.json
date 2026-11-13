@@ -1,0 +1,43 @@
+{
+  "_comment": "SX4.2 知识簇复用探针（SIRCHMUNK_EXTENSION_SPEC 3.5）：三组，每组按 seed → repeat（逐字重复）→ reword（改写）→ distractor（同主题、答案不同）顺序执行，同一 sidecar 会话、复用开启、知识簇存储起始为空。seed 取自 golden 集中基线稳定命中的 Q3/Q1/D2。distractor 用于误复用抽查：若命中复用，返回的是 seed 的答案；answer_should_contain 给出正确答案的判别片段（人工核对用，非自动判分）。复用是否命中以 sidecar 日志为准（Found similar cluster / Reused cached knowledge cluster）。",
+  "questions": [
+    {"id": "P1-seed", "group": "P1", "role": "seed", "category": "format",
+     "query": "According to the README run manual, which command starts the Streamlit Dashboard?",
+     "expected_sources": ["README.md"], "answer_should_contain": "start_dashboard"},
+    {"id": "P1-repeat", "group": "P1", "role": "repeat", "category": "format",
+     "query": "According to the README run manual, which command starts the Streamlit Dashboard?",
+     "expected_sources": ["README.md"], "answer_should_contain": "start_dashboard"},
+    {"id": "P1-reword", "group": "P1", "role": "reword", "category": "format",
+     "query": "What command does the README give for launching the Streamlit dashboard?",
+     "expected_sources": ["README.md"], "answer_should_contain": "start_dashboard"},
+    {"id": "P1-distractor", "group": "P1", "role": "distractor", "category": "format",
+     "query": "According to the README, which command starts the MCP server over stdio?",
+     "expected_sources": ["README.md"], "answer_should_contain": "mcp_server.server"},
+
+    {"id": "P2-seed", "group": "P2", "role": "seed", "category": "identifier",
+     "query": "Where is the BM25Indexer IDF formula implemented and what is the exact k1/b defaults?",
+     "expected_sources": ["src/ingestion/storage/bm25_indexer.py"], "answer_should_contain": "bm25_indexer"},
+    {"id": "P2-repeat", "group": "P2", "role": "repeat", "category": "identifier",
+     "query": "Where is the BM25Indexer IDF formula implemented and what is the exact k1/b defaults?",
+     "expected_sources": ["src/ingestion/storage/bm25_indexer.py"], "answer_should_contain": "bm25_indexer"},
+    {"id": "P2-reword", "group": "P2", "role": "reword", "category": "identifier",
+     "query": "In which file is the IDF computation for BM25 indexing, and what default values do k1 and b take?",
+     "expected_sources": ["src/ingestion/storage/bm25_indexer.py"], "answer_should_contain": "bm25_indexer"},
+    {"id": "P2-distractor", "group": "P2", "role": "distractor", "category": "identifier",
+     "query": "Where is the RRF fusion smoothing constant k defined and what is its default value?",
+     "expected_sources": ["src/core/query_engine/fusion.py"], "answer_should_contain": "60"},
+
+    {"id": "P3-seed", "group": "P3", "role": "seed", "category": "doc_navigation",
+     "query": "When the ingestion history database is upgraded to the v2 table, what happens to the old table, and how is that migration rolled back if something goes wrong? Why is there no automatic rollback command?",
+     "expected_sources": ["docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md"], "answer_should_contain": "ingestion_history"},
+    {"id": "P3-repeat", "group": "P3", "role": "repeat", "category": "doc_navigation",
+     "query": "When the ingestion history database is upgraded to the v2 table, what happens to the old table, and how is that migration rolled back if something goes wrong? Why is there no automatic rollback command?",
+     "expected_sources": ["docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md"], "answer_should_contain": "ingestion_history"},
+    {"id": "P3-reword", "group": "P3", "role": "reword", "category": "doc_navigation",
+     "query": "During the v2 migration of the ingestion history store, how is the legacy table treated, what is the manual way to undo the migration, and why is no rollback command provided?",
+     "expected_sources": ["docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md"], "answer_should_contain": "ingestion_history"},
+    {"id": "P3-distractor", "group": "P3", "role": "distractor", "category": "doc_navigation",
+     "query": "Which ingestion errors are classified as retryable, and what backoff does the ingestion pipeline apply between retries?",
+     "expected_sources": ["docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md"], "answer_should_contain": "backoff"}
+  ]
+}

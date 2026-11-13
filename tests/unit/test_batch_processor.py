@@ -1,475 +1,205 @@
-"""Unit tests for BatchProcessor.
+"""``ingestion.embedding.BatchProcessor`` 契约测试（阶段 C10）。
 
-Tests batch processing orchestration, timing metrics, and error handling.
+覆盖：
+- ``batch_size=2`` 对 5 chunks 分成 3 批（[2,2,1]）且顺序稳定；
+- ``run`` 结果拼接顺序与输入一致、长度守恒；编码函数收到的就是批次切分；
+- 每批耗时记录进 trace；默认批大小来自 ``ingestion.batch_size``；
+- 非法批大小（0/负数/bool）抛 ``ValueError``；空输入返回空；
+- 编码函数抛错原样传播；run_dense/run_sparse 便捷路径。
 """
 
+from __future__ import annotations
+
+from pathlib import Path
+from textwrap import dedent
+
 import pytest
-from unittest.mock import Mock, MagicMock
-from typing import List, Dict, Any
 
-from src.core.types import Chunk
-from src.ingestion.embedding.batch_processor import BatchProcessor, BatchResult
-from src.ingestion.embedding.dense_encoder import DenseEncoder
-from src.ingestion.embedding.sparse_encoder import SparseEncoder
-from src.core.trace.trace_context import TraceContext
+from core.settings import load_settings
+from core.trace.trace_context import TraceContext
+from core.types import Chunk
+from ingestion.embedding import BatchProcessor, DenseEncoder, SparseEncoder
+from libs.embedding import BaseEmbedding
 
-
-class FakeDenseEncoder:
-    """Fake DenseEncoder for testing without real embedding calls."""
-    
-    def __init__(self, vector_dim: int = 3, should_fail: bool = False):
-        self.vector_dim = vector_dim
-        self.should_fail = should_fail
-        self.encode_call_count = 0
-    
-    def encode(self, chunks: List[Chunk], trace=None) -> List[List[float]]:
-        """Return deterministic fake vectors."""
-        self.encode_call_count += 1
-        
-        if self.should_fail:
-            raise RuntimeError("Dense encoder failed")
-        
-        # Generate deterministic vectors based on chunk ID
-        vectors = []
-        for chunk in chunks:
-            # Simple deterministic vector with configured dimension
-            chunk_id_hash = float(hash(chunk.id) % 100) / 100.0
-            # First element is based on hash, rest are 0.5
-            vec = [chunk_id_hash] + [0.5] * (self.vector_dim - 1)
-            vectors.append(vec)
-        return vectors
+_VALID_YAML = dedent(
+    """\
+    llm:
+      provider: azure
+      model: gpt-4o
+    embedding:
+      provider: openai
+      model: text-embedding-3-small
+    vision_llm:
+      provider: azure
+      model: gpt-4o
+    vector_store:
+      backend: chroma
+    retrieval:
+      sparse_backend: bm25
+      fusion_algorithm: rrf
+    rerank:
+      backend: none
+    evaluation:
+      backends: [custom]
+    """
+)
 
 
-class FakeSparseEncoder:
-    """Fake SparseEncoder for testing without real tokenization."""
-    
-    def __init__(self, should_fail: bool = False):
-        self.should_fail = should_fail
-        self.encode_call_count = 0
-    
-    def encode(self, chunks: List[Chunk], trace=None) -> List[Dict[str, Any]]:
-        """Return deterministic fake statistics."""
-        self.encode_call_count += 1
-        
-        if self.should_fail:
-            raise RuntimeError("Sparse encoder failed")
-        
-        stats = []
-        for chunk in chunks:
-            stats.append({
-                "chunk_id": chunk.id,
-                "term_frequencies": {"fake": 1, "terms": 1},
-                "doc_length": 2,
-                "unique_terms": 2
-            })
-        return stats
+def _settings(tmp_path: Path, ingestion_yaml: str = ""):
+    path = Path(tmp_path) / "settings.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_VALID_YAML + ingestion_yaml, encoding="utf-8")
+    return load_settings(path)
 
 
-# ============================================================================
-# Test BatchProcessor Initialization
-# ============================================================================
-
-def test_batch_processor_initialization():
-    """Test BatchProcessor can be initialized with required components."""
-    dense = FakeDenseEncoder()
-    sparse = FakeSparseEncoder()
-    processor = BatchProcessor(
-        dense_encoder=dense,
-        sparse_encoder=sparse,
-        batch_size=10
-    )
-    
-    assert processor.dense_encoder is dense
-    assert processor.sparse_encoder is sparse
-    assert processor.batch_size == 10
-
-
-def test_batch_processor_initialization_with_default_batch_size():
-    """Test default batch size is 100."""
-    processor = BatchProcessor(
-        dense_encoder=FakeDenseEncoder(),
-        sparse_encoder=FakeSparseEncoder()
-    )
-    assert processor.batch_size == 100
-
-
-def test_batch_processor_rejects_invalid_batch_size():
-    """Test initialization fails with invalid batch_size."""
-    with pytest.raises(ValueError, match="batch_size must be positive"):
-        BatchProcessor(
-            dense_encoder=FakeDenseEncoder(),
-            sparse_encoder=FakeSparseEncoder(),
-            batch_size=0
+def _chunks(n: int) -> list[Chunk]:
+    return [
+        Chunk(
+            id=f"doc_{i:04d}_ab12cd34",
+            text=f"chunk-{i}",
+            metadata={"chunk_index": i},
+            start_offset=i * 8,
+            end_offset=i * 8 + 7,
+            source_ref="doc" + "0" * 61,
         )
-    
-    with pytest.raises(ValueError, match="batch_size must be positive"):
-        BatchProcessor(
-            dense_encoder=FakeDenseEncoder(),
-            sparse_encoder=FakeSparseEncoder(),
-            batch_size=-5
-        )
-
-
-# ============================================================================
-# Test Batch Creation
-# ============================================================================
-
-def test_create_batches_divides_evenly():
-    """Test chunks are divided into even batches."""
-    processor = BatchProcessor(
-        dense_encoder=FakeDenseEncoder(),
-        sparse_encoder=FakeSparseEncoder(),
-        batch_size=2
-    )
-    
-    chunks = [
-        Chunk(id="1", text="a", metadata={"source_path": "test.pdf"}),
-        Chunk(id="2", text="b", metadata={"source_path": "test.pdf"}),
-        Chunk(id="3", text="c", metadata={"source_path": "test.pdf"}),
-        Chunk(id="4", text="d", metadata={"source_path": "test.pdf"})
+        for i in range(n)
     ]
-    
-    batches = processor._create_batches(chunks)
-    
-    assert len(batches) == 2
-    assert len(batches[0]) == 2
-    assert len(batches[1]) == 2
-    assert batches[0][0].id == "1"
-    assert batches[1][1].id == "4"
 
 
-def test_create_batches_handles_remainder():
-    """Test batching with remainder chunks (5 chunks, batch_size=2 -> 3 batches)."""
-    processor = BatchProcessor(
-        dense_encoder=FakeDenseEncoder(),
-        sparse_encoder=FakeSparseEncoder(),
-        batch_size=2
-    )
-    
-    chunks = [Chunk(id=f"{i}", text=f"text{i}", metadata={"source_path": "doc.pdf"}) for i in range(5)]
-    batches = processor._create_batches(chunks)
-    
-    assert len(batches) == 3, "5 chunks with batch_size=2 should create 3 batches"
-    assert len(batches[0]) == 2
-    assert len(batches[1]) == 2
-    assert len(batches[2]) == 1, "Last batch should have 1 chunk"
+class _SeqEmbedding(BaseEmbedding):
+    """返回文本长度的单维向量，记录调用批次。"""
+
+    def __init__(self):
+        self.batches: list[list[str]] = []
+
+    def embed(self, texts, *, trace=None, **kwargs):
+        self.batches.append(list(texts))
+        return [[float(len(t))] for t in texts]
 
 
-def test_create_batches_preserves_order():
-    """Test batch creation maintains chunk order."""
-    processor = BatchProcessor(
-        dense_encoder=FakeDenseEncoder(),
-        sparse_encoder=FakeSparseEncoder(),
-        batch_size=2
-    )
-    
-    chunks = [Chunk(id=f"chunk_{i}", text="", metadata={"source_path": "test.pdf"}) for i in range(5)]
-    batches = processor._create_batches(chunks)
-    
-    # Flatten batches and verify order
-    flattened = [chunk for batch in batches for chunk in batch]
-    assert [c.id for c in flattened] == [f"chunk_{i}" for i in range(5)]
+# ---------------------------------------------------------------------------
+# split 契约
+# ---------------------------------------------------------------------------
 
 
-def test_create_batches_single_chunk():
-    """Test batching with single chunk."""
-    processor = BatchProcessor(
-        dense_encoder=FakeDenseEncoder(),
-        sparse_encoder=FakeSparseEncoder(),
-        batch_size=10
-    )
-    
-    chunks = [Chunk(id="1", text="single", metadata={"source_path": "test.pdf"})]
-    batches = processor._create_batches(chunks)
-    
-    assert len(batches) == 1
-    assert len(batches[0]) == 1
-    assert batches[0][0].id == "1"
+def test_batch_size_2_splits_5_into_3_batches(tmp_path):
+    bp = BatchProcessor(batch_size=2)
+    batches = bp.split(_chunks(5))
+    assert len(batches) == 3
+    assert [len(b) for b in batches] == [2, 2, 1]
 
 
-def test_get_batch_count():
-    """Test batch count calculation utility."""
-    processor = BatchProcessor(
-        dense_encoder=FakeDenseEncoder(),
-        sparse_encoder=FakeSparseEncoder(),
-        batch_size=2
-    )
-    
-    assert processor.get_batch_count(0) == 0
-    assert processor.get_batch_count(1) == 1
-    assert processor.get_batch_count(2) == 1
-    assert processor.get_batch_count(3) == 2
-    assert processor.get_batch_count(4) == 2
-    assert processor.get_batch_count(5) == 3
+def test_split_order_stable_no_loss_no_dup(tmp_path):
+    chunks = _chunks(7)
+    batches = BatchProcessor(batch_size=3).split(chunks)
+    flat = [c.id for b in batches for c in b]
+    assert flat == [c.id for c in chunks]  # 顺序稳定
+    assert len(flat) == len(set(flat)) == 7  # 不丢不重
 
 
-# ============================================================================
-# Test Process Method - Happy Path
-# ============================================================================
-
-def test_process_encodes_all_chunks():
-    """Test process() encodes all chunks through both encoders."""
-    dense = FakeDenseEncoder(vector_dim=3)
-    sparse = FakeSparseEncoder()
-    processor = BatchProcessor(
-        dense_encoder=dense,
-        sparse_encoder=sparse,
-        batch_size=2
-    )
-    
-    chunks = [Chunk(id=f"{i}", text=f"text {i}", metadata={"source_path": "test.pdf"}) for i in range(5)]
-    result = processor.process(chunks)
-    
-    # Verify results
-    assert len(result.dense_vectors) == 5
-    assert len(result.sparse_stats) == 5
-    assert result.successful_chunks == 5
-    assert result.failed_chunks == 0
-    assert result.batch_count == 3  # 5 chunks / batch_size=2 -> 3 batches
+def test_split_exact_multiple(tmp_path):
+    assert [len(b) for b in BatchProcessor(batch_size=4).split(_chunks(8))] == [4, 4]
 
 
-def test_process_maintains_chunk_order():
-    """Test output order matches input chunk order."""
-    dense = FakeDenseEncoder()
-    sparse = FakeSparseEncoder()
-    processor = BatchProcessor(
-        dense_encoder=dense,
-        sparse_encoder=sparse,
-        batch_size=2
-    )
-    
-    chunks = [Chunk(id=f"chunk_{i}", text=f"text {i}", metadata={"source_path": "test.pdf"}) for i in range(5)]
-    result = processor.process(chunks)
-    
-    # Verify sparse stats maintain order
-    assert [stat["chunk_id"] for stat in result.sparse_stats] == [f"chunk_{i}" for i in range(5)]
+def test_split_empty_returns_empty_list(tmp_path):
+    assert BatchProcessor(batch_size=2).split([]) == []
 
 
-def test_process_returns_correct_batch_count():
-    """Test BatchResult contains correct batch count."""
-    processor = BatchProcessor(
-        dense_encoder=FakeDenseEncoder(),
-        sparse_encoder=FakeSparseEncoder(),
-        batch_size=3
-    )
-    
-    chunks = [Chunk(id=f"{i}", text="", metadata={"source_path": "test.pdf"}) for i in range(10)]
-    result = processor.process(chunks)
-    
-    assert result.batch_count == 4  # 10 / 3 = 4 batches
+def test_invalid_batch_size_raises():
+    for bad in (0, -1, True, 2.5, "3"):
+        with pytest.raises(ValueError, match="positive integer"):
+            BatchProcessor(batch_size=bad)
 
 
-def test_process_records_timing():
-    """Test process() records total processing time."""
-    processor = BatchProcessor(
-        dense_encoder=FakeDenseEncoder(),
-        sparse_encoder=FakeSparseEncoder(),
-        batch_size=2
-    )
-    
-    chunks = [Chunk(id=f"{i}", text="", metadata={"source_path": "test.pdf"}) for i in range(3)]
-    result = processor.process(chunks)
-    
-    assert result.total_time > 0.0
-    assert isinstance(result.total_time, float)
+def test_default_batch_size_32_without_settings():
+    bp = BatchProcessor()
+    assert bp.batch_size == 32
 
 
-# ============================================================================
-# Test Process with TraceContext
-# ============================================================================
+# ---------------------------------------------------------------------------
+# run 契约
+# ---------------------------------------------------------------------------
 
-def test_process_with_trace_records_batch_info():
-    """Test process() records batch information to TraceContext."""
-    processor = BatchProcessor(
-        dense_encoder=FakeDenseEncoder(),
-        sparse_encoder=FakeSparseEncoder(),
-        batch_size=2
-    )
-    
-    chunks = [Chunk(id=f"{i}", text="", metadata={"source_path": "test.pdf"}) for i in range(5)]
+
+def test_run_concatenates_in_input_order(tmp_path):
+    bp = BatchProcessor(batch_size=2)
+    out = bp.run([1, 2, 3, 4, 5], lambda batch: [x * 10 for x in batch])
+    assert out == [10, 20, 30, 40, 50]
+
+
+def test_run_passes_batches_to_encode_fn(tmp_path):
+    seen: list[list[int]] = []
+
+    def record(batch):
+        seen.append(batch)
+        return batch
+
+    BatchProcessor(batch_size=2).run([1, 2, 3, 4, 5], record)
+    assert seen == [[1, 2], [3, 4], [5]]
+
+
+def test_run_records_per_batch_timing_in_trace(tmp_path):
     trace = TraceContext()
-    result = processor.process(chunks, trace=trace)
-    
-    # Verify batch_processing stage was recorded
-    batch_data = trace.get_stage_data("batch_processing")
-    assert batch_data is not None
-    assert batch_data["total_chunks"] == 5
-    assert batch_data["batch_count"] == 3
-    assert batch_data["batch_size"] == 2
-    assert batch_data["successful_chunks"] == 5
-    assert batch_data["failed_chunks"] == 0
+    BatchProcessor(batch_size=2).run(_chunks(5), lambda b: [None] * len(b), trace=trace)
+    record = trace.get_stage("embedding")
+    assert record["method"] == "batch_processor"
+    assert record["details"]["batches"] == 3
+    assert record["details"]["items"] == 5
+    assert record["details"]["batch_size"] == 2
+    assert len(record["details"]["batch_timings_ms"]) == 3
+    assert all(t >= 0 for t in record["details"]["batch_timings_ms"])
 
 
-def test_process_with_trace_records_individual_batches():
-    """Test individual batch timings are recorded."""
-    processor = BatchProcessor(
-        dense_encoder=FakeDenseEncoder(),
-        sparse_encoder=FakeSparseEncoder(),
-        batch_size=2
-    )
-    
-    chunks = [Chunk(id=f"{i}", text="", metadata={"source_path": "test.pdf"}) for i in range(5)]
+def test_run_count_mismatch_raises(tmp_path):
+    # 每个双元素批次各丢一个：[1],[3],[5] = 3 个结果对 5 个输入。
+    with pytest.raises(RuntimeError, match="produced 3 results for 5"):
+        BatchProcessor(batch_size=2).run([1, 2, 3, 4, 5], lambda b: b[:-1] if len(b) > 1 else b)
+
+
+def test_run_encode_fn_exception_propagates(tmp_path):
+    def boom(batch):
+        raise RuntimeError("rate limited")
+
+    with pytest.raises(RuntimeError, match="rate limited"):
+        BatchProcessor(batch_size=2).run([1, 2, 3], boom)
+
+
+def test_run_empty_returns_empty_without_trace_record(tmp_path):
     trace = TraceContext()
-    processor.process(chunks, trace=trace)
-    
-    # Verify individual batch stages
-    for batch_idx in range(3):
-        batch_data = trace.get_stage_data(f"batch_{batch_idx}")
-        assert batch_data is not None
-        assert "duration_seconds" in batch_data
-        assert "chunks_processed" in batch_data
+    assert BatchProcessor(batch_size=2).run([], lambda b: b, trace=trace) == []
+    assert trace.get_stage("embedding") is None  # 空跑不打点
 
 
-# ============================================================================
-# Test Error Handling
-# ============================================================================
-
-def test_process_rejects_empty_chunks():
-    """Test process() raises ValueError for empty chunks list."""
-    processor = BatchProcessor(
-        dense_encoder=FakeDenseEncoder(),
-        sparse_encoder=FakeSparseEncoder(),
-        batch_size=2
-    )
-    
-    with pytest.raises(ValueError, match="Cannot process empty chunks list"):
-        processor.process([])
+# ---------------------------------------------------------------------------
+# settings 驱动 + 便捷路径
+# ---------------------------------------------------------------------------
 
 
-def test_process_continues_on_batch_failure():
-    """Test process() continues processing after a batch fails."""
-    # Create encoder that fails on second call
-    dense = FakeDenseEncoder()
-    sparse = FakeSparseEncoder()
-    
-    # Make dense encoder fail on second batch
-    original_encode = dense.encode
-    call_count = [0]
-    
-    def failing_encode(chunks, trace=None):
-        call_count[0] += 1
-        if call_count[0] == 2:  # Fail on second batch
-            raise RuntimeError("Simulated batch failure")
-        return original_encode(chunks, trace)
-    
-    dense.encode = failing_encode
-    
-    processor = BatchProcessor(
-        dense_encoder=dense,
-        sparse_encoder=sparse,
-        batch_size=2
-    )
-    
-    chunks = [Chunk(id=f"{i}", text="", metadata={"source_path": "test.pdf"}) for i in range(6)]
-    result = processor.process(chunks)
-    
-    # Should process batches 1 and 3 successfully, batch 2 fails
-    assert result.successful_chunks == 4  # 2 from batch 1, 2 from batch 3
-    assert result.failed_chunks == 2  # batch 2
+def test_settings_driven_batch_size(tmp_path):
+    assert BatchProcessor(_settings(tmp_path)).batch_size == 32  # 默认
+    yaml = "\ningestion:\n  batch_size: 3\n"
+    assert BatchProcessor(_settings(tmp_path, yaml)).batch_size == 3
+    # 显式参数优先于 settings
+    assert BatchProcessor(_settings(tmp_path, yaml), batch_size=7).batch_size == 7
 
 
-def test_process_records_batch_errors_to_trace():
-    """Test batch errors are recorded to TraceContext."""
-    dense = FakeDenseEncoder(should_fail=True)
-    sparse = FakeSparseEncoder()
-    
-    processor = BatchProcessor(
-        dense_encoder=dense,
-        sparse_encoder=sparse,
-        batch_size=2
-    )
-    
-    chunks = [Chunk(id=f"{i}", text="", metadata={"source_path": "test.pdf"}) for i in range(3)]
-    trace = TraceContext()
-    result = processor.process(chunks, trace=trace)
-    
-    # Verify errors were recorded
-    assert result.failed_chunks == 3
-    batch_0_error = trace.get_stage_data("batch_0_error")
-    assert batch_0_error is not None
-    assert "Dense encoder failed" in batch_0_error["error"]
+def test_invalid_batch_size_in_settings_rejected(tmp_path):
+    yaml = "\ningestion:\n  batch_size: 0\n"
+    with pytest.raises(Exception, match="batch_size"):
+        _settings(tmp_path, yaml)
 
 
-# ============================================================================
-# Test BatchResult Dataclass
-# ============================================================================
-
-def test_batch_result_structure():
-    """Test BatchResult contains all required fields."""
-    result = BatchResult(
-        dense_vectors=[[0.1, 0.2]],
-        sparse_stats=[{"chunk_id": "1", "term_frequencies": {}}],
-        batch_count=1,
-        total_time=0.5,
-        successful_chunks=1,
-        failed_chunks=0
-    )
-    
-    assert len(result.dense_vectors) == 1
-    assert len(result.sparse_stats) == 1
-    assert result.batch_count == 1
-    assert result.total_time == 0.5
-    assert result.successful_chunks == 1
-    assert result.failed_chunks == 0
+def test_run_dense_end_to_end(tmp_path):
+    fake = _SeqEmbedding()
+    encoder = DenseEncoder(_settings(tmp_path), embedding=fake)
+    vectors = BatchProcessor(batch_size=2).run_dense(_chunks(5), encoder)
+    assert vectors == [[7.0]] * 5
+    assert fake.batches == [["chunk-0", "chunk-1"], ["chunk-2", "chunk-3"], ["chunk-4"]]
 
 
-# ============================================================================
-# Test Integration with Real Encoders (using Fakes)
-# ============================================================================
-
-def test_process_integration_with_encoders():
-    """Test BatchProcessor integrates correctly with encoder interfaces."""
-    dense = FakeDenseEncoder(vector_dim=4)
-    sparse = FakeSparseEncoder()
-    
-    processor = BatchProcessor(
-        dense_encoder=dense,
-        sparse_encoder=sparse,
-        batch_size=10
-    )
-    
-    chunks = [
-        Chunk(id="doc1_chunk0", text="machine learning systems", metadata={"source_path": "doc1.pdf", "source": "doc1"}),
-        Chunk(id="doc1_chunk1", text="natural language processing", metadata={"source_path": "doc1.pdf", "source": "doc1"}),
-        Chunk(id="doc2_chunk0", text="computer vision models", metadata={"source_path": "doc2.pdf", "source": "doc2"})
-    ]
-    
-    result = processor.process(chunks)
-    
-    # Verify dense vectors
-    assert len(result.dense_vectors) == 3
-    assert all(len(vec) == 4 for vec in result.dense_vectors)
-    
-    # Verify sparse stats
-    assert len(result.sparse_stats) == 3
-    assert all("chunk_id" in stat for stat in result.sparse_stats)
-    assert result.sparse_stats[0]["chunk_id"] == "doc1_chunk0"
-    
-    # Verify metrics
-    assert result.batch_count == 1  # All fit in one batch
-    assert result.successful_chunks == 3
-    assert result.failed_chunks == 0
-    assert result.total_time > 0
-
-
-def test_process_deterministic_output():
-    """Test same chunks produce same output."""
-    dense = FakeDenseEncoder()
-    sparse = FakeSparseEncoder()
-    processor = BatchProcessor(
-        dense_encoder=dense,
-        sparse_encoder=sparse,
-        batch_size=2
-    )
-    
-    chunks = [Chunk(id=f"chunk_{i}", text=f"text {i}", metadata={"source_path": "test.pdf"}) for i in range(3)]
-    
-    result1 = processor.process(chunks)
-    result2 = processor.process(chunks)
-    
-    # Dense vectors should be identical (deterministic based on chunk ID)
-    assert result1.dense_vectors == result2.dense_vectors
-    
-    # Sparse stats should be identical
-    assert result1.sparse_stats == result2.sparse_stats
-
+def test_run_sparse_end_to_end(tmp_path):
+    encoder = SparseEncoder(_settings(tmp_path))
+    stats = BatchProcessor(batch_size=3).run_sparse(_chunks(5), encoder)
+    assert len(stats) == 5
+    assert stats[0].term_freqs["chunk"] == 1
+    assert stats[0].term_freqs["0"] == 1

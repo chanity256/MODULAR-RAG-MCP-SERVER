@@ -1,174 +1,94 @@
-"""Citation Generator for generating structured reference information.
+"""Citation 生成器 — 阶段 E3。
 
-This module generates citation information from retrieval results,
-enabling MCP tools to return properly formatted references that
-can be used by AI assistants for source attribution.
+把查询链路的 ``RetrievalResult`` 列表转换为统一的结构化引用格式
+（DEV_SPEC 3.2.5 ``structuredContent.citations`` 约定）::
+
+    [
+        {"id": 1, "source": "xxx.pdf", "page": 5,
+         "chunk_id": "...", "text": "原文片段...", "score": 0.92},
+        ...
+    ]
+
+设计要点：
+- 引用序号（``id``，1-based）与 ``ResponseBuilder`` Markdown 中的
+  ``[1]``/``[2]`` 标注共用同一顺序（结果列表顺序即引用顺序）。
+- ``page`` 缺失时输出 ``None``（保持字段稳定，Client 可据此省略页码）。
+- ``score`` 保留原始数值语义，序列化时四舍五入到 4 位小数（足够区分
+  排序且避免浮点噪声）。
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
-from typing import Any, Dict, List, Optional
+import sys
+from dataclasses import dataclass
+from typing import Any, Iterable, Sequence
 
-from src.core.types import RetrievalResult
+if __package__ in (None, ""):  # pragma: no cover - 直接运行兜底
+    sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[2]))
+
+from core.types import RetrievalResult
+
+__all__ = ["Citation", "CitationGenerator"]
 
 
 @dataclass
 class Citation:
-    """Represents a single citation/reference.
-    
-    Attributes:
-        index: Citation index number (1-based, for display as [1], [2], etc.)
-        chunk_id: Unique identifier for the source chunk
-        source: Source file path or document name
-        page: Page number in source document (if applicable)
-        score: Relevance score from retrieval
-        text_snippet: Short excerpt from the referenced content
-        metadata: Additional metadata (title, section, etc.)
-    """
-    index: int
-    chunk_id: str
+    """单条结构化引用（与 Markdown ``[n]`` 标注一一对应）。"""
+
+    id: int
     source: str
+    page: int | None
+    chunk_id: str
+    text: str
     score: float
-    text_snippet: str
-    page: Optional[int] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
-        result = {
-            "index": self.index,
-            "chunk_id": self.chunk_id,
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
             "source": self.source,
-            "score": round(self.score, 4),
-            "text_snippet": self.text_snippet,
+            "page": self.page,
+            "chunk_id": self.chunk_id,
+            "text": self.text,
+            "score": self.score,
         }
-        if self.page is not None:
-            result["page"] = self.page
-        if self.metadata:
-            result["metadata"] = self.metadata
-        return result
 
 
 class CitationGenerator:
-    """Generates citation information from retrieval results.
-    
-    This class transforms RetrievalResult objects into Citation objects
-    with proper indexing and metadata extraction.
-    
-    Example:
-        >>> generator = CitationGenerator()
-        >>> results = [RetrievalResult(chunk_id="doc1_001", score=0.95, ...)]
-        >>> citations = generator.generate(results)
-        >>> print(citations[0].index)  # 1
-        >>> print(citations[0].source)  # "docs/guide.pdf"
-    """
-    
-    def __init__(
-        self,
-        snippet_max_length: int = 200,
-        include_metadata_fields: Optional[List[str]] = None,
-    ) -> None:
-        """Initialize CitationGenerator.
-        
-        Args:
-            snippet_max_length: Maximum characters for text_snippet (default: 200)
-            include_metadata_fields: Optional list of metadata fields to include.
-                If None, includes 'title', 'section', 'chunk_index'.
+    """从 ``RetrievalResult`` 列表生成结构化引用。"""
+
+    def generate(self, retrieval_results: Sequence[RetrievalResult]) -> list[Citation]:
+        """按结果顺序生成 1-based 引用列表。
+
+        Raises:
+            TypeError: 输入非列表/元组或元素非 ``RetrievalResult``。
         """
-        self.snippet_max_length = snippet_max_length
-        self.include_metadata_fields = include_metadata_fields or [
-            "title", "section", "chunk_index", "doc_type"
-        ]
-    
-    def generate(self, results: List[RetrievalResult]) -> List[Citation]:
-        """Generate citations from retrieval results.
-        
-        Args:
-            results: List of RetrievalResult objects from search.
-            
-        Returns:
-            List of Citation objects with 1-based indexing.
-        """
-        citations = []
-        
-        for idx, result in enumerate(results, start=1):
-            citation = self._create_citation(idx, result)
-            citations.append(citation)
-        
+        if not isinstance(retrieval_results, (list, tuple)):
+            raise TypeError(
+                "retrieval_results must be a list of RetrievalResult, "
+                f"got {type(retrieval_results).__name__}"
+            )
+        citations: list[Citation] = []
+        for index, result in enumerate(retrieval_results, start=1):
+            if not isinstance(result, RetrievalResult):
+                raise TypeError(
+                    f"retrieval_results[{index - 1}] must be RetrievalResult, "
+                    f"got {type(result).__name__}"
+                )
+            citations.append(self._to_citation(index, result))
         return citations
-    
-    def _create_citation(self, index: int, result: RetrievalResult) -> Citation:
-        """Create a Citation from a single RetrievalResult.
-        
-        Args:
-            index: 1-based citation index.
-            result: RetrievalResult to convert.
-            
-        Returns:
-            Citation object with extracted information.
-        """
+
+    @staticmethod
+    def _to_citation(index: int, result: RetrievalResult) -> Citation:
         metadata = result.metadata or {}
-        
-        # Extract source path
-        source = metadata.get("source_path", "unknown")
-        
-        # Extract page number (may be int or string)
-        page = metadata.get("page") or metadata.get("page_num")
-        if page is not None:
-            try:
-                page = int(page)
-            except (ValueError, TypeError):
-                page = None
-        
-        # Generate text snippet
-        text_snippet = self._generate_snippet(result.text)
-        
-        # Extract selected metadata fields
-        extra_metadata = {}
-        for field_name in self.include_metadata_fields:
-            if field_name in metadata and field_name not in ("source_path", "page", "page_num"):
-                extra_metadata[field_name] = metadata[field_name]
-        
+        source = metadata.get("source_path") or metadata.get("source") or "unknown"
+        page = metadata.get("page")
+        if isinstance(page, bool) or not isinstance(page, (int, float)):
+            page = None
         return Citation(
-            index=index,
+            id=index,
+            source=str(source),
+            page=int(page) if page is not None else None,
             chunk_id=result.chunk_id,
-            source=source,
-            score=result.score,
-            text_snippet=text_snippet,
-            page=page,
-            metadata=extra_metadata,
+            text=result.text,
+            score=round(float(result.score), 4),
         )
-    
-    def _generate_snippet(self, text: str) -> str:
-        """Generate a truncated snippet from text.
-        
-        Args:
-            text: Full text content.
-            
-        Returns:
-            Truncated text with ellipsis if needed.
-        """
-        if not text:
-            return ""
-        
-        # Clean up whitespace
-        cleaned = " ".join(text.split())
-        
-        if len(cleaned) <= self.snippet_max_length:
-            return cleaned
-        
-        # Truncate and add ellipsis
-        truncated = cleaned[:self.snippet_max_length].rsplit(" ", 1)[0]
-        return truncated + "..."
-    
-    def format_citation_marker(self, index: int) -> str:
-        """Format a citation marker for inline use.
-        
-        Args:
-            index: 1-based citation index.
-            
-        Returns:
-            Formatted marker like "[1]".
-        """
-        return f"[{index}]"

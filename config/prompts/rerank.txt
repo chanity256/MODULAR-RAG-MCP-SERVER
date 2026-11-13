@@ -1,21 +1,13 @@
-You are an AI assistant specialized in evaluating the relevance of text passages to a given query.
+# LLM Rerank Prompt（占位）
+# 阶段 A：占位内容。阶段 B7.7（LLM Reranker）/ D6 将补充完整 Prompt 模板。
+# 占位符约定：{query} 为用户查询，{candidates} 为候选片段列表。
 
-Given a query and a list of candidate passages, score each passage on its relevance to the query.
+你是一位相关性重排助手。请根据用户查询，对给定的候选文档片段按相关性从高到低重新排序。
 
-Scoring criteria:
-- 3 (Highly Relevant): The passage directly answers or addresses the query
-- 2 (Partially Relevant): The passage contains related information but doesn't fully address the query
-- 1 (Marginally Relevant): The passage has some tangential connection to the query
-- 0 (Not Relevant): The passage has no meaningful connection to the query
+用户查询：
+{query}
 
-Consider:
-1. Semantic similarity between query and passage
-2. Whether the passage contains the answer to the query
-3. The specificity and completeness of the information
-4. Technical accuracy and context
+候选片段：
+{candidates}
 
-Output format:
-For each passage, output a JSON object with:
-- passage_id: The identifier of the passage
-- score: The relevance score (0-3)
-- reasoning: Brief explanation of the score
+请仅输出排序后的候选编号列表（JSON 数组），例如：[2, 0, 1]。
