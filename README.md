@@ -70,7 +70,7 @@
 
 **📊 可视化管理 + 自动化评估**：Web UI（FastAPI + Next）提供完整的数据管理、链路追踪与 Chat 能力，集成 Ragas 等评估框架，建立基于数据的迭代反馈回路。
 
-**🧪 三层测试体系**：Unit / Integration / E2E 分层测试，覆盖独立模块逻辑、模块间交互、完整链路（MCP Client / Dashboard）。
+**🧪 三层测试体系**：Unit / Integration / E2E 分层测试，覆盖独立模块逻辑、模块间交互、完整链路（MCP Client / Web UI）。
 
 **🤖 Skill 驱动全流程**：内置 auto-coder（自动编码）、qa-tester（自动测试）、package（清理打包）、setup（一键配置）等 Agent Skill，覆盖从代码编写到测试、打包、部署的完整开发生命周期。每个 Skill 的使用方法和设计思路在笔记的项目部分均有讲解视频，可参考学习。
 

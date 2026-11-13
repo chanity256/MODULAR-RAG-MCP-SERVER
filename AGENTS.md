@@ -72,4 +72,4 @@ PYTHONPATH=src python -m mcp_server.server
 - **stdout 纪律**：MCP server 的 stdout 只输出合法 JSON-RPC，日志一律走 stderr；e2e 有逐行断言。
 
 - **docs/ 自动守卫**：Droid 会话由项目级 hook（`.factory/hooks.json`）在每轮结束时检查 docs/ 改动：结构漂移（坏链、MOC 漏登记，规则见 `tests/unit/test_docs_links.py`）必须修，语义同步按映射表提醒；修复流程见 [docs/MOC.md](docs/MOC.md)「命名与流转规范」。
-- **规格与排期**：已收口规格（DEV_SPEC 的 A–I、SIRCHMUNK 的 S 系列、IR 的 IR0–IR7、WC 的 WC0–WC10、LG 的 LG0–LG7）任务表不在其中新增任务；全新功能走 `docs/backlog/` 提案 → 立项后在 `docs/specs/` 建独立规格或经明确指令重开既有规格（格式对齐 SIRCHMUNK/OBSIDIAN 先例，任务编号避免冲突）。
+- **规格与排期**：已收口规格（DEV_SPEC 的 A–I、SIRCHMUNK 的 S 系列、IR 的 IR0–IR7、WC 的 WC0–WC10、LG 的 LG0–LG7、SX 的 SX0–SX5、WP 的 WP0–WP2、WS 的 WS0–WS4、SR 的 SR0–SR6）任务表不在其中新增任务；全新功能走 `docs/backlog/` 提案 → 立项后在 `docs/specs/` 建独立规格或经明确指令重开既有规格（格式对齐 SIRCHMUNK/OBSIDIAN 先例，任务编号避免冲突）。
