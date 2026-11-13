@@ -131,8 +131,8 @@ frontend/ (Next 静态导出) ──▶ start_api.py --serve-ui ──▶ src/ap
 
 | 编号 | 任务 | 验收标准 | 状态 |
 |------|------|----------|------|
-| SR0 | 删除页面层与启动入口（§3.1 前三行） | 文件不存在；在 `frontend/out/` 已构建、`api.enabled: true`（或加 `--force`）的前提下，`python scripts/start_api.py --serve-ui` 正常启动 Web UI | [ ] |
-| SR1 | 迁移 6 个 sidecar_manager 用例至 `tests/unit/test_sidecar_manager.py`；删除 §3.1 三个测试文件 | 三个文件不存在；`pytest tests/unit/test_sidecar_manager.py` 6 passed；剩余测试可收集 | [ ] |
+| SR0 | 删除页面层与启动入口（§3.1 前三行） | 文件不存在；在 `frontend/out/` 已构建、`api.enabled: true`（或加 `--force`）的前提下，`python scripts/start_api.py --serve-ui` 正常启动 Web UI | [x]（2026-11-13，冒烟经 `--port 8611` 实测 UI 200 / API 200） |
+| SR1 | 迁移 6 个 sidecar_manager 用例至 `tests/unit/test_sidecar_manager.py`；删除 §3.1 三个测试文件 | 三个文件不存在；`pytest tests/unit/test_sidecar_manager.py` 6 passed；剩余测试可收集 | [x]（2026-11-13，6 passed；unit 2104 / integration 334+1 skip / e2e 18+10 skip 全绿） |
 | SR2 | `requirements.txt` 与 `pyproject.toml` 删 `streamlit>=1.36` 并清理两处注释 | 两处均无 streamlit；`rg -n "^\s*(import\|from) streamlit" src tests scripts` 零命中（§3.2 所列守卫断言中的字符串不计） | [ ] |
 | SR3 | 删 `DashboardConfig` 及 §3.1 所列 settings 关联代码、`settings.yaml` 的 `dashboard:` 节；按 §4 改两个测试文件并新增兼容用例；按 §3.4 清理注释 | `load_settings` 正常加载仓库配置与含旧 `dashboard:` 节的配置；两个测试文件改动后通过 | [ ] |
 | SR4 | 文档同步（§7 回写清单全部条目） | `pytest tests/unit/test_docs_links.py` 全绿；README / AGENTS / USAGE_GUIDE 无残留的 `start_dashboard` 启动指引；`#109-streamlit-dashboardlegacy` 锚点仍可达 | [ ] |

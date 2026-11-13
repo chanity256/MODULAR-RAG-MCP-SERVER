@@ -158,7 +158,7 @@ S4 追加（Dashboard 在线检索，P4）：
 | 服务层（新增） | `src/observability/dashboard/services/search_service.py` | `SearchService`：`availability(settings)` 返回各模式的可用状态与原因；`run(mode, query, top_k, collection)` 分发至 `QueryKnowledgeHubTool`（normal）或 `AgenticSearchTool`（fast/deep），结果归一化为 `SearchOutcome`（mode/markdown/citations/agentic_meta/is_error/error/elapsed_ms）；工具实例懒构建并会话内缓存 |
 | 页面（新增） | `src/observability/dashboard/pages/query_playground.py` | 「在线检索」页 UI：模式按钮组（默认 Normal）、置灰门控与 help 提示、collection 仅 Normal 显示、按模式渲染结果区、`st.error` 友好错误展示；`render(*, settings=None, search_service=None)` 支持注入 |
 | 页面注册 | `src/observability/dashboard/app.py` | 导航新增分组「检索」，注册「在线检索」页 |
-| 启动编排（交付后增量） | [scripts/start_dashboard.py](../../scripts/start_dashboard.py) | sidecar 托管：探活 → 自动拉起 → 等健康 → 退出回收（进程隔离不变，见第 7 章「S4 交付后修复与增强」R4） |
+| 启动编排（交付后增量） | `scripts/start_dashboard.py`（已删除） | sidecar 托管：探活 → 自动拉起 → 等健康 → 退出回收（进程隔离不变，见第 7 章「S4 交付后修复与增强」R4） |
 | 测试（新增/增量） | `tests/unit/test_dashboard_search_service.py`、`tests/unit/test_start_dashboard.py`、`tests/e2e/test_dashboard_smoke.py` | 单测用 Fake 后端与 fake HybridSearch 离线覆盖；启动器编排 6 个离线用例；e2e 冒烟沿用 `AppTest.from_file` driver |
 
 > **S4 接口冻结（实现前置）**：先在本节冻结 `SearchOutcome` 与 `SearchService` 接口，随后 S4.1（服务层）与 S4.2（页面 UI，基于 fake service）可并行开发，S4.3 单独收口。不改动检索核心（`core/`、`mcp_server/`、`libs/`），不新增依赖，默认配置不变（`agentic_search.enabled: false`，默认仅 Normal 可用）。
