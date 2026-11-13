@@ -29,6 +29,8 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "pytest-check>=2.0",
+    # CI 禁网（AI_NATIVE_SDLC_SPEC SD1.5）：--disable-socket + loopback 白名单
+    "pytest-socket>=0.7",
     # agentic_search sidecar 客户端（运行时经 chromadb 间接安装；此处显式登记以防上游移除）
     "httpx>=0.27",
 ]
