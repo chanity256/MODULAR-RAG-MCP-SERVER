@@ -12,13 +12,12 @@ license = { text = "MIT" }
 authors = [{ name = "Modular RAG MCP Server" }]
 keywords = ["rag", "mcp", "retrieval-augmented-generation", "model-context-protocol"]
 # Runtime dependencies are intentionally minimal in the skeleton (阶段 A).
-# Heavy deps (chromadb, openai, streamlit, mcp) are added in later phases.
+# Heavy deps (chromadb, openai, mcp) are added in later phases.
 dependencies = [
     "pyyaml>=6.0",
     "langchain-text-splitters>=0.3.0",
     "chromadb>=0.5.0",
     "pypdf>=4.0",
-    "streamlit>=1.36",
     # WC 系列 Web API 层（src/api/）与 Chat 流式传输（httpx 发 SSE 请求）
     "fastapi>=0.115,<1.0",
     "uvicorn>=0.30",
