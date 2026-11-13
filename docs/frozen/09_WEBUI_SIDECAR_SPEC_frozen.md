@@ -6,10 +6,10 @@
 > - 完成概要：WS0–WS4 五项全部收口（`scripts/sidecar_manager.py` 共享托管编排 + `start_api.py --manage-sidecar`、`core/chat/progress.py` 共享「sidecar 日志 → search_log 帧」转换、门控 `WS /api/v1/search/ws`（`api.deep_progress_stream` 默认 false，SX5.3 上游线程泄漏规避）、Playground Deep 前端流式接入与降级、USAGE_GUIDE/README 文档同步）。实测 pytest 2108 passed（unit）/ 105 passed（相关集成）、vitest 262 passed、Playwright 26 passed、typecheck/lint 干净。实现偏差见 5 章进度备注。
 > - 遗留：SX5.3 上游线程泄漏（唯一根治路径为向上游提 PR，见 [backlog/sirchmunk-extension-followups_backlog.md](../backlog/sirchmunk-extension-followups_backlog.md) #1；本规格以默认关闭门控规避）
 
-> **定位**：收口 webui-parity-followups 台账（已晋升为 [../specs/STREAMLIT_RETIREMENT_SPEC.md](../specs/STREAMLIT_RETIREMENT_SPEC.md)，原文见 git 历史）剩余的两项实现型差异（台账 #4 sidecar 托管编排、#1 Deep 实时进度日志），二者均为「物理删除 Streamlit 前」的退役门槛项。台账 #3（展示细节差异）为接受决议，不在本规格范围内。基线：`feat/sirchmunk-agentic-search` @ 051f903（WP0–WP2 已随 [frozen/08_WEBUI_PARITY_SPEC_frozen.md](08_WEBUI_PARITY_SPEC_frozen.md) 收口）。
+> **定位**：收口 webui-parity-followups 台账（已晋升为 [10_STREAMLIT_RETIREMENT_SPEC_frozen.md](10_STREAMLIT_RETIREMENT_SPEC_frozen.md)，原文见 git 历史）剩余的两项实现型差异（台账 #4 sidecar 托管编排、#1 Deep 实时进度日志），二者均为「物理删除 Streamlit 前」的退役门槛项。台账 #3（展示细节差异）为接受决议，不在本规格范围内。基线：`feat/sirchmunk-agentic-search` @ 051f903（WP0–WP2 已随 [frozen/08_WEBUI_PARITY_SPEC_frozen.md](08_WEBUI_PARITY_SPEC_frozen.md) 收口）。
 
 **版本**：v0.1（2026-10-18）
-**起源**：由 webui-parity-followups 台账（已晋升为 [../specs/STREAMLIT_RETIREMENT_SPEC.md](../specs/STREAMLIT_RETIREMENT_SPEC.md)）第二次拆分移交（第一次移交 #5/#2/#3 预检 → WP 系列），原文细节见 git 历史；上游依赖背景见 [backlog/sirchmunk-extension-followups_backlog.md](../backlog/sirchmunk-extension-followups_backlog.md) #1（SX5.3）。
+**起源**：由 webui-parity-followups 台账（已晋升为 [10_STREAMLIT_RETIREMENT_SPEC_frozen.md](10_STREAMLIT_RETIREMENT_SPEC_frozen.md)）第二次拆分移交（第一次移交 #5/#2/#3 预检 → WP 系列），原文细节见 git 历史；上游依赖背景见 [backlog/sirchmunk-extension-followups_backlog.md](../backlog/sirchmunk-extension-followups_backlog.md) #1（SX5.3）。
 **决策依据**：台账「决策三问」+ 会话内拍板（2026-10-18）——① #4 选**抽共享模块实现 `--manage-sidecar`**（非文档声明接受）；② #1 **现在立项**，设计为默认关闭/门控，随上游修复（SX5.3 线程泄漏 PR）后再开启；③ 两项合并一份规格（同一台账起源、同一退役门槛关联）。
 
 ---

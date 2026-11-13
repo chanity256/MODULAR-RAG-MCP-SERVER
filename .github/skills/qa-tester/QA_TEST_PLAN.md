@@ -49,7 +49,7 @@
 
 ## A. Dashboard — Overview 页面
 
-> ⚠️ **Streamlit 已退役（2026-11-13，见 `docs/specs/STREAMLIT_RETIREMENT_SPEC.md`）**：A–F 全部 Dashboard UI 用例失效，**不要执行**；原启动方式 `python scripts/start_dashboard.py` 已随启动器一并删除。替代方案（Playwright / Web UI）如需要另走 backlog 提案。
+> ⚠️ **Streamlit 已退役（2026-11-13，见 `docs/frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md`）**：A–F 全部 Dashboard UI 用例失效，**不要执行**；原启动方式 `python scripts/start_dashboard.py` 已随启动器一并删除。替代方案（Playwright / Web UI）如需要另走 backlog 提案。
 
 | ID | 测试标题 | 状态 | 操作步骤 | 预期现象 |
 |----|---------|------|---------|--------- |

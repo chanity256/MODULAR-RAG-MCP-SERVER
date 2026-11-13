@@ -55,9 +55,9 @@ docs/ 文档分两类：
 | 存储扩容 | [STORAGE_SCALING_ANALYSIS.md](analysis/STORAGE_SCALING_ANALYSIS.md) | — | — | — | 止于分析（阶段 0 保持文件型存储不动） |
 | 微服务演进 | [MICROSERVICES_ANALYSIS.md](analysis/MICROSERVICES_ANALYSIS.md) | — | — | — | 止于分析（保持模块化单体） |
 | 持续集成（CI） | [01_DEV_SPEC_frozen.md](frozen/01_DEV_SPEC_frozen.md) §4.5（可选 CI/CD 设计）；[FUTURE_OPTIMIZATION_ROADMAP.md](reference/FUTURE_OPTIMIZATION_ROADMAP.md) §6.7 | [ci-pipeline_backlog.md](backlog/ci-pipeline_backlog.md) | — | — | —（提案待立项） |
-| WebUI 双轨差异收口（WP） | [WEBUI_PARITY_AUDIT.md](analysis/WEBUI_PARITY_AUDIT.md)（WC10.1 缺口清单 L3/L4） | webui-parity-followups 台账（已晋升为下方 SR 规格，原文见 git 历史） | [08_WEBUI_PARITY_SPEC_frozen.md](frozen/08_WEBUI_PARITY_SPEC_frozen.md) | 台账剩余项二次移交 WS 规格（见下行） | 拆分移交 |
-| WebUI sidecar 补齐（WS） | 同上台账（#4 sidecar 托管编排、#1 Deep 进度日志） | webui-parity-followups 台账（第二次拆分移交；已晋升为下方 SR 规格） | [09_WEBUI_SIDECAR_SPEC_frozen.md](frozen/09_WEBUI_SIDECAR_SPEC_frozen.md) | [sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md) #1（SX5.3 线程泄漏，门控默认关闭的依据） | 拆分移交 |
-| Streamlit 退役（SR） | [WEBUI_PARITY_AUDIT.md](analysis/WEBUI_PARITY_AUDIT.md)（退役门槛清单）；webui-parity-followups 台账（#3 接受项决议并入其 Out of Scope） | [STREAMLIT_RETIREMENT_SPEC.md](specs/STREAMLIT_RETIREMENT_SPEC.md)（单文件晋升，原台账原文见 git 历史） | [STREAMLIT_RETIREMENT_SPEC.md](specs/STREAMLIT_RETIREMENT_SPEC.md) | — | 单文件晋升 |
+| WebUI 双轨差异收口（WP） | [WEBUI_PARITY_AUDIT.md](analysis/WEBUI_PARITY_AUDIT.md)（WC10.1 缺口清单 L3/L4） | webui-parity-followups 台账（已晋升为 [frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)，原文见 git 历史） | [08_WEBUI_PARITY_SPEC_frozen.md](frozen/08_WEBUI_PARITY_SPEC_frozen.md) | 台账剩余项二次移交 WS 规格（见下行） | 拆分移交 |
+| WebUI sidecar 补齐（WS） | 同上台账（#4 sidecar 托管编排、#1 Deep 进度日志） | webui-parity-followups 台账（第二次拆分移交；已晋升为 [frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)） | [09_WEBUI_SIDECAR_SPEC_frozen.md](frozen/09_WEBUI_SIDECAR_SPEC_frozen.md) | [sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md) #1（SX5.3 线程泄漏，门控默认关闭的依据） | 拆分移交 |
+| Streamlit 退役（SR） | [WEBUI_PARITY_AUDIT.md](analysis/WEBUI_PARITY_AUDIT.md)（退役门槛清单）；webui-parity-followups 台账（#3 接受项决议并入其 Out of Scope） | [STREAMLIT_RETIREMENT_SPEC.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)（单文件晋升，原台账原文见 git 历史） | [10_STREAMLIT_RETIREMENT_SPEC_frozen.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)（已收口冻结） | — | 单文件晋升 |
 ## specs/ — 开发规格（落点）
 
 **立项后新规格的存放处**（从 [backlog/](backlog/) 晋升）。任务全收口后冻结入 frozen/（SX 系列先例见 [frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md](frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md)）。
@@ -66,7 +66,7 @@ docs/ 文档分两类：
 
 | 文档 | 说明 |
 |------|------|
-| [STREAMLIT_RETIREMENT_SPEC.md](specs/STREAMLIT_RETIREMENT_SPEC.md) | Streamlit 退役规格（SR 系列，SR0–SR6）：物理删除 Streamlit 页面层 / `start_dashboard.py` / streamlit 依赖 / Streamlit-only 配置与页面级测试，文档与技能镜像同步；`services/` 层及其测试保留（API 层依赖）；由 webui-parity-followups 台账单文件晋升，#3 接受项决议存档于其 Out of Scope |
+| _（暂无进行中的规格）_ | 新规格从 [backlog/](backlog/) 晋升后列于此 |
 
 ## frozen/ — 已冻结文档
 
@@ -81,8 +81,9 @@ docs/ 文档分两类：
 | [05_SIRCHMUNK_EXTENSION_SPEC_frozen.md](frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md) | Sirchmunk 能力补齐规格（SX 系列，SX0–SX5 已收口冻结：telemetry 消费、参数透传、compile 实验负结果 GX、复用评估保持关闭、SSE 流式；遗留事项见 [backlog/sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md)） |
 | [06_WEBUI_CHAT_SPEC_frozen.md](frozen/06_WEBUI_CHAT_SPEC_frozen.md) | WebUI 前后端迁移与 Chat 规格（WC 系列，WC0–WC10 已收口冻结：FastAPI + Next 静态导出迁移 P1–P6、Chat 多轮对话 + RAG 有据回答、真流式；D1 推翻 backlog 的 Vue 选型，§1.2 含分析文档五处勘误；WC10.3 门控冒烟记录见冻结记录；Streamlit 保留为 legacy） |
 | [07_LOGGING_SPEC_frozen.md](frozen/07_LOGGING_SPEC_frozen.md) | 日志分层与按日切分规格（LG 系列，LG0–LG7 已收口冻结）：Trace 日志按日落盘 `logs/traces/`、应用运行日志落盘 `logs/app/`、保留期 30 天、测试隔离（`RAG_LOG_ROOT`）、历史 `traces.jsonl` 迁移（真实迁移结果与实现偏差见 7.1） |
-| [08_WEBUI_PARITY_SPEC_frozen.md](frozen/08_WEBUI_PARITY_SPEC_frozen.md) | WebUI 双轨遗留差异收口规格（WP 系列，WP0–WP2 已收口冻结）：Ingestion / Query 追踪列表服务端 offset 翻页、评估历史内联 SVG 趋势图、评估提交路径 422 预检；承接自 webui-parity-followups 台账（已晋升为 [specs/STREAMLIT_RETIREMENT_SPEC.md](specs/STREAMLIT_RETIREMENT_SPEC.md)）的 #5/#2/#3 预检 |
-| [09_WEBUI_SIDECAR_SPEC_frozen.md](frozen/09_WEBUI_SIDECAR_SPEC_frozen.md) | WebUI sidecar 补齐规格（WS 系列，WS0–WS4 已收口冻结）：`scripts/sidecar_manager.py` 共享托管编排 + `start_api.py --manage-sidecar`、`core/chat/progress.py` 共享日志转帧、门控 `WS /api/v1/search/ws`（`api.deep_progress_stream` 默认 false，SX5.3 规避）、Playground Deep 前端流式接入；承接自 webui-parity-followups 台账（已晋升为 [specs/STREAMLIT_RETIREMENT_SPEC.md](specs/STREAMLIT_RETIREMENT_SPEC.md)）的 #4/#1 |
+| [08_WEBUI_PARITY_SPEC_frozen.md](frozen/08_WEBUI_PARITY_SPEC_frozen.md) | WebUI 双轨遗留差异收口规格（WP 系列，WP0–WP2 已收口冻结）：Ingestion / Query 追踪列表服务端 offset 翻页、评估历史内联 SVG 趋势图、评估提交路径 422 预检；承接自 webui-parity-followups 台账（已晋升为 [frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)）的 #5/#2/#3 预检 |
+| [09_WEBUI_SIDECAR_SPEC_frozen.md](frozen/09_WEBUI_SIDECAR_SPEC_frozen.md) | WebUI sidecar 补齐规格（WS 系列，WS0–WS4 已收口冻结）：`scripts/sidecar_manager.py` 共享托管编排 + `start_api.py --manage-sidecar`、`core/chat/progress.py` 共享日志转帧、门控 `WS /api/v1/search/ws`（`api.deep_progress_stream` 默认 false，SX5.3 规避）、Playground Deep 前端流式接入；承接自 webui-parity-followups 台账（已晋升为 [frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)）的 #4/#1 |
+| [10_STREAMLIT_RETIREMENT_SPEC_frozen.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md) | Streamlit 退役规格（SR 系列，SR0–SR6 已收口冻结）：物理删除 Streamlit 页面层 / `start_dashboard.py` / streamlit 依赖 / Streamlit-only 配置与页面级测试，文档与技能镜像同步；`services/` 层及其测试保留（API 层依赖）；由 webui-parity-followups 台账单文件晋升，#3 接受项决议存档于其 Out of Scope；实测 2460 passed / 11 skipped |
 | [dashboard-api-migration_backlog_frozen.md](frozen/dashboard-api-migration_backlog_frozen.md) | Dashboard 前后端分离迁移提案（**已立项并入** [frozen/06_WEBUI_CHAT_SPEC_frozen.md](frozen/06_WEBUI_CHAT_SPEC_frozen.md) WC 系列并收口冻结；原 Vue 3 选型被其 D1 推翻，保留作决策依据与 P1 拆解；backlog 提案冻结后保留 `_backlog` 后缀追加 `_frozen`） |
 | [sirchmunk-capability-completion_backlog_frozen.md](frozen/sirchmunk-capability-completion_backlog_frozen.md) | Sirchmunk 剩余能力补齐提案（已立项并收口冻结为 SX 系列，保留作决策依据：telemetry/compile/复用/SSE/参数透传，源码复核证据） |
 

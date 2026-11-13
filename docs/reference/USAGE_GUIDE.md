@@ -565,11 +565,11 @@ Playwright 流程跑在 `tests/e2e_web/fake_api_server.py` 上：真实 FastAPI 
 
 ### 10.9 Streamlit Dashboard（legacy）
 
-状态：**已退役（2026-11-13）**。Streamlit 页面层（`app.py` + `pages/` 七页面）、`scripts/start_dashboard.py` 与页面级测试（`test_dashboard_smoke.py` / `test_query_traces_source.py` 等）已按 [STREAMLIT_RETIREMENT_SPEC.md](../specs/STREAMLIT_RETIREMENT_SPEC.md)（SR 系列）物理删除；`streamlit>=1.36` 运行时依赖已从 `requirements.txt` / `pyproject.toml` 移除（仅页面使用的 `pandas` 未显式声明、随 streamlit 传递安装，退役后自然消失，无需单独处理）。退役后：Web UI（第 10 章）为主界面；`observability/dashboard/services/` 保留为 `src/api/` 共享服务层；sidecar 托管唯一入口为 `start_api.py --manage-sidecar`。MCP stdio server 与 Streamlit **完全无依赖关系**（`src/mcp_server/` 不 import dashboard）。
+状态：**已退役（2026-11-13）**。Streamlit 页面层（`app.py` + `pages/` 七页面）、`scripts/start_dashboard.py` 与页面级测试（`test_dashboard_smoke.py` / `test_query_traces_source.py` 等）已按 [10_STREAMLIT_RETIREMENT_SPEC_frozen.md](../frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)（SR 系列）物理删除；`streamlit>=1.36` 运行时依赖已从 `requirements.txt` / `pyproject.toml` 移除（仅页面使用的 `pandas` 未显式声明、随 streamlit 传递安装，退役后自然消失，无需单独处理）。退役后：Web UI（第 10 章）为主界面；`observability/dashboard/services/` 保留为 `src/api/` 共享服务层；sidecar 托管唯一入口为 `start_api.py --manage-sidecar`。MCP stdio server 与 Streamlit **完全无依赖关系**（`src/mcp_server/` 不 import dashboard）。
 
 **原删除条件核销**（对应 `dashboard-api-migration_backlog_frozen.md` P6 退役门槛）：
 
-1. [WEBUI_PARITY_AUDIT.md](../analysis/WEBUI_PARITY_AUDIT.md) 的缺口已补齐或明确放弃：#5 翻页/#2 趋势图/#3 预检已由 WP 规格交付，Deep 进度日志与 sidecar 托管编排（原「Streamlit 独有逻辑」）已由 [09_WEBUI_SIDECAR_SPEC_frozen.md](../frozen/09_WEBUI_SIDECAR_SPEC_frozen.md)（WS 系列）补齐；其余遗留见 webui-parity-followups 台账（已晋升为 [STREAMLIT_RETIREMENT_SPEC.md](../specs/STREAMLIT_RETIREMENT_SPEC.md)）——已满足；
+1. [WEBUI_PARITY_AUDIT.md](../analysis/WEBUI_PARITY_AUDIT.md) 的缺口已补齐或明确放弃：#5 翻页/#2 趋势图/#3 预检已由 WP 规格交付，Deep 进度日志与 sidecar 托管编排（原「Streamlit 独有逻辑」）已由 [09_WEBUI_SIDECAR_SPEC_frozen.md](../frozen/09_WEBUI_SIDECAR_SPEC_frozen.md)（WS 系列）补齐；其余遗留见 webui-parity-followups 台账（已晋升为 [10_STREAMLIT_RETIREMENT_SPEC_frozen.md](../frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)）——已满足；
 2. WC10.3 门控冒烟通过（已于 2026-10-15 通过），WEBUI_CHAT_SPEC 已冻结——已满足；
 3. Python、API、前端测试全部通过——已满足（SR6 全量离线回归，计数见该规格）；
 4. Web UI 已稳定使用一段时间，使用者确认不再依赖 Streamlit（2026-11-13）——已满足。

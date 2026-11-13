@@ -1,5 +1,11 @@
 # Streamlit 退役规格（SR 系列）
 
+> **📌 冻结记录**
+>
+> - 冻结时间：2026-11-13
+> - 完成概要：SR0–SR6 六项全部收口（删除页面层 `app.py` + `pages/` 七页面、`scripts/start_dashboard.py` 与页面级 AppTest 测试；6 个 sidecar_manager 编排用例迁至 `tests/unit/test_sidecar_manager.py`；`streamlit>=1.36` 自 `requirements.txt` / `pyproject.toml` 移除；`DashboardConfig` 与 `dashboard:` 配置节删除并新增旧配置静默忽略用例；README / AGENTS.md / USAGE_GUIDE / 技能镜像同步，USAGE_GUIDE 10.9 改为退役记录且标题不变）。实测 `pytest tests` **2460 passed / 11 skipped**（基线核对与计数公式见 §4）。
+> - 遗留：无（不建派生台账）。
+
 > 本规格承接 Streamlit Dashboard（legacy）的**物理删除**：范围是页面层、启动脚本、`streamlit` 运行依赖、仅服务 Streamlit 的配置与页面级测试，以及文档/技能镜像同步。`observability/dashboard/services/` 等 API 层共享服务与对应测试**一律保留**；`scripts/sidecar_manager.py` 的单测随启动器删除而**迁移**，不废止。
 > 由 [backlog/webui-parity-followups_backlog.md](../backlog/) 单文件晋升（原文见 git 历史，纯移动提交 fcaf0cf）。退役门槛三条中前两条已满足（WC10.3 门控冒烟 2026-10-15 通过，见 [06_WEBUI_CHAT_SPEC_frozen](../frozen/06_WEBUI_CHAT_SPEC_frozen.md) 冻结记录；#2/#5 与 #4/#1 已由 [08_WEBUI_PARITY_SPEC_frozen](../frozen/08_WEBUI_PARITY_SPEC_frozen.md)、[09_WEBUI_SIDECAR_SPEC_frozen](../frozen/09_WEBUI_SIDECAR_SPEC_frozen.md) 交付冻结），第三条经使用者 2026-11-13 确认：**不再依赖 Streamlit**。
 
@@ -152,7 +158,7 @@ frontend/ (Next 静态导出) ──▶ start_api.py --serve-ui ──▶ src/ap
 - [x] `pytest tests -q` 离线全量全绿，计数变化已在 SR6 记录。
 - [x] `pytest tests/unit/test_docs_links.py` 全绿；MOC 谱系表含本规格的「单文件晋升」记录。
 - [x] README / AGENTS.md / USAGE_GUIDE / 技能镜像中不再有 Streamlit 启动指引；USAGE_GUIDE 10.9 改为退役记录且标题不变。
-- [ ] 本规格收口后按治理流程冻结入 `frozen/`（编号 = 冻结时 frozen/ 最大编号 +1），如无遗留事项则不建派生台账。
+- [x] 本规格收口后按治理流程冻结入 `frozen/`（编号 = 冻结时 frozen/ 最大编号 +1），如无遗留事项则不建派生台账。
 
 ## 7. 回写清单（收口时同步）
 
@@ -172,4 +178,4 @@ frontend/ (Next 静态导出) ──▶ start_api.py --serve-ui ──▶ src/ap
 - [x] `docs/backlog/OBSIDIAN_RAG_SPEC_backlog.md`：文件头加一行注记——第 48 / 74 / 133 / 141 行按 Streamlit 页面形态与 AppTest 冒烟设计的 M3/M4 交互方案在 Streamlit 退役后失效，立项时须改为 Web UI（`frontend/` + `src/api/`）形态重写；不改正文。
 - [x] MOC：specs/ 分区索引登记本规格；backlog/ 分区移除台账；谱系表新增「Streamlit 退役（SR）」行（单文件晋升）（立项会话已在工作区同步）。
 - [x] backlog/README「当前候选」移除台账（立项会话已在工作区同步）。
-- [ ] 收口冻结时：MOC 谱系表本规格行的「规格」列更新为 frozen 路径；MOC 文档描述同步改为「已收口冻结」。
+- [x] 收口冻结时：MOC 谱系表本规格行的「规格」列更新为 frozen 路径；MOC 文档描述同步改为「已收口冻结」。

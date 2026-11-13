@@ -110,7 +110,7 @@ Check state → `python .factory/skills/qa-tester/scripts/qa_bootstrap.py status
 
 ### Dashboard Tests (A–F) — ⚠️ Streamlit 已退役，该模式失效
 
-> Streamlit 已于 2026-11-13 退役（页面层与 AppTest 测试已物理删除，见 `docs/specs/STREAMLIT_RETIREMENT_SPEC.md`）：本节与 AppTest 模板不再可执行，仅作历史参考，不要据此执行 A–F 用例。
+> Streamlit 已于 2026-11-13 退役（页面层与 AppTest 测试已物理删除，见 `docs/frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md`）：本节与 AppTest 模板不再可执行，仅作历史参考，不要据此执行 A–F 用例。
 
 Read [references/test_patterns.md](references/test_patterns.md) for AppTest templates, interaction patterns, and file upload workarounds.
 
