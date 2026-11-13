@@ -1,6 +1,6 @@
 ---
 name: qa-tester
-description: "Fully autonomous QA testing agent for Modular RAG MCP Server. Reads test cases from QA_TEST_PLAN.md, executes ALL test types automatically without human intervention — CLI commands, Dashboard UI via Streamlit AppTest headless rendering, MCP protocol via subprocess JSON-RPC, provider switches, and data lifecycle checks. Diagnoses failures, applies fixes with up to 3 retry rounds, and records results in QA_TEST_PROGRESS.md. Use when user says 'run QA', 'QA test', 'QA 测试', '执行测试', '跑测试', 'test and fix', or wants to execute QA test plan."
+description: "Fully autonomous QA testing agent for Modular RAG MCP Server. Reads test cases from QA_TEST_PLAN.md, executes ALL test types automatically without human intervention — CLI commands, MCP protocol via subprocess JSON-RPC, provider switches, and data lifecycle checks. NOTE: the Dashboard UI test type (Streamlit AppTest, sections A–F) is RETIRED with Streamlit (2026-11-13) and must NOT be executed. Diagnoses failures, applies fixes with up to 3 retry rounds, and records results in QA_TEST_PROGRESS.md. Use when user says 'run QA', 'QA test', 'QA 测试', '执行测试', '跑测试', 'test and fix', or wants to execute QA test plan."
 ---
 
 # QA Tester
@@ -69,7 +69,7 @@ Optional modifiers: append section letter (`run QA G`) or test ID (`run QA G-01`
 
 | Sections | Type | Execution Method |
 |----------|------|-----------------|
-| A–F | Dashboard UI | AppTest headless — see [references/test_patterns.md](references/test_patterns.md) |
+| A–F | Dashboard UI | ⚠️ Streamlit 已退役（2026-11-13），AppTest 模式失效，不要执行 — see [references/test_patterns.md](references/test_patterns.md) |
 | G, H, I | CLI | Terminal commands, check exit code + stdout |
 | J | MCP Protocol | JSON-RPC subprocess — see [references/test_patterns.md](references/test_patterns.md) |
 | K, L | Provider Switch | `qa_config.py apply <profile>` → run CLI/Dashboard |
@@ -108,7 +108,9 @@ Check state → `python .claude/skills/qa-tester/scripts/qa_bootstrap.py status`
    - **Error**: exit≠0, stderr has descriptive error (not raw stack trace)
    - **Idempotency**: second run shows "skipped", no duplicates
 
-### Dashboard Tests (A–F)
+### Dashboard Tests (A–F) — ⚠️ Streamlit 已退役，该模式失效
+
+> Streamlit 已于 2026-11-13 退役（页面层与 AppTest 测试已物理删除，见 `docs/specs/STREAMLIT_RETIREMENT_SPEC.md`）：本节与 AppTest 模板不再可执行，仅作历史参考，不要据此执行 A–F 用例。
 
 Read [references/test_patterns.md](references/test_patterns.md) for AppTest templates, interaction patterns, and file upload workarounds.
 
@@ -230,7 +232,6 @@ Re-execute any flagged test. Do NOT proceed until 0 flags.
 | `config/settings.yaml` | System configuration |
 | `scripts/ingest.py` / `query.py` / `evaluate.py` | CLI commands |
 | `tests/e2e/test_mcp_client.py` | MCP E2E tests |
-| `tests/e2e/test_dashboard_smoke.py` | Dashboard smoke tests |
 | `tests/fixtures/sample_documents/` | Test PDFs |
 | `tests/fixtures/golden_test_set.json` | Evaluation golden set |
 

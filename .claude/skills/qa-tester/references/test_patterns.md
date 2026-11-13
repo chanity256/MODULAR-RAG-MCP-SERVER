@@ -1,6 +1,8 @@
 # Dashboard & MCP Test Patterns Reference
 
 > Read this file when executing Dashboard (A–F) or MCP (J) tests.
+>
+> ⚠️ **Streamlit 已退役（2026-11-13，见 `docs/specs/STREAMLIT_RETIREMENT_SPEC.md`）**：Dashboard (A–F) 用例与下方 AppTest 章节已失效，仅作历史参考，不要执行；MCP (J) 章节仍有效。
 
 ---
 

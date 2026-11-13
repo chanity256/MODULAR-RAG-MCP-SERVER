@@ -136,7 +136,7 @@ frontend/ (Next 静态导出) ──▶ start_api.py --serve-ui ──▶ src/ap
 | SR2 | `requirements.txt` 与 `pyproject.toml` 删 `streamlit>=1.36` 并清理两处注释 | 两处均无 streamlit；`rg -n "^\s*(import\|from) streamlit" src tests scripts` 零命中（§3.2 所列守卫断言中的字符串不计） | [ ] |
 | SR3 | 删 `DashboardConfig` 及 §3.1 所列 settings 关联代码、`settings.yaml` 的 `dashboard:` 节；按 §4 改两个测试文件并新增兼容用例；按 §3.4 清理注释 | `load_settings` 正常加载仓库配置与含旧 `dashboard:` 节的配置；两个测试文件改动后通过 | [ ] |
 | SR4 | 文档同步（§7 回写清单全部条目） | `pytest tests/unit/test_docs_links.py` 全绿；README / AGENTS / USAGE_GUIDE 无残留的 `start_dashboard` 启动指引；`#109-streamlit-dashboardlegacy` 锚点仍可达 | [ ] |
-| SR5 | 技能镜像同步（§3.5 清单） | 镜像内无会误导的 Streamlit 启动 / AppTest 指引；auto-coder 生成产物未被手改；未覆盖既有未提交改动 | [ ] |
+| SR5 | 技能镜像同步（§3.5 清单） | 镜像内无会误导的 Streamlit 启动 / AppTest 指引；auto-coder 生成产物未被手改；未覆盖既有未提交改动 | [x]（2026-11-13，qa-tester 三镜像 + QA_TEST_PLAN + setup + project-learner + resume-writer/project-review/interview-prep 均已标注失效或改写，auto-coder 产物未动） |
 | SR6 | 全量回归并记录计数变化 | `pytest tests -q` 全绿；记录实测计数并与 §4 预期（2433 passed / 11 skipped）核对，差异需说明 | [ ] |
 
 依赖顺序：SR0 → SR1 → SR2 → SR3 →（SR4、SR5 可并行）→ SR6。SR0 删除启动器后、SR1 完成前，`test_start_dashboard.py` 与两个 AppTest 文件会失败，建议 SR0 与 SR1 在同一提交内完成，避免出现红色中间提交。

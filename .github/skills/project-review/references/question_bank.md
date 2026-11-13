@@ -161,7 +161,7 @@
 | 8-02 | 为什么 BM25 要有"roundtrip"测试？这个名字意味着什么？ | ⭐⭐ | 测试策略 | 验证"写入→保存→加载→查询"完整数据往返路径，确保序列化/反序列化没有数据丢失或精度损失 |
 | 8-03 | `test_ingestion_pipeline.py` 属于哪层测试？应该测什么？ | ⭐⭐ | 测试定位 | 集成测试；测试 Loader→Splitter→Transform→Embed→Upsert 的组合行为，不Mock核心业务逻辑 |
 | 8-04 | `conftest.py` 在 pytest 中的作用是什么？项目里用它来做什么？ | ⭐⭐ | pytest机制 | 定义共享 fixtures（测试夹具）；项目里用来提供测试用配置/Mock对象/临时文件路径等共享测试资源 |
-| 8-05 | E2E 测试中的 Dashboard Smoke Test 是如何在不启动真实服务器的情况下测试的？ | ⭐⭐⭐ | 测试工具 | 使用 Streamlit AppTest（无头渲染）；在进程内运行 Dashboard 逻辑，无需实际启动 Web 服务器 |
+| 8-05 | E2E 测试中的 Dashboard Smoke Test 是如何在不启动真实服务器的情况下测试的？ | ⭐⭐⭐ | 测试工具 | 原 Streamlit AppTest（无头渲染）已随 Streamlit 退役（2026-11-13）移除；现由 `tests/e2e_web/` 假后端启动冒烟覆盖 Web UI |
 
 ---
 

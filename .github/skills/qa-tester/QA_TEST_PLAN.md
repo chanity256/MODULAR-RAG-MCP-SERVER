@@ -49,7 +49,7 @@
 
 ## A. Dashboard — Overview 页面
 
-> 启动方式: `python scripts/start_dashboard.py` → 浏览器打开 `http://localhost:8501`
+> ⚠️ **Streamlit 已退役（2026-11-13，见 `docs/specs/STREAMLIT_RETIREMENT_SPEC.md`）**：A–F 全部 Dashboard UI 用例失效，**不要执行**；原启动方式 `python scripts/start_dashboard.py` 已随启动器一并删除。替代方案（Playwright / Web UI）如需要另走 backlog 提案。
 
 | ID | 测试标题 | 状态 | 操作步骤 | 预期现象 |
 |----|---------|------|---------|--------- |
@@ -64,7 +64,7 @@
 
 ---
 
-## B. Dashboard — Data Browser 页面
+## B. Dashboard — Data Browser 页面（⚠️ Streamlit 已退役，用例失效）
 
 | ID | 测试标题 | 状态 | 操作步骤 | 预期现象 |
 |----|---------|------|---------|--------- |
@@ -83,7 +83,7 @@
 
 ---
 
-## C. Dashboard — Ingestion Manager 页面
+## C. Dashboard — Ingestion Manager 页面（⚠️ Streamlit 已退役，用例失效）
 
 | ID | 测试标题 | 状态 | 操作步骤 | 预期现象 |
 |----|---------|------|---------|--------- |
@@ -103,7 +103,7 @@
 
 ---
 
-## D. Dashboard — Ingestion Traces 页面
+## D. Dashboard — Ingestion Traces 页面（⚠️ Streamlit 已退役，用例失效）
 
 | ID | 测试标题 | 状态 | 操作步骤 | 预期现象 |
 |----|---------|------|---------|--------- |
@@ -122,7 +122,7 @@
 
 ---
 
-## E. Dashboard — Query Traces 页面
+## E. Dashboard — Query Traces 页面（⚠️ Streamlit 已退役，用例失效）
 
 | ID | 测试标题 | 状态 | 操作步骤 | 预期现象 |
 |----|---------|------|---------|--------- |
@@ -142,7 +142,7 @@
 
 ---
 
-## F. Dashboard — Evaluation Panel 页面
+## F. Dashboard — Evaluation Panel 页面（⚠️ Streamlit 已退役，用例失效）
 
 | ID | 测试标题 | 状态 | 操作步骤 | 预期现象 |
 |----|---------|------|---------|--------- |

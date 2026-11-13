@@ -76,7 +76,7 @@ Build an internal mental model covering these **10 Knowledge Domains**, each con
 | D7.4 | 多模态 Chunk 存储与检索：ImageStorage 与 MultimodalAssembler 协同 | `src/ingestion/storage/image_storage.py`, `src/core/response/multimodal_assembler.py` |
 | **D8** | **可观测性 & 评估体系** | |
 | D8.1 | Trace 系统：TraceCollector 与 TraceContext 的采集与关联设计 | `src/core/trace/` |
-| D8.2 | Dashboard 架构：Streamlit App 分页、Services 层数据流 | `src/observability/dashboard/` |
+| D8.2 | Dashboard 架构：services 层数据流 + `src/api/` 路由 + `frontend/` 页面 | `src/observability/dashboard/`, `src/api/`, `frontend/` |
 | D8.3 | 评估指标体系：Recall、Precision、MRR 等核心指标定义与计算 | `src/observability/evaluation/`, `scripts/evaluate.py` |
 | D8.4 | 评估框架：CompositeEvaluator、CustomEvaluator、RAGAS 集成架构 | `src/libs/evaluator/`, `src/observability/evaluation/` |
 | D8.5 | 日志系统：Logger 设计、日志分级与调试支持 | `src/observability/logger.py` |

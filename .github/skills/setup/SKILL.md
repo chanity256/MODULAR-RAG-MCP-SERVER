@@ -202,14 +202,12 @@ pip install -e ".[dev]"
 
 If specific providers need extra packages:
 - **Cross-Encoder rerank**: `pip install sentence-transformers`
-- **Streamlit dashboard**: `pip install streamlit`
 - **OpenAI**: `pip install openai`
 
 Verify critical imports:
 
 ```powershell
 python -c "import chromadb; import mcp; import yaml; print('Core deps OK')"
-python -c "import streamlit; print('Streamlit OK')"
 python -c "import openai; print('OpenAI SDK OK')"
 ```
 
@@ -247,10 +245,10 @@ If 3 rounds fail, report the issue to the user with diagnosis and ask for help.
 
 ---
 
-## Step 6: Launch Dashboard
+## Step 6: Launch Web UI
 
 ```powershell
-python scripts/start_dashboard.py --port 8501
+python scripts/start_api.py --serve-ui --force
 ```
 
 Run this as a **background process**. Wait a few seconds, then verify it's accessible:
@@ -259,16 +257,16 @@ Run this as a **background process**. Wait a few seconds, then verify it's acces
 python -c "
 import urllib.request
 try:
-    r = urllib.request.urlopen('http://localhost:8501/_stcore/health')
-    print('Dashboard is running!' if r.status == 200 else f'Status: {r.status}')
+    r = urllib.request.urlopen('http://127.0.0.1:8600/')
+    print('Web UI is running!' if r.status == 200 else f'Status: {r.status}')
 except Exception as e:
-    print(f'Dashboard not yet ready: {e}')
+    print(f'Web UI not yet ready: {e}')
 "
 ```
 
-If the dashboard fails to start, enter auto-fix loop:
+If the server fails to start, enter auto-fix loop:
 - Read the error output from the background terminal
-- Common issues: missing `streamlit`, port already in use, import errors
+- Common issues: port already in use, import errors
 - Fix and retry
 
 ---
@@ -280,12 +278,12 @@ After successful launch, present this to the user:
 ```
 🎉 Setup Complete!
 
-Dashboard: http://localhost:8501
+Web UI: http://127.0.0.1:8600
 
 Quick Start:
   1. Ingest documents:  python scripts/ingest.py <path-to-pdf-or-folder>
   2. Query:             python scripts/query.py "your question here"
-  3. Dashboard:         python scripts/start_dashboard.py
+  3. Web UI:            python scripts/start_api.py --serve-ui
   4. MCP Server:        python main.py
 
 Configuration: config/settings.yaml
