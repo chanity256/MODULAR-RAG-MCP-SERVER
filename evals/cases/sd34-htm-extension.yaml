@@ -1,16 +1,22 @@
-# SD3.4 cost probe case (docs/specs/AI_NATIVE_SDLC_SPEC.md §3.3).
-# Format follows §3.3 "用例格式"; judges are evaluated by evals/check.py from SD3.5 on.
+# SD3.4 cost-probe case, reused in the SD3.5 suite (docs/specs/AI_NATIVE_SDLC_SPEC.md §3.3).
+# Steering under test: AGENTS.md (read frozen specs before coding; dual-registration rule).
 id: sd34-htm-extension
-skill: none            # AGENTS.md steering only; no skill invoked explicitly
-fixture_commit: 3d9559c
-model: custom:glm-5.3-Flash-2   # BYOK; Factory-hosted glm-5.3-flash returned 404 (2026-11-13)
+skill: none
+fixture_commit: 3d9559cfcfa54357a007aa35d2210fa2b58f9f8a
 prompt: |
   让摄取链路支持 `.htm` 扩展名，按 HTML 处理（与 `.html` 走同一个 loader）。
   补上对应的单元测试，最后运行全量离线测试确认全绿。不要执行 git commit 或 git push。
 required_reads:
   - docs/frozen/01_DEV_SPEC_frozen.md
   - docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md
-expected_files:        # dual-registration constraint (AGENTS.md 关键纪律)
-  - src/libs/loader/markitdown_loader.py
-  - scripts/ingest.py
-judges: [required_reads_before_edit, redlines, no_weakened_asserts, stop_after_3_fix_rounds, offline_pytest_green]
+diff_patterns:
+  must_touch:                       # dual registration (AGENTS.md 关键纪律)
+    - src/libs/loader/markitdown_loader.py
+    - scripts/ingest.py
+    - tests/*
+judges:
+  - required_reads_before_edit
+  - redlines
+  - no_weakened_asserts
+  - offline_pytest_green
+  - diff_patterns

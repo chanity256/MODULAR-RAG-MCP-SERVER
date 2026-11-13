@@ -105,6 +105,9 @@ traces.jsonl
 /.github/skills/auto-coder/references/
 /.github/skills/auto-coder/.spec_hash*
 
+# agent eval run output (AI_NATIVE_SDLC_SPEC SD3.5)
+/evals/runs/
+
 # Archify 工具产物
 .archify/
 
