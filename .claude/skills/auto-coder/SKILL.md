@@ -87,11 +87,6 @@ Quick-check predecessor artifacts exist (file-level only). On mismatch, log a wa
 
 ### 3. Implement
 
-1. **Read relevant spec** from `.claude/skills/auto-coder/references/` (use the owning spec's prefixed chapters when the task belongs to an incremental spec):
-   - Architecture: `05-architecture.md`
-   - Tech details: `03-tech-stack.md`
-   - Testing conventions: `04-testing.md`
-
 2. **Extract** from spec: inputs/outputs, design principles (Pluggable? Config-driven? Factory?), file list, acceptance criteria.
 
 3. **Test-plan precedence**: if the owning spec has its own test plan section (e.g. its §5 测试方案), it **overrides** the generic `04-testing.md` conventions. `04-testing.md` is a fallback for tasks without a spec-level plan.

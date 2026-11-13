@@ -34,7 +34,7 @@ concurrency:
 env:
   # evals/ci/factory-settings.json 的唯一条目：custom:<displayName>-<index>
   EVAL_MODEL: custom:glm-5.3-Flash-0
-  EVAL_CASES: ${{ inputs.cases }}
+  EVAL_CASES: ${{ inputs.cases || 'autocoder-mdown-extension' }}
   EVAL_REPEAT: ${{ inputs.repeat || '3' }}
 
 jobs:
