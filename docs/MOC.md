@@ -66,7 +66,7 @@ docs/ 文档分两类：
 
 | 文档 | 说明 |
 |------|------|
-| [AI_NATIVE_SDLC_SPEC.md](specs/AI_NATIVE_SDLC_SPEC.md) | AI-Native SDLC 流程升级规格（SD 系列，v0.5 立项；SD1 本地部分、SD2 review 规则、SD6 skill 单一来源与 SD3.1 QA 计划清理已交付，推送、分支保护与自动 review 接入待 D1/D2）：前置决策 D1–D6 + baseline PR、CI 确定性门（干净环境 / 双 job / 禁网 / 红线脚本 / CODEOWNERS，承接 ci-pipeline 提案）、AI PR review、QA 对照与 agent evals（门控）、定时闭环（门控）、过程度量、skill 单一来源 + plan + PR 化、规格结构校验（可选）；不改 `src/` 业务行为 |
+| [AI_NATIVE_SDLC_SPEC.md](specs/AI_NATIVE_SDLC_SPEC.md) | AI-Native SDLC 流程升级规格（SD 系列，v0.5 立项；SD1 CI 门（含 fork 上真实 run 与分支保护）、SD2 review 规则、SD6 skill 单一来源与 SD3.1 QA 计划清理已交付，D6 baseline PR 已合入；自动 review 接入暂缓）：前置决策 D1–D6 + baseline PR、CI 确定性门（干净环境 / 双 job / 禁网 / 红线脚本 / CODEOWNERS，承接 ci-pipeline 提案）、AI PR review、QA 对照与 agent evals（门控）、定时闭环（门控）、过程度量、skill 单一来源 + plan + PR 化、规格结构校验（可选）；不改 `src/` 业务行为 |
 
 ## frozen/ — 已冻结文档
 
