@@ -296,7 +296,7 @@ QA 计划测的是**产品行为**，改了 skill 文本，`ingest.py` 的输出
 1. **先清理 QA 计划**（SD3.1，随 SD6.1 一起做）：A 段补标「Streamlit 已退役，用例失效」；N-02、N-04、N-06、O-07 中「在 Dashboard 删除 / Clear All Data」的步骤改为 CLI 或 Web UI 等价操作，或标失效。
 2. **逐条建对照表**（SD3.2）`QA 用例 ID → 现有 pytest 用例 / 无`，覆盖 G、H、I、J、M、N、O 七段（A–F 已退役，K、L 排除）。每条标注能否离线（是否依赖真实 embedding、vision LLM）。
 3. **只为「能离线且无对应 pytest」的用例补测试**（SD3.3），放 `tests/e2e/` 或 `tests/integration/`，复用现有 fake 后端，随 SD1 的 `pytest tests` 一起跑，不另建 workflow。
-4. 对照表放 `.github/skills/qa-tester/QA_PYTEST_MAP.md`（与 QA 计划同目录；SD6 完成后随单一来源迁移），不进 `docs/`。
+4. 对照表放 `.factory/skills/qa-tester/QA_PYTEST_MAP.md`（与 QA 计划同目录，SD6.1 后的单一来源；不进镜像），不进 `docs/`。
 
 #### SD3b（SD3.4–SD3.7）agent steering evals（门控）
 
@@ -340,7 +340,7 @@ QA 计划测的是**产品行为**，改了 skill 文本，`ingest.py` 的输出
 
 **产出怎么落地**：automation 在独立分支提交草案并开 PR，由人 review 合并；不直接提交到 main（D1 落地后也无法直接提交）。
 
-**写回哪个文件**：SD6 完成前，QA 进度只有 `.github/skills/qa-tester/QA_TEST_PROGRESS.md` 一份；SD6 完成后写单一来源那份。
+**写回哪个文件**：QA 进度只有一份，SD6.1 后位于单一来源 `.factory/skills/qa-tester/QA_TEST_PROGRESS.md`。
 
 **关键纪律**：机器起草的提案与人的提案同格式、同入口，不跳过三问；台账推进仍走单文件晋升。连续两周无产出或产出全被否决，就暂停该 automation 并复盘 prompt。
 
@@ -384,6 +384,16 @@ SD6.4–SD6.5、SD5 埋点、SD3b 的 evals 都要改 skill，而镜像已经漂
 2. 确定来源目录。合并完成前不预设以 `.factory/skills/` 为准。`.github/skills/` 独有的 5 个 skill 不在同步范围内（§2.2）。
 3. `scripts/sync_skills.py`：从来源目录生成或校验另两份镜像；`tests/unit/test_skill_mirrors.py` 作为 drift guard，随 SD1 进 CI。
 4. docs-governance（SD6.3）：要么复制进仓库来源目录（随同步脚本分发），要么在 `AGENTS.md` 写明它是用户级 skill 及获取方式。推荐前者，CI 中的 SD3b evals 和新协作者都需要它。
+
+**SD6.1–SD6.3 落地记录（2026-11-13，经使用者拍板）**：
+
+- **来源目录 = `.factory/skills/`**：auto-coder 以 `.factory` 版为准（唯一支持增量规格前缀的版本）；qa-tester 以 `.github` 版为底（脚本 `REPO_ROOT = parents[4]` 才正确，`.factory` / `.claude` 两份的 `parents[3]` 会把 `qa_bootstrap.py clear` 指向错误目录），正文第 8 行改为「Dashboard UI 类型已随 Streamlit 退役」；resume-writer 以 `.github` 版为底（去 CRLF，保留「亮点 11」）；skill-creator 三份只差路径。QA 计划 / 进度 `git mv` 到 `.factory/skills/qa-tester/`。
+- **镜像风格 = 按副本改写路径**：`scripts/sync_skills.py` 把来源文本中的 `.factory/skills` 改写为镜像自身目录，每份镜像自包含；唯一例外是 `qa-tester/QA_*.md`——单一状态文件只在来源目录保留一份，镜像中指向它们的路径不改写，三份 skill 读写同一份 QA 进度。
+- **同步范围**：auto-coder、docs-governance、qa-tester、resume-writer、skill-creator；review-guidelines 只在 `.factory/`（§3.2），`.github/skills/` 独有的 5 个 skill 不动（§2.2）。镜像中多出的文件（同步范围内）视为漂移并由脚本删除。
+- **生成物不入库**：`auto-coder/references/` 与 `.spec_hash*` 是 `sync_spec.py` 的运行产物，三份镜像均 `git rm --cached` 并在 `.gitignore` 只忽略这两项（此前 `.factory/skills/auto-coder/` 被整体忽略，SKILL.md 与脚本无版本控制）。
+- **drift guard**：`tests/unit/test_skill_mirrors.py`（7 条）对真实仓库断言零漂移，并在 `tmp_path` 覆盖改写规则、来源独有内容排除、missing / differs / stale 三类漂移与范围外文件保留；随 `pytest tests` 进 CI，无需另加 workflow 步骤。本地演练：手改 `.claude/skills/qa-tester/SKILL.md` 一行，该测试失败并提示改来源后运行同步脚本。`scripts/sync_skills.py` 加入 CODEOWNERS。
+- **SD6.3**：docs-governance 复制进 `.factory/skills/docs-governance/`，随同步脚本分发到另两份镜像。
+- **SD3.1 顺带修复**：`qa_multistep.py` 的 `delete_document` 辅助函数按旧接口调用 `DataService.delete_document`（多传 `source_hash`、按 dict 取 dataclass 字段、经 `src.` 前缀导入），子进程异常被吞，N-01 / N-06 自动化删除步骤实际未执行；已改为现行接口并在子进程失败时返回 `ERROR`。
 
 #### SD6.4 per-task plan
 
@@ -453,14 +463,16 @@ REVIEW.md                           # SD2（人读版本）
 tests/unit/test_review_guidelines.py         # SD2.2：两份 checklist 一致性
 docs/analysis/process-metrics.md    # SD5.3
 .agents/plans/                      # SD6.4
-.github/skills/qa-tester/QA_PYTEST_MAP.md   # SD3.2 对照表（SD6 后随单一来源迁移）
+.factory/skills/qa-tester/QA_PYTEST_MAP.md  # SD3.2 对照表（单一来源，不进镜像）
+.agents/plans/README.md             # SD6.4：plan 文件格式
+.factory/skills/docs-governance/    # SD6.3：入仓，随 sync_skills.py 分发
 （后置）automation/bands.yaml        # SD4.4
 ```
 
 需要修改的既有文件：
 
 ```text
-.github/skills/qa-tester/QA_TEST_PLAN.md   # SD3.1：A 段标失效；N-02/N-04/N-06/O-07 去掉 Dashboard 步骤
+.factory/skills/qa-tester/QA_TEST_PLAN.md  # SD3.1：A 段标失效；N-02/N-04/N-06/O-07 去掉 Dashboard 步骤（SD6.1 自 .github 迁入）
 .{factory,claude,github}/skills/{auto-coder,qa-tester}/SKILL.md   # SD6 合并、plan 规则、PR 化、Fix-Rounds
 pyproject.toml                      # SD1.5 方案 a：dev extra 加 pytest-socket（若选）
 requirements.txt 或 README          # D3 / SD1.8：补齐或注明以 pyproject.toml 为准
@@ -536,7 +548,7 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 | SD2.1 | 核实 review 指令读取位置与 fork 安装 | 两项结论回填 §3.2；任一不成立时 §3.2 写明替代方案 | [x] 2026-11-13：指令落点为 `.factory/skills/review-guidelines/SKILL.md`；fork 按文档可行，实装待推送（§3.2） |
 | SD2.2 | `REVIEW.md` | 含三遍扫、Important / Nit 界限、Nit 上限 5、排除路径；若 review 不读该文件，指令落点与其互链 | [x] 2026-11-13：`REVIEW.md` + `.factory/skills/review-guidelines/SKILL.md` 互链，checklist 块由 `test_review_guidelines.py` 锁定一致 |
 | SD2.3 | 接入自动 review | 连续 5 个 PR 自动拿到按 `REVIEW.md` 格式、按严重度排序的 review；至少一条 Important 被修复或书面说明 | [ ] 阻塞：需推送并经 `install-code-review` 开 PR（D1/D2 待定） |
-| SD3.1 | QA 计划清理（3a，随 SD6.1） | A 段标失效；N-02/N-04/N-06/O-07 无 Dashboard 步骤（改为 CLI / Web UI 等价操作或标失效） | [ ] |
+| SD3.1 | QA 计划清理（3a，随 SD6.1） | A 段标失效；N-02/N-04/N-06/O-07 无 Dashboard 步骤（改为 CLI / Web UI 等价操作或标失效） | [x] 2026-11-13：计划 v1.1；删除步骤改为 Web UI Data Browser（N-01/N-06 另有 `qa_multistep.py` 自动化），Clear All Data 改为 `qa_bootstrap.py clear`；G–O 其余 Dashboard 页面引用改为 Web UI，M-08/M-09 Trace 路径改为 `logs/traces/` 按日文件 |
 | SD3.2 | QA ↔ pytest 对照表（3a） | `QA_PYTEST_MAP.md` 覆盖 G、H、I、J、M、N、O 全部用例，每条标注对应 pytest 与能否离线 | [ ] |
 | SD3.3 | 补缺口测试（3a） | 「能离线且无对应 pytest」的用例全部有测试，复用现有 fake，随 `pytest tests` 全绿 | [ ] |
 | SD3.4 | evals 单次成本测量（3b 门控入口） | 1 条用例 1 次运行的花费与耗时记录在 §3.3；使用者确认预算后才开工 SD3.5 | [ ] |
@@ -548,13 +560,13 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 | SD4.3 | automation ② QA 回归 | 每周运行可离线回归段，失败项写回 QA 进度文件并标 🔧 | [ ] |
 | SD4.4 | `bands.yaml` 阈值（后置） | SD1 运行满约 4 周后，基于 Actions 记录与 junit 设定阈值，超阈值才触发 ①/② | [ ] |
 | SD5.1 | `measure_process.py` + 单测 | 对当前仓库输出 5 项「✅ 能」指标基线，覆盖 SR、WS、WP、WC、LG 五个系列；`test_measure_process.py` 通过 | [ ] |
-| SD5.2 | `Fix-Rounds` trailer 埋点（随 SD6） | auto-coder SKILL.md 含 trailer 规则；此后 auto-coder 提交带 `Fix-Rounds: N` | [ ] |
+| SD5.2 | `Fix-Rounds` trailer 埋点（随 SD6） | auto-coder SKILL.md 含 trailer 规则；此后 auto-coder 提交带 `Fix-Rounds: N` | [~] 规则已写入 auto-coder（Test & Auto-Fix 计数口径 + Persist trailer）；待后续 auto-coder 提交验证 |
 | SD5.3 | `process-metrics.md` 基线文档 | `docs/analysis/process-metrics.md` 含口径与第一份基线；登记 MOC 与 README；`test_docs_links.py` 通过 | [ ] |
-| SD6.1 | 镜像合并与来源目录确定 | auto-coder、qa-tester 合并为权威版本；来源目录与 `.spec_hash.*` / 生成 references 是否入库的决定记录在 §3.6 | [ ] |
-| SD6.2 | `sync_skills.py` + `test_skill_mirrors.py` | 脚本可生成 / 校验镜像；drift guard 在 CI 中通过 | [ ] |
-| SD6.3 | docs-governance 入仓或获取说明 | 入仓到来源目录随同步分发，或 AGENTS.md 写明用户级 skill 及获取方式 | [ ] |
-| SD6.4 | per-task plan 规则 | auto-coder 第 4 步含复杂任务判定与 `.agents/plans/` 规则；下一次复杂任务按规则产出 plan | [ ] |
-| SD6.5 | Persist 步骤 PR 化 | auto-coder 提交走「分支 → 推送 → PR → 等 CI 与 review」；下一次复杂任务以 PR 合入 | [ ] |
+| SD6.1 | 镜像合并与来源目录确定 | auto-coder、qa-tester 合并为权威版本；来源目录与 `.spec_hash.*` / 生成 references 是否入库的决定记录在 §3.6 | [x] 2026-11-13：来源 `.factory/skills/`，生成物不入库（§3.6 落地记录） |
+| SD6.2 | `sync_skills.py` + `test_skill_mirrors.py` | 脚本可生成 / 校验镜像；drift guard 在 CI 中通过 | [~] 脚本 + 7 条单测通过，镜像零漂移，手改镜像演练被拦；GitHub 真实 run 待推送 |
+| SD6.3 | docs-governance 入仓或获取说明 | 入仓到来源目录随同步分发，或 AGENTS.md 写明用户级 skill 及获取方式 | [x] 2026-11-13：入仓 `.factory/skills/docs-governance/`，随同步分发 |
+| SD6.4 | per-task plan 规则 | auto-coder 第 4 步含复杂任务判定与 `.agents/plans/` 规则；下一次复杂任务按规则产出 plan | [~] 规则与 `.agents/plans/README.md` 格式已交付；待下一次复杂任务验证 |
+| SD6.5 | Persist 步骤 PR 化 | auto-coder 提交走「分支 → 推送 → PR → 等 CI 与 review」；下一次复杂任务以 PR 合入 | [~] 规则已写入 auto-coder，按 D1 是否生效分支（未生效时只本地提交、不推送）；PR 合入验证待 D1/D2 |
 | SD7.1 | `test_spec_structure.py` + 豁免名单（可选） | 在途规格与编号 ≥10 的冻结规格通过；01–09 与无编号存档在豁免名单 | [ ] |
 | SD8 | 收口回归与回写 | `pytest tests -q` 全绿，实测计数按 §4 公式核对并说明差异；§8 回写清单全部勾选 | [ ] |
 

@@ -16,7 +16,7 @@
 - `docs/reference/USAGE_GUIDE.md` — 使用速查（启动、配置、sidecar 用法）。
 - `docs/backlog/` — 候选功能与待开发规格（OBSIDIAN V 系列的 M3/M4 可选增强在此待排期，其 M1/M2 已由 IR7 交付；新提案约定见其 README）。
 - `docs/frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md` — SR 系列 Streamlit 退役（已收口冻结）：物理删除 Streamlit 页面层 / `start_dashboard.py` / `streamlit` 依赖 / Streamlit-only 配置与页面级测试，文档与技能镜像同步；`observability/dashboard/services/` 及其测试保留（API 层依赖），sidecar 托管唯一入口为 `start_api.py --manage-sidecar`；改动 `src/core/settings.py` 配置模型或 docs/ 链接前先读。
-- `docs/specs/AI_NATIVE_SDLC_SPEC.md` — SD 系列 AI-Native SDLC 流程升级（**开发中**，SD1 本地部分已交付：`ci.yml` / 禁网 / 红线脚本 / CODEOWNERS；SD2 review 规则已交付：`REVIEW.md` + `.factory/skills/review-guidelines/`；推送、分支保护、baseline PR 与自动 review 接入待 D1/D2）：前置决策 D1–D6、CI 确定性门（禁网 pytest、`scripts/check_redlines.py`、CODEOWNERS，承接已存档的 ci-pipeline 提案）、AI PR review、QA 对照与 agent evals、定时闭环、过程度量、skill 单一来源 + per-task plan + PR 化；改动 `.github/`、skill 镜像、`.factory/hooks*`、`evals/` 或执行 SD 任务前先读。不改 `src/` 业务行为。
+- `docs/specs/AI_NATIVE_SDLC_SPEC.md` — SD 系列 AI-Native SDLC 流程升级（**开发中**，SD1 本地部分已交付：`ci.yml` / 禁网 / 红线脚本 / CODEOWNERS；SD2 review 规则已交付：`REVIEW.md` + `.factory/skills/review-guidelines/`；SD6 skill 单一来源已交付：`.factory/skills/` 为来源、`scripts/sync_skills.py` 生成 `.claude/` / `.github/` 镜像，auto-coder 含 plan 规则 / `Fix-Rounds` trailer / D1 门控的 PR 流程，QA 计划已清理（SD3.1）；推送、分支保护、baseline PR 与自动 review 接入待 D1/D2）：前置决策 D1–D6、CI 确定性门（禁网 pytest、`scripts/check_redlines.py`、CODEOWNERS，承接已存档的 ci-pipeline 提案）、AI PR review、QA 对照与 agent evals、定时闭环、过程度量、skill 单一来源 + per-task plan + PR 化；改动 `.github/`、skill 镜像、`.factory/hooks*`、`evals/` 或执行 SD 任务前先读。不改 `src/` 业务行为。
 
 **[docs/MOC.md](docs/MOC.md) 是 docs/ 目录的索引文档（MOC, Map of Content）**：在 docs/ 下增删文档后，必须同步更新 MOC.md 的对应条目；根目录 README 的「开发文档」导航表同步维护。
 
@@ -26,7 +26,7 @@
 source .venv/bin/activate            # 主项目 venv
 
 # 测试（全量离线，零网络，默认必须全绿）
-pytest tests -q                      # 看计数用 pytest tests -o addopts="" -q；当前 2477 passed / 11 skipped（干净 clone 未 build frontend/out 时 2474 / 14）
+pytest tests -q                      # 看计数用 pytest tests -o addopts="" -q；当前 2484 passed / 11 skipped（干净 clone 未 build frontend/out 时 2481 / 14）
 pytest tests/unit/test_xxx.py -q     # 单文件
 pytest tests/unit/test_xxx.py::test_name   # 单用例
 pytest tests/e2e_web -q              # Web UI 假后端启动冒烟（frontend/out 未构建则 skip）
@@ -34,6 +34,7 @@ pytest tests/e2e_web -q              # Web UI 假后端启动冒烟（frontend/o
 # CI 等价命令（.github/workflows/ci.yml 逐字同源；pytest-socket 禁网只放行 loopback，NO_PROXY 防经本地系统代理绕出）
 NO_PROXY='*' pytest tests -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,localhost,::1
 python scripts/check_redlines.py     # 红线静态检查（sirchmunk import / llm_fallback / MCP stdout）
+python scripts/sync_skills.py        # skill 镜像同步：改 .factory/skills/ 后运行（--check 只校验；drift guard 见 test_skill_mirrors.py）
 
 # 门控的真实集成测试（默认跳过，仅显式开启才触网）
 RAG_LLM_INTEGRATION=1 pytest ...
@@ -75,6 +76,7 @@ PYTHONPATH=src python -m mcp_server.server
 - **Sirchmunk sidecar 进程隔离红线**：主 venv 永不 `import sirchmunk`，只经 `src/libs/agentic_search/http_backend.py` HTTP 调用独立进程（默认 `enabled: false`）。设计原因与源码实证见 SIRCHMUNK_INTEGRATION_SPEC 第 4 章。
 - **双登记约束**：pipeline 支持的扩展名在 `src/ingestion/pipeline.py` 与 `scripts/ingest.py` 两处登记，由 drift guard 单测锁死，新增格式必须同步。
 - **stdout 纪律**：MCP server 的 stdout 只输出合法 JSON-RPC，日志一律走 stderr；e2e 有逐行断言。
+- **skill 单一来源**：共享 skill（auto-coder / docs-governance / qa-tester / resume-writer / skill-creator）只改 `.factory/skills/`，再运行 `python scripts/sync_skills.py` 生成 `.claude/skills/` 与 `.github/skills/` 镜像，手改镜像会被 `test_skill_mirrors.py` 拦下；QA 计划与进度只在 `.factory/skills/qa-tester/` 保留一份；`review-guidelines` 只在 `.factory/`。复杂任务的 plan 放 `.agents/plans/`（格式见其 README）。
 
 - **docs/ 自动守卫**：Droid 会话由项目级 hook（`.factory/hooks.json`）在每轮结束时检查 docs/ 改动：结构漂移（坏链、MOC 漏登记，规则见 `tests/unit/test_docs_links.py`）必须修，语义同步按映射表提醒；修复流程见 [docs/MOC.md](docs/MOC.md)「命名与流转规范」。
 - **规格与排期**：已收口规格（DEV_SPEC 的 A–I、SIRCHMUNK 的 S 系列、IR 的 IR0–IR7、WC 的 WC0–WC10、LG 的 LG0–LG7、SX 的 SX0–SX5、WP 的 WP0–WP2、WS 的 WS0–WS4、SR 的 SR0–SR6）任务表不在其中新增任务；全新功能走 `docs/backlog/` 提案 → 立项后在 `docs/specs/` 建独立规格或经明确指令重开既有规格（格式对齐 SIRCHMUNK/OBSIDIAN 先例，任务编号避免冲突）。
