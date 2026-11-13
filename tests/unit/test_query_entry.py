@@ -443,3 +443,48 @@ def test_main_real_hybrid_stack_offline(tmp_path, lines):
     assert "[1]" in joined
     assert "a.pdf" in joined  # Top-1 命中 azure 主题文档
     shutil.rmtree(persist, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# QA 计划对照补测（AI_NATIVE_SDLC_SPEC SD3.3，对照表 .factory/skills/qa-tester/QA_PYTEST_MAP.md）
+# ---------------------------------------------------------------------------
+
+
+def test_main_yaml_syntax_error_returns_usage(tmp_path, lines):
+    """QA M-05：settings.yaml 语法错误 → 清晰的解析错误提示，退出码 2。"""
+    config = tmp_path / "settings.yaml"
+    config.write_text("llm:\n  provider: azure\n  model: [gpt-4o\n", encoding="utf-8")
+    code = cli.main(["--query", "测试", "--config", str(config)], out=lines.append)
+    assert code == 2
+    out = "\n".join(lines)
+    assert "配置加载失败" in out
+    assert "failed to parse YAML" in out
+
+
+def test_main_persists_query_trace_readable_by_trace_service(tmp_path, lines):
+    """QA H-10：查询后 Web UI Query Traces 的最新一条 trace 即本次查询（文本与时间）。"""
+    from datetime import datetime, timedelta, timezone
+
+    from observability.dashboard.services.trace_service import TraceService
+
+    trace_dir = tmp_path / "traces"
+    config = tmp_path / "settings.yaml"
+    config.write_text(_VALID_YAML + f"observability:\n  log_file: {trace_dir}\n", encoding="utf-8")
+    query = "What is hybrid search and how does it work"
+    before = datetime.now(timezone.utc)
+
+    code = cli.main(
+        ["--query", query, "--config", str(config)],
+        search=FakeSearch([_result("c1", 0.5, metadata={"source_path": "a.pdf"})]),
+        out=lines.append,
+    )
+
+    assert code == 0
+    assert len(list(trace_dir.glob("traces-*.jsonl"))) == 1
+    latest = TraceService(trace_dir).latest("query")
+    assert latest is not None
+    assert latest["metadata"]["query"] == query
+    started = datetime.fromisoformat(latest["started_at"])
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    assert started >= before - timedelta(seconds=1)

@@ -310,6 +310,12 @@ QA 计划测的是**产品行为**，改了 skill 文本，`ingest.py` 的输出
 3. **只为「能离线且无对应 pytest」的用例补测试**（SD3.3），放 `tests/e2e/` 或 `tests/integration/`，复用现有 fake 后端，随 SD1 的 `pytest tests` 一起跑，不另建 workflow。
 4. 对照表放 `.factory/skills/qa-tester/QA_PYTEST_MAP.md`（与 QA 计划同目录，SD6.1 后的单一来源；不进镜像），不进 `docs/`。
 
+**SD3a 落地记录（2026-11-13）**：
+- 对照口径：❌ = 用例核心预期没有任何 pytest 断言，只测到零件或相邻场景也算 ❌（N-01–N-04 此前只有 DocumentManager / HybridSearch 的零件测试，按此计为 ❌）；🟡 = 核心有断言、细节缺。结果：✅ 35、🟡 27、❌ 1（J-09 soak，不可离线）、⚠️ 1（N-05）、失效 2（I-03/I-04）。
+- 对照暴露的计划与代码不符项在 QA 计划 1.2 订正：G-04 `--dry-run` 须配 `--sync`/`--prune`、G-07 进度行而非 DEBUG、G-09 exit 2、G-10 `.txt` 被过滤；I-03/I-04 参数不存在，标失效；M-01/M-03 LLM 只在 `rerank.backend=llm` 时调用且失败回退 exit 0；配置键名（`persist_path`、`splitter.*`、`use_llm`、`top_k_dense`）、引用字段 `source`、O-01 无 jieba（CJK 逐字）、O-04 chunk 无逐页 `page`。
+- 补测（`tests/e2e/test_qa_offline_gaps.py`）复用 `test_data_ingestion.py` 的组装法：真 PdfLoader 读仓库自带 PDF，真 Chroma / BM25 / SQLite 落 `tmp_path`，摄取侧注入哈希 embedding，查询侧 embedding 抛错使 HybridSearch 降级为 BM25（与离线子进程用例一致），断言只依赖关键词命中；删除走 `DataService`。
+- N-05 实证已知缺陷（04_INGESTION_ROBUSTNESS_SPEC「已知遗留问题」：chunk_id 不含 collection）：同一文件进第二个集合后，第一个集合查询为空。以 `xfail(strict=True)` 锁定，不在本规格修复（不改 `src/` 业务行为）。
+
 #### SD3b（SD3.4–SD3.7）agent steering evals（门控）
 
 **目标**：skills、hooks、AGENTS.md 变更时，验证 agent 仍按纪律干活。
@@ -568,8 +574,8 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 | SD2.2 | `REVIEW.md` | 含三遍扫、Important / Nit 界限、Nit 上限 5、排除路径；若 review 不读该文件，指令落点与其互链 | [x] 2026-11-13：`REVIEW.md` + `.factory/skills/review-guidelines/SKILL.md` 互链，checklist 块由 `test_review_guidelines.py` 锁定一致 |
 | SD2.3 | 接入自动 review | 连续 5 个 PR 自动拿到按 `REVIEW.md` 格式、按严重度排序的 review；至少一条 Important 被修复或书面说明 | [ ] 推送已可用（D1/D2 已终裁）；使用者决定暂不接入（需在 fork 配置 `FACTORY_API_KEY` 并安装 Factory Droid GitHub App） |
 | SD3.1 | QA 计划清理（3a，随 SD6.1） | A 段标失效；N-02/N-04/N-06/O-07 无 Dashboard 步骤（改为 CLI / Web UI 等价操作或标失效） | [x] 2026-11-13：计划 v1.1；删除步骤改为 Web UI Data Browser（N-01/N-06 另有 `qa_multistep.py` 自动化），Clear All Data 改为 `qa_bootstrap.py clear`；G–O 其余 Dashboard 页面引用改为 Web UI，M-08/M-09 Trace 路径改为 `logs/traces/` 按日文件 |
-| SD3.2 | QA ↔ pytest 对照表（3a） | `QA_PYTEST_MAP.md` 覆盖 G、H、I、J、M、N、O 全部用例，每条标注对应 pytest 与能否离线 | [ ] |
-| SD3.3 | 补缺口测试（3a） | 「能离线且无对应 pytest」的用例全部有测试，复用现有 fake，随 `pytest tests` 全绿 | [ ] |
+| SD3.2 | QA ↔ pytest 对照表（3a） | `QA_PYTEST_MAP.md` 覆盖 G、H、I、J、M、N、O 全部用例，每条标注对应 pytest 与能否离线 | [x] 2026-11-13：66 条逐条对照（93 个节点均可收集）；QA 计划 1.2 按对照结果订正与代码不符的步骤 / 键名 / 预期，I-03/I-04 标失效（§3.3 落地记录） |
+| SD3.3 | 补缺口测试（3a） | 「能离线且无对应 pytest」的用例全部有测试，复用现有 fake，随 `pytest tests` 全绿 | [x] 2026-11-13：15 条缺口全部补齐（`tests/e2e/test_qa_offline_gaps.py` 12 条 + `test_query_entry.py` 2 条 + `test_recursive_splitter_lib.py` 1 条）；N-05 为已知缺陷，strict xfail；离线计数 2506 passed / 11 skipped / 1 xfailed |
 | SD3.4 | evals 单次成本测量（3b 门控入口） | 1 条用例 1 次运行的花费与耗时记录在 §3.3；使用者确认预算后才开工 SD3.5 | [ ] |
 | SD3.5 | evals 用例 / fixture / 判据（3b） | 5–8 条用例；`evals/check.py` 实现判据①–⑤；`test_eval_judges.py` 离线通过 | [ ] |
 | SD3.6 | `agent-evals.yml` + 基线校准（3b） | 改一处 skill 文本触发 evals；故意删掉 auto-coder「先读规格」规则后判据①失败；门槛按基线校准后回填 §3.3 | [ ] |
@@ -599,7 +605,7 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 - [x] 干净环境复现离线基线，CI 中 `pytest tests -q` 在禁网条件下全绿。（PR #1：2481 passed / 14 skipped）
 - [ ] 故意 `import sirchmunk`、单测发真实 HTTP、未经 owner 审批改红线白名单的 PR 都无法合并。（前两项已由演练 PR #2 / #3 实证 `BLOCKED`；第三项按 D1 降级为「可见」）
 - [ ] 每个 PR 自动获得按 `REVIEW.md` 的结构化 review。
-- [ ] QA 计划无失效的 Dashboard 步骤；QA ↔ pytest 对照表完整，可离线缺口均已补测试。
+- [x] QA 计划无失效的 Dashboard 步骤；QA ↔ pytest 对照表完整，可离线缺口均已补测试。
 - [ ] skill 镜像由单一来源同步，`test_skill_mirrors.py` 在 CI 中通过；auto-coder 含 plan 规则、PR 化 Persist 与 `Fix-Rounds` trailer。
 - [x] `process-metrics.md` 含 5 项指标基线并登记 MOC。
 - [ ] 门控项（SD3b、SD4）已交付，或门控未满足的原因已记录并移入派生台账。
@@ -632,7 +638,7 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 - [x] `docs/analysis/process-metrics.md`：新建并登记 MOC 分区索引与 README 导航表（SD5.3）。
 - [ ] `docs/MOC.md`：specs/ 分区登记本规格；谱系表「AI-Native SDLC 流程升级（SD）」行（立项时已同步）；冻结时规格列改为 frozen 路径、分区描述改为「已收口冻结」。
 - [ ] `docs/backlog/README.md`：「当前候选」表移除 ci-pipeline（立项时已同步）；有派生台账时登记。
-- [ ] skill 镜像：SD6 单一来源完成后，qa-tester 正文与描述一致，QA 计划 / 进度 / 对照表位于来源目录。
+- [x] skill 镜像：SD6 单一来源完成后，qa-tester 正文与描述一致，QA 计划 / 进度 / 对照表位于来源目录。
 - [ ] 冻结时：检查是否有绑定型分析需随之冻结（本规格由分析就地升级，无独立绑定分析；`process-metrics.md` 为通用型常驻分析，不随之冻结）。
 
 ---
