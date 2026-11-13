@@ -1,6 +1,6 @@
 # 项目使用指南（含 Sirchmunk Agentic 检索）
 
-> 本文档是速查手册，覆盖：① 主项目（Indexed RAG）基本用法；② Sirchmunk sidecar 的启动与 `agentic_search` 工具用法；③ Web UI（FastAPI + Next）与 Chat（第 10 章，Streamlit 已降为 legacy）。
+> 本文档是速查手册，覆盖：① 主项目（Indexed RAG）基本用法；② Sirchmunk sidecar 的启动与 `agentic_search` 工具用法；③ Web UI（FastAPI + Next）与 Chat（第 10 章，Streamlit 已退役，见 [10.9](#109-streamlit-dashboardlegacy)）。
 > 详细设计见 [README.md](../../README.md)、[03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md](../frozen/03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md)。
 
 ---
@@ -71,7 +71,7 @@ Modular-RAG-MCP-Server/
 │   ├── core/                 # 业务核心：settings / query_engine / chat（多轮对话）/ types 契约
 │   ├── ingestion/            # 摄取管线：Loader → Split → Transform → Embed → Upsert + DocumentManager
 │   ├── libs/                 # 可插拔抽象层：各组件 Base* + 工厂（loader / embedding / vector_store / agentic_search 等）
-│   └── observability/        # TraceContext（JSON Lines 落盘）+ dashboard/services（API 层共享服务）+ Streamlit 页面（legacy）
+│   └── observability/        # TraceContext（JSON Lines 落盘）+ dashboard/services（API 层共享服务）
 │
 ├── frontend/                 # Web UI：Next 静态导出（构建产物 frontend/out/ 由 start_api.py --serve-ui 托管）
 │
@@ -80,7 +80,6 @@ Modular-RAG-MCP-Server/
 │   ├── query.py              # 查询（--verbose / --agentic，见 2.3）
 │   ├── evaluate.py           # RAG 评估（golden set + composite 指标）
 │   ├── start_api.py          # Web UI / API 启动器（主界面，见第 10 章）
-│   ├── start_dashboard.py    # Streamlit 启动器（已弃用 legacy，自动托管 sidecar，见第 5 节）
 │   └── sirchmunk/            # sidecar 环境与旁路对比工具（setup_venv / start_sidecar / preflight / compare）
 │
 ├── tests/                    # 离线测试套件（unit / integration / e2e；fixtures/ 为测试夹具与金标准集）
@@ -167,32 +166,20 @@ Claude Desktop 同理，配置块为 `mcpServers`。
 python scripts/start_api.py --serve-ui     # http://127.0.0.1:8600（api.enabled 默认 false，见 10.1）
 ```
 
-Streamlit Dashboard 已弃用（legacy，保留可用，删除条件见 [10.9](#109-streamlit-dashboardlegacy)）：
-
 ```bash
-python scripts/start_dashboard.py          # http://localhost:8501，启动时 stderr 打印弃用提示
-
 python scripts/evaluate.py                 # 默认 golden set + composite 后端
 python scripts/evaluate.py --evaluator custom --top-k 5   # 纯离线指标
 python scripts/evaluate.py --retrieval-mode hybrid+agentic --agentic-trigger always   # agentic A/B（需 sidecar 启用）
 ```
 
-### 2.7 「在线检索」页（S4；Streamlit legacy 页，Web UI 对应 Query Playground）
+### 2.7 Query Playground「在线检索」页（S4）
 
-> Web UI 的 Query Playground 与下述行为等价，但 Deep 模式走同步检索、**没有实时进度日志**（有意规避 SX5.3 线程泄漏，见 [10.6](#106-agentic_progress_stream-与-sidecar-线程泄漏警告)）。以下描述的是 Streamlit 页。
+Web UI「检索」分组 → Query Playground：三模式在线查询，不写代码、不敲 CLI 也能检索。Deep 模式走同步检索、**没有实时进度日志**（有意规避 SX5.3 线程泄漏，见 [10.6](#106-agentic_progress_stream-与-sidecar-线程泄漏警告)）。
 
-Dashboard 导航「检索」分组 → 「在线检索」：三模式在线查询，不写代码、不敲 CLI 也能检索。
-
-- **模式选择**：Normal / Fast / Deep 三个按钮，默认选中 Normal（primary 高亮），选好后再点「检索」。
-- **配置门控**（严格遵守 settings）：
-  - Normal：始终可用；
-  - Fast：需 `agentic_search.enabled: true`，否则按钮置灰，悬停提示开启方法并启动 sidecar（`scripts/sirchmunk/`）；
-  - Deep：另需 `agentic_search.allow_deep: true`，否则置灰并提示开启 `allow_deep`。
-  - 默认配置（`enabled: false`）下仅 Normal 可用。
-- **表单**：查询文本 + Top-K；collection 输入仅在 Normal 模式显示。Deep 模式经 sidecar SSE 流式端点检索，等待期间在状态框内实时滚动显示 sidecar 进度日志（最近 30 行）；后端不支持流式时自动回退同步检索（SX5）。**已知上游缺陷**：sidecar 流式端点每次请求新建的存储实例不释放，每次 Deep 检索在 sidecar 留下约 10 个线程（9 个 DuckDB 工作线程 + 1 个 parquet 同步线程，数量随 CPU 核数变化），空闲后不回收。大量使用 Deep 模式后应重启 sidecar；同步端点（MCP tool、Fast/Normal）不受影响（SX5.3）。
+- **模式选择**：Normal / Fast / Deep 三模式，默认 Normal；Fast 需 `agentic_search.enabled: true`，Deep 另需 `agentic_search.allow_deep: true`（门控拒绝时返回统一错误，见 10.5）。
+- **表单**：查询文本 + Top-K；collection 输入仅在 Normal 模式显示。
 - **结果**：Markdown 答案 + 引用表（来源/页码/分数）；Fast/Deep 额外展示 Agentic 答案、模式、Token、LLM 调用次数、耗时与证据文件。
-- **trace 联动**：每次检索自动写入 trace，到「Query 追踪」页可查看各阶段耗时（agentic 阶段由 S3.2 渲染）。
-- **失败友好**：sidecar 不可用或参数非法时以页面错误提示展示，不崩溃。
+- **trace 联动**：每次检索自动写入 trace，到「Query Traces」页可查看各阶段耗时。
 
 ### 2.8 日志与追踪
 
@@ -307,15 +294,6 @@ agentic_search:
 
 **Web UI 路径**：`start_api.py` 默认**不托管** sidecar；启用 agentic 时先手动起 sidecar（下方分步第 1 步），再 `python scripts/start_api.py --serve-ui`。要一条命令全搞定，加 `--manage-sidecar`（WS0）：`agentic_search.enabled=true` 时自动拉起 sidecar → 等健康 → 启动 API，退出时回收由它拉起的 sidecar（已在外部运行的只复用、不接管；agentic 关闭时只打提示不报错）。
 
-**Streamlit legacy 路径：一条命令全搞定**（Dashboard 启动器自动托管 sidecar；启动时 stderr 会打印弃用提示）：
-
-```bash
-python scripts/start_dashboard.py
-# agentic_search.enabled=true 时：自动拉起 sidecar → 等健康 → 启动 Dashboard；
-# sidecar 已在运行则直接复用；Dashboard 退出（Ctrl+C / kill）时自动停掉由它拉起的 sidecar。
-# --no-sidecar：完全不托管 sidecar（只跑 Dashboard）。
-```
-
 手动分步启动（等效于上面的自动编排）：
 
 ```bash
@@ -425,7 +403,7 @@ RAG_AGENTIC_INTEGRATION=1 pytest tests/e2e/test_agentic_mcp.py -v   # 真实 sid
 
 ## 10. Web UI 与 Chat
 
-Web UI 是主界面：`src/api/`（FastAPI）+ `frontend/`（Next 静态导出，单端口托管）。Chat（多轮对话 + RAG 有据回答）为首页，另有七个管理页面（Overview / Ingestion Traces / Query Traces / Data Browser / Ingestion Manager / Evaluation / Query Playground），与旧 Streamlit 七页逐项对照见 [WEBUI_PARITY_AUDIT.md](../analysis/WEBUI_PARITY_AUDIT.md)。设计与决策见 [06_WEBUI_CHAT_SPEC_frozen.md](../frozen/06_WEBUI_CHAT_SPEC_frozen.md)。
+Web UI 是主界面：`src/api/`（FastAPI）+ `frontend/`（Next 静态导出，单端口托管）。Chat（多轮对话 + RAG 有据回答）为首页，另有七个管理页面（Overview / Ingestion Traces / Query Traces / Data Browser / Ingestion Manager / Evaluation / Query Playground），与旧 Streamlit 七页逐项对照见 [WEBUI_PARITY_AUDIT.md](../analysis/WEBUI_PARITY_AUDIT.md)（Streamlit 已于 2026-11-13 退役，对照表保留作历史记录）。设计与决策见 [06_WEBUI_CHAT_SPEC_frozen.md](../frozen/06_WEBUI_CHAT_SPEC_frozen.md)。
 
 ### 10.1 快速开始
 
@@ -474,7 +452,7 @@ cd frontend && NEXT_PUBLIC_API_BASE=http://localhost:8600 npm run dev
 
 ```yaml
 api:
-  enabled: false                 # 只影响 scripts/start_api.py（可用 --force 绕过）；Streamlit 与 MCP 不受影响
+  enabled: false                 # 只影响 scripts/start_api.py（可用 --force 绕过）
   host: 127.0.0.1
   port: 8600
   api_token: ${RAG_API_TOKEN}    # 未解析占位符 = 无 token；host 非 loopback 时必须有真实 token
@@ -557,7 +535,7 @@ sirchmunk sidecar 的**流式端点**每次请求新建 `KnowledgeStorage` 且�
 
 - `chat.agentic_progress_stream` **默认 `false`**：Chat 的 agentic 模式走同步 `search()`，不受影响，代价是没有 `search_log` 进度帧。
 - 设为 `true` 才改走流式并把 sidecar 日志转 `search_log` 帧；**大量使用后需重启 sidecar**。
-- Web 的 Query Playground Deep 默认同样走同步检索（无进度日志）；`api.deep_progress_stream: true` 时改走 **`WS /api/v1/search/ws`**（WEBUI_SIDECAR_SPEC WS2/WS3）：上行 `{mode, query, top_k?, collection?}` 或 `{"type":"cancel"}`，下行 `search_log` 进度帧（与 Chat 同一 0.5s 去重）→ `search_result`（形态同 `POST /search`）后关闭；被门控拒绝（agentic 关闭 / Deep 未放行）发 `error{AGENTIC_DISABLED|DEEP_DISABLED}`，握手阶段拒绝发 `error{UNAVAILABLE|AUTH|BAD_REQUEST}`。**同一泄漏**：Deep 流式命中上表缺陷，默认关闭，上游修复并验证回落后再开启；Streamlit legacy 的 Deep 走流式，受同一泄漏影响。
+- Web 的 Query Playground Deep 默认同样走同步检索（无进度日志）；`api.deep_progress_stream: true` 时改走 **`WS /api/v1/search/ws`**（WEBUI_SIDECAR_SPEC WS2/WS3）：上行 `{mode, query, top_k?, collection?}` 或 `{"type":"cancel"}`，下行 `search_log` 进度帧（与 Chat 同一 0.5s 去重）→ `search_result`（形态同 `POST /search`）后关闭；被门控拒绝（agentic 关闭 / Deep 未放行）发 `error{AGENTIC_DISABLED|DEEP_DISABLED}`，握手阶段拒绝发 `error{UNAVAILABLE|AUTH|BAD_REQUEST}`。**同一泄漏**：Deep 流式命中上表缺陷，默认关闭，上游修复并验证回落后再开启。
 
 ### 10.7 测试与 Playwright e2e
 
@@ -587,13 +565,11 @@ Playwright 流程跑在 `tests/e2e_web/fake_api_server.py` 上：真实 FastAPI 
 
 ### 10.9 Streamlit Dashboard（legacy）
 
-状态：**已弃用，保留可用**。`python scripts/start_dashboard.py` 照常启动，仅在 stderr 打印弃用提示；Streamlit 页面代码与测试（`tests/e2e/test_dashboard_smoke.py` 等）均保留。它不再新增功能，只修阻断性缺陷。MCP stdio server 与 Streamlit **完全无依赖关系**（`src/mcp_server/` 不 import dashboard），删除或启动与否都不影响 MCP。
+状态：**已退役（2026-11-13）**。Streamlit 页面层（`app.py` + `pages/` 七页面）、`scripts/start_dashboard.py` 与页面级测试（`test_dashboard_smoke.py` / `test_query_traces_source.py` 等）已按 [STREAMLIT_RETIREMENT_SPEC.md](../specs/STREAMLIT_RETIREMENT_SPEC.md)（SR 系列）物理删除；`streamlit>=1.36` 运行时依赖已从 `requirements.txt` / `pyproject.toml` 移除（仅页面使用的 `pandas` 未显式声明、随 streamlit 传递安装，退役后自然消失，无需单独处理）。退役后：Web UI（第 10 章）为主界面；`observability/dashboard/services/` 保留为 `src/api/` 共享服务层；sidecar 托管唯一入口为 `start_api.py --manage-sidecar`。MCP stdio server 与 Streamlit **完全无依赖关系**（`src/mcp_server/` 不 import dashboard）。
 
-**删除条件**（须全部满足，且由使用者显式下令；对应 `dashboard-api-migration_backlog_frozen.md` P6 退役门槛）：
+**原删除条件核销**（对应 `dashboard-api-migration_backlog_frozen.md` P6 退役门槛）：
 
-1. [WEBUI_PARITY_AUDIT.md](../analysis/WEBUI_PARITY_AUDIT.md) 的缺口已补齐或明确放弃：#5 翻页/#2 趋势图/#3 预检已由 WP 规格交付，Deep 进度日志与 sidecar 托管编排（原「Streamlit 独有逻辑」）已由 [09_WEBUI_SIDECAR_SPEC_frozen.md](../frozen/09_WEBUI_SIDECAR_SPEC_frozen.md)（WS 系列）补齐；其余遗留见 webui-parity-followups 台账（已晋升为 [STREAMLIT_RETIREMENT_SPEC.md](../specs/STREAMLIT_RETIREMENT_SPEC.md)）；
-2. WC10.3 门控冒烟通过（已于 2026-10-15 通过），WEBUI_CHAT_SPEC 已冻结；
-3. Python、API、前端与 Playwright 测试全部通过；
-4. Web UI 已稳定使用一段时间，使用者确认不再依赖 Streamlit。
-
-**删除范围**：删 `src/observability/dashboard/app.py`、`pages/`、`scripts/start_dashboard.py` 及其测试（`test_dashboard_smoke.py`、`test_start_dashboard.py`、`test_query_traces_source.py` 中针对页面的部分）、`pyproject.toml` / `requirements.txt` 的 `streamlit`（与仅页面用的 `pandas`，删前确认无他处使用）。**保留** `src/observability/dashboard/services/`（`DataService` / `TraceService` / `ConfigService` / `IngestionService` / `EvaluationService` / `QueryService` / `SearchService` 是 API 层的依赖；届时可再评估是否搬出 dashboard 目录）。
+1. [WEBUI_PARITY_AUDIT.md](../analysis/WEBUI_PARITY_AUDIT.md) 的缺口已补齐或明确放弃：#5 翻页/#2 趋势图/#3 预检已由 WP 规格交付，Deep 进度日志与 sidecar 托管编排（原「Streamlit 独有逻辑」）已由 [09_WEBUI_SIDECAR_SPEC_frozen.md](../frozen/09_WEBUI_SIDECAR_SPEC_frozen.md)（WS 系列）补齐；其余遗留见 webui-parity-followups 台账（已晋升为 [STREAMLIT_RETIREMENT_SPEC.md](../specs/STREAMLIT_RETIREMENT_SPEC.md)）——已满足；
+2. WC10.3 门控冒烟通过（已于 2026-10-15 通过），WEBUI_CHAT_SPEC 已冻结——已满足；
+3. Python、API、前端测试全部通过——已满足（SR6 全量离线回归，计数见该规格）；
+4. Web UI 已稳定使用一段时间，使用者确认不再依赖 Streamlit（2026-11-13）——已满足。

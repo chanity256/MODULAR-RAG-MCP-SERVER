@@ -54,7 +54,6 @@
 | **Hybrid Search** | Dense (向量) + Sparse (BM25) + RRF Fusion + Rerank | 粗排召回 + 精排重排的两段式检索架构 |
 | **MCP Server** | 标准 MCP 协议暴露 Tools | `query_knowledge_hub`、`list_collections`、`get_document_summary` |
 | **Web UI** | FastAPI + Next 静态导出，单端口托管（主界面） | Chat（多轮对话 + 有据回答）+ 七个管理页：Overview / Data Browser / Ingestion Manager / Ingestion Traces / Query Traces / Evaluation / Query Playground |
-| **Dashboard（legacy）** | Streamlit 七页面管理平台（已弃用，保留可用） | 与 Web UI 七页功能等价，见 [WEBUI_PARITY_AUDIT.md](docs/analysis/WEBUI_PARITY_AUDIT.md) |
 | **Evaluation** | Ragas + Custom 评估体系 | 支持 golden test set 回归测试，拒绝"凭感觉"调优 |
 | **Observability** | 全链路白盒化追踪 | Ingestion 与 Query 两条链路的每一个中间状态透明可见 |
 | **Skill 驱动全流程** | 从编写到测试、打包、配置一键完成 | auto-coder / qa-tester / package / setup 等 Skill 覆盖完整开发生命周期（笔记中每个 Skill 的使用和设计思路均有讲解，请参考配套视频） |
@@ -69,7 +68,7 @@
 
 **📡 MCP 生态集成**：遵循 Model Context Protocol 标准，可直接对接 GitHub Copilot、Claude Desktop 等 MCP Client，零前端开发，一次开发处处可用。
 
-**📊 可视化管理 + 自动化评估**：Web UI（FastAPI + Next，Streamlit Dashboard 已降为 legacy）提供完整的数据管理、链路追踪与 Chat 能力，集成 Ragas 等评估框架，建立基于数据的迭代反馈回路。
+**📊 可视化管理 + 自动化评估**：Web UI（FastAPI + Next）提供完整的数据管理、链路追踪与 Chat 能力，集成 Ragas 等评估框架，建立基于数据的迭代反馈回路。
 
 **🧪 三层测试体系**：Unit / Integration / E2E 分层测试，覆盖独立模块逻辑、模块间交互、完整链路（MCP Client / Dashboard）。
 
@@ -301,29 +300,6 @@ python scripts/start_api.py --serve-ui     # http://127.0.0.1:8600
 - 非 loopback 访问须设环境变量 `RAG_API_TOKEN`（独立于 `SIRCHMUNK_API_TOKEN`）；前端开发模式、`api:`/`chat:` 配置、WS 帧协议、REST 路由索引、Playwright e2e 命令见 [docs/reference/USAGE_GUIDE.md 第 10 章](docs/reference/USAGE_GUIDE.md#10-web-ui-与-chat)。
 - `start_api.py` 默认不托管 sidecar：用 agentic 检索时先手动 `bash scripts/sirchmunk/start_sidecar.sh`，或加 `--manage-sidecar` 由启动器自动托管（拉起 / 等健康 / 退出回收）。
 
-#### Streamlit Dashboard（已弃用 legacy）
-
-```bash
-python scripts/start_dashboard.py          # http://localhost:8501，启动时 stderr 打印弃用提示
-# 或 streamlit run src/observability/dashboard/app.py
-```
-
-Streamlit 页面仍可用但不再新增功能；删除条件与范围见 [USAGE_GUIDE 10.9](docs/reference/USAGE_GUIDE.md#109-streamlit-dashboardlegacy)。MCP stdio server 与其无依赖。以下为 legacy 说明。
-
-`start_dashboard.py` 会按配置托管 sidecar：`agentic_search.enabled=true` 时自动拉起 sirchmunk sidecar（独立 venv/进程，进程隔离不变）、等健康后再启动 Dashboard；sidecar 已在运行则直接复用；Dashboard 退出时自动停掉由它拉起的 sidecar。`--no-sidecar` 可跳过托管。
-
-浏览器打开 http://localhost:8501，七个页面（按导航分组，legacy）：
-
-| 页面 | 功能 |
-|------|------|
-| 在线检索（检索分组） | 三模式在线查询：Normal / Fast / Deep（agentic，默认关闭）、引用表与 agentic 指标 |
-| 系统总览 | 组件配置卡片 + 数据资产统计 + 最近 trace 健康状态 |
-| 数据浏览器 | 文档/Chunk/图片浏览（按集合筛选、关键词搜索） |
-| Ingestion 管理 | 上传文件触发摄取（进度条）、删除文档 |
-| Ingestion 追踪 | 摄取历史、阶段耗时瀑布图 |
-| Query 追踪 | 查询历史、Dense/Sparse 对比、Rerank 前后变化 |
-| 评估面板 | 选择后端运行评估、指标卡片、历史趋势对比 |
-
 ### 7. 运行评估
 
 ```bash
@@ -546,7 +522,7 @@ Skill 采用 **"写作原则 + 项目亮点 + 用户画像 = 定制化简历"** 
 
 **结果**：系统支撑 5000+ 篇文档的实时语义检索，检索准确率（Hit Rate@10）达 92%，端到端查询延迟控制在 800ms 以内，三层测试体系（Unit / Integration / E2E）覆盖 1200+ 测试用例。
 
-**技术栈**：Python / LangChain / ChromaDB / BM25 / Cross-Encoder / MCP Protocol / Streamlit / Ragas / Azure OpenAI
+**技术栈**：Python / LangChain / ChromaDB / BM25 / Cross-Encoder / MCP Protocol / Web UI（FastAPI + Next）/ Ragas / Azure OpenAI
 
 ### 示例二：社招 · 已有 Agent 项目，融入 RAG 深度
 
@@ -562,13 +538,13 @@ Skill 采用 **"写作原则 + 项目亮点 + 用户画像 = 定制化简历"** 
 - 设计 Agent + RAG 分层架构，Agent 端负责意图识别与 Tool Calling，RAG 端提供 BM25 + Dense Embedding 混合召回 + Cross-Encoder 精排的两段式检索能力，通过 MCP 协议暴露标准化工具接口供 Agent 调用
 - 实现全链路 Ingestion Pipeline，支持 PDF / Markdown 多格式文档解析，集成 Vision LLM 自动生成图片描述（架构图、截图等），解决"搜文字出图"的多模态检索需求
 - 构建可插拔后端架构，LLM / Embedding / Reranker / VectorStore 均定义抽象接口，支持 Azure OpenAI ↔ DeepSeek ↔ Ollama 一键切换，适配团队不同网络环境
-- 搭建 Streamlit Dashboard 管理平台，提供数据浏览、在线检索、Ingestion 追踪、查询追踪、评估面板七大功能页，实现全链路白盒化可观测
+- 搭建 Web UI（FastAPI + Next）管理平台，提供数据浏览、在线检索、Ingestion 追踪、查询追踪、评估面板七大功能页，实现全链路白盒化可观测
 - 集成 Ragas 评估框架 + Golden Test Set 回归测试，在版本迭代中持续监控检索质量，Faithfulness 评分稳定在 0.85 以上
 - 采用 Skill 驱动全流程开发模式，编写 DEV_SPEC 规格文档驱动 auto-coder 自动编码、qa-tester 自动测试与修复、setup 一键环境配置，5 大 Agent Skill 覆盖完整开发生命周期，2 个月业余时间完成 68 个子任务交付
 
 **结果**：系统覆盖团队 8000+ 篇技术文档，工程师日均文档查询时间从 15 分钟缩短至 3 分钟，检索准确率 Hit Rate@10 达 90%，已通过 MCP 协议接入 3 个内部 AI 工具，累计处理查询 2 万+ 次。
 
-**技术栈**：Python / Agent / Tool Calling / RAG / BM25 / Dense Retrieval / Cross-Encoder / MCP Protocol / ChromaDB / Streamlit / Ragas / Skill-Driven Development / Azure OpenAI
+**技术栈**：Python / Agent / Tool Calling / RAG / BM25 / Dense Retrieval / Cross-Encoder / MCP Protocol / ChromaDB / Web UI（FastAPI + Next）/ Ragas / Skill-Driven Development / Azure OpenAI
 
 ### 示例三：社招 · 后端工程师转 AI 方向
 
@@ -590,7 +566,7 @@ Skill 采用 **"写作原则 + 项目亮点 + 用户画像 = 定制化简历"** 
 
 **结果**：系统上线后支撑 12000+ 篇合规文档的实时语义检索，条款定位准确率从 68% 提升至 91%，单次查询延迟控制在 700ms，合规团队文档审查效率提升约 50%。
 
-**技术栈**：Python / 可插拔架构 / 工厂模式 / BM25 / Dense Retrieval / RRF / Cross-Encoder / ChromaDB / MCP Protocol / Streamlit / Ragas / Skill-Driven Development / Azure OpenAI
+**技术栈**：Python / 可插拔架构 / 工厂模式 / BM25 / Dense Retrieval / RRF / Cross-Encoder / ChromaDB / MCP Protocol / Web UI（FastAPI + Next）/ Ragas / Skill-Driven Development / Azure OpenAI
 
 ---
 

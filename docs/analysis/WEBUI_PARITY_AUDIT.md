@@ -1,5 +1,6 @@
 # WebUI 双轨功能等价核验（WEBUI_PARITY_AUDIT）
 
+> **退役注记（2026-11-13）**：核验对象之一的 Streamlit 七页面已按 [STREAMLIT_RETIREMENT_SPEC.md](../specs/STREAMLIT_RETIREMENT_SPEC.md)（SR 系列）物理删除；本核验正文保留为历史记录，不改写。
 > **性质**：WEBUI_CHAT_SPEC **WC10.1**（backlog `dashboard-api-migration.md` P6 退役门槛的第一条）的核验记录，非可执行排期。
 > **日期**：2026-10-14　**核验对象**：Streamlit 七页面（`src/observability/dashboard/pages/*.py`）↔ Next 页面（`frontend/app/*`、`frontend/components/*`、`frontend/lib/*`）↔ 其背后的 API 路由（`src/api/routes/*`）。
 > **方法**：逐页通读两侧实现与 API 路由后逐项对照，不凭印象；每条结论可在列出的文件中复核。

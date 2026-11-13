@@ -1,4 +1,5 @@
 <!-- 扩展规格：本地笔记库（Obsidian Vault）RAG 能力。格式与架构分层对齐 01_DEV_SPEC_frozen.md；基线为 clean-start 分支「阶段 A–I 已完成」状态。 -->
+<!-- 退役注记（2026-11-13）：本文 M3/M4 的交互方案按 Streamlit 页面形态与 AppTest 冒烟设计（第 48 / 74 / 133 / 141 行）；Streamlit 已按 STREAMLIT_RETIREMENT_SPEC（SR 系列）退役，M3/M4 立项时须改为 Web UI（frontend/ + src/api/）形态重写。 -->
 # Obsidian Vault RAG 扩展规格 (OBSIDIAN_RAG_SPEC)
 
 > 版本：0.2 — M1/M2（MarkdownLoader + 路由/排除）已移交 [INGESTION_ROBUSTNESS_SPEC_frozen](../frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md) M6 / 阶段 IR7（已交付收口），本规格保留 M3/M4

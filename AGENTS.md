@@ -9,12 +9,13 @@
 - `docs/frozen/08_WEBUI_PARITY_SPEC_frozen.md` — WP 系列 WebUI 双轨遗留差异收口（WP0–WP2 已收口冻结：Ingestion / Query 追踪列表服务端 offset 翻页、评估历史内联 SVG 趋势图、评估提交路径 422 预检；改动 `frontend/` 的 Ingestion / Query Traces、Evaluation 页面或 `POST /evaluations` / `EvaluationService` 前先读，#3 展示细节接受项决议见 `docs/specs/STREAMLIT_RETIREMENT_SPEC.md`）。
 - `docs/frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md` — SX 系列 Sirchmunk 能力补齐（已收口冻结：telemetry 消费、参数透传、compile/复用实验裁决、SSE 流式；改动 agentic_search / sidecar 脚本前先读，遗留事项见 `docs/backlog/sirchmunk-extension-followups_backlog.md`）。
 - `docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md` — IR 系列摄取健壮性 + Markdown 摄取（IR0–IR7 已收口；改动摄取链路前先读其 7.1 实现偏差）。
-- `docs/frozen/06_WEBUI_CHAT_SPEC_frozen.md` — WC 系列 WebUI 前后端迁移 + Chat（WC0–WC10 已收口冻结：FastAPI + Next 静态导出、多轮对话 + RAG 有据回答、真流式；Web UI 是主界面，Streamlit 已弃用 legacy、保留可用；改动 `src/api/` / `src/core/chat/` / `frontend/` / Dashboard 服务层前先读，注意 D1 前端选型与 §1.2 对分析文档的勘误；Web UI 使用、配置与 Streamlit 删除条件见 `docs/reference/USAGE_GUIDE.md` 第 10 章，七页等价核验见 `docs/analysis/WEBUI_PARITY_AUDIT.md`）。
+- `docs/frozen/06_WEBUI_CHAT_SPEC_frozen.md` — WC 系列 WebUI 前后端迁移 + Chat（WC0–WC10 已收口冻结：FastAPI + Next 静态导出、多轮对话 + RAG 有据回答、真流式；Web UI 是主界面，Streamlit 已退役（见 `docs/specs/STREAMLIT_RETIREMENT_SPEC.md`）；改动 `src/api/` / `src/core/chat/` / `frontend/` / Dashboard 服务层前先读，注意 D1 前端选型与 §1.2 对分析文档的勘误；Web UI 使用与配置见 `docs/reference/USAGE_GUIDE.md` 第 10 章（Streamlit 退役记录见 10.9），七页等价核验见 `docs/analysis/WEBUI_PARITY_AUDIT.md`）。
 - `docs/frozen/07_LOGGING_SPEC_frozen.md` — LG 系列日志分层与按日切分（LG0–LG7 已收口冻结：Trace 按日落盘 `logs/traces/`、应用运行日志 `logs/app/`、保留期清理、测试经 `RAG_LOG_ROOT` 隔离；改动 `core/trace/persist.py` / `observability/logger.py` / TraceService / 进程入口日志前先读，注意其 7.1 实现偏差）。
 - `docs/frozen/09_WEBUI_SIDECAR_SPEC_frozen.md` — WS 系列 WebUI sidecar 补齐（已收口冻结：`scripts/sidecar_manager.py` 共享托管编排 + `start_api.py --manage-sidecar`、`core/chat/progress.py` 共享「sidecar 日志 → search_log 帧」转换、门控 `WS /api/v1/search/ws`（`api.deep_progress_stream` 默认关闭——SX5.3 上游线程泄漏规避）、Playground Deep 前端流式接入；改动 `scripts/start_api.py` / 搜索流式端点 / Playground Deep 前端前先读，承接自 webui-parity-followups 台账（已晋升为 `docs/specs/STREAMLIT_RETIREMENT_SPEC.md`）的 #4/#1）。
 - `docs/analysis/` — 架构分析与演进方向（微服务分析、优化路线图）。
 - `docs/reference/USAGE_GUIDE.md` — 使用速查（启动、配置、sidecar 用法）。
 - `docs/backlog/` — 候选功能与待开发规格（OBSIDIAN V 系列的 M3/M4 可选增强在此待排期，其 M1/M2 已由 IR7 交付；新提案约定见其 README）。
+- `docs/specs/STREAMLIT_RETIREMENT_SPEC.md` — SR 系列 Streamlit 退役（进行中）：物理删除 Streamlit 页面层 / `start_dashboard.py` / `streamlit` 依赖 / Streamlit-only 配置与页面级测试，文档与技能镜像同步；`observability/dashboard/services/` 及其测试保留（API 层依赖），sidecar 托管唯一入口为 `start_api.py --manage-sidecar`；改动 `src/core/settings.py` 配置模型或 docs/ 链接前先读。
 
 **[docs/MOC.md](docs/MOC.md) 是 docs/ 目录的索引文档（MOC, Map of Content）**：在 docs/ 下增删文档后，必须同步更新 MOC.md 的对应条目；根目录 README 的「开发文档」导航表同步维护。
 
@@ -39,7 +40,6 @@ python scripts/ingest.py --path data/documents/ --collection default   # 摄取
 python scripts/query.py --query "..." --verbose                        # 查询
 python scripts/evaluate.py                                             # 评估
 python scripts/start_api.py --serve-ui                                 # Web UI（主界面，127.0.0.1:8600；api.enabled 默认 false，需改配置或加 --force）
-python scripts/start_dashboard.py                                      # Streamlit Dashboard（legacy 已弃用，localhost:8501）
 
 # Web UI 前端（Node 22）
 (cd frontend && npm ci && npm run build)                               # 构建 frontend/out/，start_api.py --serve-ui 托管
@@ -60,7 +60,7 @@ PYTHONPATH=src python -m mcp_server.server
 - **`src/core/`** — 业务核心：`settings.py`（dataclass 配置 + 校验，配置缺失走默认、非法值 fail-fast）、`query_engine/`（查询预处理 → Dense + BM25 双路召回 → RRF 融合 → 可选 Rerank → Response Builder）、`types.py`（Document/Chunk/ChunkRecord 契约）。
 - **`src/ingestion/`** — 摄取管线：Loader → Splitter → Transform → Embed → Upsert，含 DocumentManager（跨 4 存储协调删除）与 SHA256 增量跳过。
 - **`src/libs/`** — 可插拔抽象层：每类组件一个 `Base*` 抽象 + 工厂函数（`llm/embedding/splitter/loader/vector_store/reranker/agentic_search`），由 `config/settings.yaml` 配置驱动装配。切换后端 = 改配置，不改业务代码。
-- **`src/observability/`** — TraceContext（JSON Lines 按日写 `logs/traces/traces-YYYY-MM-DD.jsonl`，`method`/`provider` 字段驱动 Dashboard 动态渲染）+ Streamlit Dashboard（`pages/` 七页面 + `services/` 业务封装；页面层禁止直接 import Pipeline/核心组件）。
+- **`src/observability/`** — TraceContext（JSON Lines 按日写 `logs/traces/traces-YYYY-MM-DD.jsonl`，`method`/`provider` 字段驱动 Web UI 动态渲染）+ `dashboard/services/`（`src/api/` 共享服务层；服务层禁止直接 import Pipeline/核心组件）。
 
 存储：Chroma（嵌入 `data/db/chroma/`，dense 向量 + chunk 原文 + metadata）、BM25 JSON 索引、图片 SQLite（`data/db/image_index.db`）、摄取历史 SQLite（SHA256 去重）。
 
