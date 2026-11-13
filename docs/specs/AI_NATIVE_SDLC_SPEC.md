@@ -204,7 +204,7 @@ main ──▶ measure_process.py 读 git 历史 → docs/analysis/process-metri
 | SD1.1 干净环境验证 | CI-0 | 写 workflow 之前，在本地新建 venv，只装 `pip install -e ".[dev,ingest-formats]"`，在一个全新 clone（无 `data/`、无 `frontend/out/`、无 `logs/`）里跑 `pytest tests -q`，记录与 2460/11 的差异并修掉。这是「本地全绿 = CI 全绿」的前提 |
 | SD1.5 禁网测试 | CI-5 | Python job 中 `pytest tests -q` 在禁网条件下运行，把「离线确定性」从约定变成强制 |
 | SD1.6 红线脚本 | CI-6 | `scripts/check_redlines.py` + `tests/unit/test_check_redlines.py`，作为 Python job 的一步 |
-| SD1.7 门的自我保护 | CI-7 | `.github/CODEOWNERS`，把 `.github/workflows/**`、`.github/CODEOWNERS`、`.factory/hooks.json`、`.factory/hooks/**`、`scripts/check_redlines.py`、`REVIEW.md` 设为必须由 owner 审批；branch protection 勾选 "Require review from Code Owners" |
+| SD1.7 门的自我保护 | CI-7 | `.github/CODEOWNERS`，把 `.github/workflows/**`、`.github/CODEOWNERS`、`.factory/hooks.json`、`.factory/hooks/**`、`scripts/check_redlines.py`、`REVIEW.md`、`.factory/skills/review-guidelines/**`（SD2.1 起，自动 review 的实际指令文件）设为必须由 owner 审批；branch protection 勾选 "Require review from Code Owners" |
 
 **SD1.1 已知风险点**（需逐项确认，不预设结果）：
 
@@ -265,6 +265,12 @@ main ──▶ measure_process.py 读 git 历史 → docs/analysis/process-metri
 **接入前要核实两件事**（SD2.1）：
 - Factory 自动 code review 实际读取哪些仓库文件作为 review 指令。若不读仓库根 `REVIEW.md`，就把三遍扫的内容写进它读取的位置（review 配置或 `AGENTS.md` 的专门小节），`REVIEW.md` 保留为人读版本并互相链接，避免两份漂移；
 - GitHub App 能否安装在 `chanity256/MODULAR-RAG-MCP-SERVER`（fork）上，以及 fork 内 PR（feature → fork 的 main）能否触发。两项任一不成立时，SD2.3 改为门控，本节回填替代方案。
+
+**SD2.1 核实结论（2026-11-13，依据 Factory 文档 [Automated Code Review](https://docs.factory.com/automations/code-review-ci.md)）**：
+
+1. **指令读取位置**：自动 review 不读仓库根 `REVIEW.md`，而是自动注入 `.factory/skills/review-guidelines/SKILL.md`（无需改 workflow；安全 review 另读 `security-review-guidelines`，本规格不涉及）。落地：三遍扫写进该 skill，`REVIEW.md` 保留为人读版本，两者 `review-checklist` 标记块逐字一致，由 `tests/unit/test_review_guidelines.py` 锁定；该 skill 路径加入 CODEOWNERS。SD6 镜像同步时，该 skill 只存在于 `.factory/`（Droid Action 的读取位置），不纳入三份镜像同步。
+2. **fork 上能否运行**：按文档可行，未实测。机制是 `.github/workflows/droid-review.yml`（`Factory-AI/droid-action`）在 `pull_request` 事件运行，需要仓库 Secret `FACTORY_API_KEY`，以及从 Factory 组织设置安装的 Factory Droid GitHub App（或自备 `github_token`）。fork 内 PR（feature → fork 的 main）是同仓库 PR，Secrets 可用；但 GitHub 对 fork 仓库默认禁用 Actions，需先在 Actions 页启用。实际安装与触发需推送（D1/D2 待定），SD2.3 在此之前阻塞。
+3. **与分支保护的关系**：Droid review 无问题时会提交 approval。为保持「review 只是建议性」，分支保护应依赖 required checks + Code Owners review，不能让 bot approval 满足合并条件（SD1.7 开启时核对）。
 
 **review 结果的效力**：review 是建议性的，不设为 required check。纪律是：Important 级发现必须修复，或在 PR 评论里写明不修的理由后才能合并。PR 本身即审计记录。
 
@@ -431,7 +437,9 @@ tests/unit/test_measure_process.py  # SD5.1
 tests/unit/test_eval_judges.py      # SD3.5：判据逻辑的离线单测（录制的 stream-json 样本）
 tests/unit/test_spec_structure.py   # SD7（可选）
 evals/cases/  evals/fixtures/  evals/check.py   # SD3b
-REVIEW.md                           # SD2
+REVIEW.md                           # SD2（人读版本）
+.factory/skills/review-guidelines/SKILL.md   # SD2.1：自动 review 实际读取的指令文件
+tests/unit/test_review_guidelines.py         # SD2.2：两份 checklist 一致性
 docs/analysis/process-metrics.md    # SD5.3
 .agents/plans/                      # SD6.4
 .github/skills/qa-tester/QA_PYTEST_MAP.md   # SD3.2 对照表（SD6 后随单一来源迁移）
@@ -514,9 +522,9 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 | SD1.6 | `check_redlines.py` + 单测（原 CI-6） | 三条规则与白名单 / 豁免按 §3.1 实现，`test_check_redlines.py` 通过；对真实仓库零违规；故意 `import sirchmunk` 的 PR 被 CI 拦下 | [~] 脚本 + 14 条单测通过、真实仓库零违规；PR 拦截验证待推送 |
 | SD1.7 | CODEOWNERS + 分支保护（原 CI-7） | `.github/CODEOWNERS` 覆盖 §3.1 所列路径；main 开启 required checks（python、frontend）与 Code Owners review；改白名单的 PR 未经 owner 审批无法合并 | [~] `.github/CODEOWNERS` 已建；分支保护待 D1/D2 |
 | SD1.8 | 文档同步（原 CI-4） | AGENTS.md 常用命令增补 CI 说明；`requirements.txt` 补齐或 README 注明以 `pyproject.toml` 为准（D3）；README badge 视需要 | [x] 2026-11-13：AGENTS.md 增补 CI 节、`requirements.txt` 补齐测试依赖；badge 待 CI 上线后再加 |
-| SD2.1 | 核实 review 指令读取位置与 fork 安装 | 两项结论回填 §3.2；任一不成立时 §3.2 写明替代方案 | [ ] |
-| SD2.2 | `REVIEW.md` | 含三遍扫、Important / Nit 界限、Nit 上限 5、排除路径；若 review 不读该文件，指令落点与其互链 | [ ] |
-| SD2.3 | 接入自动 review | 连续 5 个 PR 自动拿到按 `REVIEW.md` 格式、按严重度排序的 review；至少一条 Important 被修复或书面说明 | [ ] |
+| SD2.1 | 核实 review 指令读取位置与 fork 安装 | 两项结论回填 §3.2；任一不成立时 §3.2 写明替代方案 | [x] 2026-11-13：指令落点为 `.factory/skills/review-guidelines/SKILL.md`；fork 按文档可行，实装待推送（§3.2） |
+| SD2.2 | `REVIEW.md` | 含三遍扫、Important / Nit 界限、Nit 上限 5、排除路径；若 review 不读该文件，指令落点与其互链 | [x] 2026-11-13：`REVIEW.md` + `.factory/skills/review-guidelines/SKILL.md` 互链，checklist 块由 `test_review_guidelines.py` 锁定一致 |
+| SD2.3 | 接入自动 review | 连续 5 个 PR 自动拿到按 `REVIEW.md` 格式、按严重度排序的 review；至少一条 Important 被修复或书面说明 | [ ] 阻塞：需推送并经 `install-code-review` 开 PR（D1/D2 待定） |
 | SD3.1 | QA 计划清理（3a，随 SD6.1） | A 段标失效；N-02/N-04/N-06/O-07 无 Dashboard 步骤（改为 CLI / Web UI 等价操作或标失效） | [ ] |
 | SD3.2 | QA ↔ pytest 对照表（3a） | `QA_PYTEST_MAP.md` 覆盖 G、H、I、J、M、N、O 全部用例，每条标注对应 pytest 与能否离线 | [ ] |
 | SD3.3 | 补缺口测试（3a） | 「能离线且无对应 pytest」的用例全部有测试，复用现有 fake，随 `pytest tests` 全绿 | [ ] |
