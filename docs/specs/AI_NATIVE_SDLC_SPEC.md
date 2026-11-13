@@ -94,12 +94,12 @@
 
 | # | 决策 | 现状事实 | 建议（SD0.1 回填终裁） |
 |---|------|----------|------|
-| D1 | PR 流程与分支保护 | 提交直接落在 feature 分支；没有 required status checks 时 CI 红灯不阻止合并 | 采用「feature 分支 → PR → main」，main 开启 branch protection，`ci.yml` 两个 job 设为 required。若仓库套餐不支持分支保护（私有仓库免费套餐不支持），§0 的「确定性」降级为「可见」，本规格需如实标注 |
-| D2 | Actions 跑在哪个仓库 | 两个 remote：`origin`（jerry-ai-dev，上游）与 `fork`（chanity256） | 在自己有管理权限的仓库（预计 `fork`）启用 Actions、Secrets、分支保护与自动 review；不向上游推 workflow |
-| D3 | CI 运行环境与依赖安装 | 本地 `.venv` 为 Python 3.13.13；`pyproject.toml` 写 `>=3.10`；`requirements.txt` 缺测试依赖；无 lock 文件 | CI 固定 Python 3.13；安装命令 `pip install -e ".[dev,ingest-formats]"`；pip 缓存以 `pyproject.toml` 哈希为 key。是否引入 lock 文件单独决定（Out of Scope）。`requirements.txt` 要么补齐，要么在 README 注明以 `pyproject.toml` 为准 |
+| D1 | PR 流程与分支保护 | 提交直接落在 feature 分支；没有 required status checks 时 CI 红灯不阻止合并 | 采用「feature 分支 → PR → main」，main 开启 branch protection，`ci.yml` 两个 job 设为 required。若仓库套餐不支持分支保护（私有仓库免费套餐不支持），§0 的「确定性」降级为「可见」，本规格需如实标注。**现状核实（2026-11-13）**：`fork` 为 public 仓库、使用者有 ADMIN 权限，分支保护可用，无需降级。**终裁：待定**——使用者决定当前只做本地工作、暂不推送 |
+| D2 | Actions 跑在哪个仓库 | 两个 remote：`origin`（jerry-ai-dev，上游）与 `fork`（chanity256） | 在自己有管理权限的仓库（预计 `fork`）启用 Actions、Secrets、分支保护与自动 review；不向上游推 workflow。**终裁：待定**（同 D1） |
+| D3 | CI 运行环境与依赖安装 | 本地 `.venv` 为 Python 3.13.13；`pyproject.toml` 写 `>=3.10`；`requirements.txt` 缺测试依赖；无 lock 文件 | CI 固定 Python 3.13；安装命令 `pip install -e ".[dev,ingest-formats]"`；pip 缓存以 `pyproject.toml` 哈希为 key。是否引入 lock 文件单独决定（Out of Scope）。`requirements.txt` 要么补齐，要么在 README 注明以 `pyproject.toml` 为准。**终裁（2026-11-13）**：采纳上述 CI 环境与安装命令；`requirements.txt` 补齐测试依赖（pytest / pytest-check / pytest-socket），与 `pyproject.toml` dev extra 同步 |
 | D4 | 处理工作区未提交改动 | ✅ 已解决：`2b04c03` 时工作区干净 | 无需动作。SD6 动 skill 前再确认一次 |
-| D5 | agent eval 执行器与预算 | `droid exec` 1.10.0 可用；**没有预算参数** | 执行器用 `droid exec --auto medium -o stream-json -m <固定模型>`（默认只读，跑 pytest 和改文件需要 `--auto medium`；判据要读工具调用记录，需 `stream-json`）。预算靠三层：用例数 × 重复次数上限、workflow `timeout-minutes`、Factory 账户侧额度。Secret 名为 `FACTORY_API_KEY` |
-| D6 | 216 个存量提交如何进入 main | `feat/sirchmunk-agentic-search` 领先 `main` 216 个提交、落后 1 个；`origin/main` 与 `fork/main` 相同 | 开启分支保护**之前**完成一次性落地：先 rebase 或 merge 那 1 个落后提交，再以一个「baseline」PR 合入 main（不 squash，保留 `[SERIES-N]` 审计链）。之后才开启 required checks，新工作一律从 main 开新分支 |
+| D5 | agent eval 执行器与预算 | `droid exec` 1.10.0 可用；**没有预算参数** | 执行器用 `droid exec --auto medium -o stream-json -m <固定模型>`（默认只读，跑 pytest 和改文件需要 `--auto medium`；判据要读工具调用记录，需 `stream-json`）。预算靠三层：用例数 × 重复次数上限、workflow `timeout-minutes`、Factory 账户侧额度。Secret 名为 `FACTORY_API_KEY`。**终裁：待定**（SD3b 门控项，开工 SD3.4 前再定） |
+| D6 | 216 个存量提交如何进入 main | `feat/sirchmunk-agentic-search` 领先 `main` 216 个提交、落后 1 个；`origin/main` 与 `fork/main` 相同。**勘误（2026-11-13）**：两者**无共同祖先**（`git merge-base` 为空），`main` 是单个上游 squash 提交 `f658c5a`，「rebase / merge 那 1 个落后提交」不可直接执行 | 开启分支保护**之前**完成一次性落地：先以 `git merge -s ours --allow-unrelated-histories main` 把 `main` 记为父提交（分支文件内容不变、保留全部提交，不改写 `fork/main`），再以一个「baseline」PR 合入 main（不 squash，保留 `[SERIES-N]` 审计链）。之后才开启 required checks，新工作一律从 main 开新分支。**执行：待定**（同 D1，需推送） |
 
 ### 1.4 与 ci-pipeline 提案的承接关系（提案存档）
 
@@ -212,6 +212,14 @@ main ──▶ measure_process.py 读 git 历史 → docs/analysis/process-metri
 - `tests/e2e_web` 依赖 `frontend/out/`，未构建时应 skip，要确认 skip 计数与本地一致；
 - 本地 `.venv` 里如有未声明的包（如某些 loader 或 reranker 依赖），干净环境会出现 ImportError 或额外 skip。
 
+**SD1.1 实测（2026-11-13，`5db69a4` 全新 clone + Python 3.13.13 新 venv，仅装 `.[dev,ingest-formats]`）**：`1 failed, 2456 passed, 14 skipped`，与本地 2460 / 11 的差异逐项：
+
+- **+3 skipped**：`tests/e2e_web/test_fake_server_boot.py` 三条，`frontend/out/` 未构建，符合既有 skip 语义（本地已构建故不 skip），不需修复；
+- **1 failed**：`tests/unit/test_agentic_tool.py::TestTrace::test_no_persist_without_settings`，`settings=None` 时工具读真实 `config/settings.yaml`，缺省 `allowed_roots=./data/documents` 不入 git、干净 checkout 中不存在 → PathGuard fail-closed。修测试：显式注入 `path_guard` 与 `paths` 指向 fixture 临时目录，被测的 `settings=None` 路径不变；
+- 未声明依赖：无（无 ImportError）；`data/` 不变守卫在干净 checkout 中通过。
+
+修复后干净环境（禁网命令）：`2471 passed, 14 skipped`；本地：`2474 passed, 11 skipped`（2460 + `test_check_redlines.py` 14 条）。两者只差上述 3 条 e2e_web skip。
+
 **workflow**：沿用提案命名 `.github/workflows/ci.yml`，触发条件 PR + push 默认分支，两个并行 job：
 
 - `python`：Python 3.13 → `pip install -e ".[dev,ingest-formats]"` → 禁网 → `pytest tests -q` → `python scripts/check_redlines.py`。`test_docs_links.py`、双登记单测、`llm_fallback` 单测已在 `pytest tests` 内，不再单独跑；
@@ -222,6 +230,12 @@ main ──▶ measure_process.py 读 git 历史 → docs/analysis/process-metri
 
 - 方案 a：引入 `pytest-socket` 作为开发依赖，`--disable-socket --allow-hosts=127.0.0.1,localhost`。代价：违反原提案「不引入新工具链」，由本节显式修订该条款；
 - 方案 b：依赖装完后在无网络的容器或网络命名空间里跑 pytest，不改依赖。代价：workflow 更复杂。
+
+**定稿（2026-11-13）：方案 a**。实际命令 `NO_PROXY='*' pytest tests -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,localhost,::1`，与 AGENTS.md 逐字同源。实现要点：
+
+- pytest-socket 在设置 `--allow-hosts` 时不禁用 socket 创建，只把 `connect()` 限制到白名单主机；`--allow-unix-socket` 放行 asyncio 等使用的 AF_UNIX socketpair；
+- `NO_PROXY='*'`：macOS 系统代理（如 `127.0.0.1:7890`）会被 httpx 经 `urllib.request.getproxies()` 读取，loopback 放行后请求可经本地代理绕出外网（实测 `httpx.get("https://example.com")` 成功）；设置后实测被拦截。CI runner 无系统代理，此项只影响本地等价性；
+- 局限：只约束 pytest 进程内的 socket，测试拉起的子进程（MCP e2e、e2e_web 假后端）不受约束。
 
 **SD1.6 检查项**（全部离线、纯静态；只覆盖**现有单测没覆盖**的红线）：
 
@@ -490,16 +504,16 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 
 | 编号 | 任务 | 验收标准 | 状态 |
 |------|------|----------|------|
-| SD0.1 | D1–D3、D5 决策拍板 | §1.3 每行回填终裁；若分支保护不可用，§0 与 SD1.7 标注「确定性」降级为「可见」 | [ ] |
-| SD0.2 | D6 baseline PR | 先合入落后的 1 个提交；baseline PR 合入后 main 包含当前分支全部提交且未 squash；此后新工作从 main 开分支 | [ ] |
-| SD1.1 | 干净环境验证（原 CI-0） | 全新 clone + 新 venv 仅装 `.[dev,ingest-formats]`，`pytest tests -q` 复现 2460 passed / 11 skipped，或差异逐项解释并修复（修测试，不改业务语义） | [ ] |
-| SD1.2 | `ci.yml` Python job（原 CI-1） | PR 与 push 默认分支自动触发；步骤与 AGENTS.md 本地命令逐字同源；首次真实 run 全绿 | [ ] |
-| SD1.3 | `ci.yml` 前端 job（原 CI-2） | 与 Python job 并行；`npm ci` + typecheck / lint / test 首次真实 run 全绿 | [ ] |
+| SD0.1 | D1–D3、D5 决策拍板 | §1.3 每行回填终裁；若分支保护不可用，§0 与 SD1.7 标注「确定性」降级为「可见」 | [~] D3 已终裁；D1/D2 待定（暂只做本地工作）；D5 随 SD3b 门控再定 |
+| SD0.2 | D6 baseline PR | 先合入落后的 1 个提交；baseline PR 合入后 main 包含当前分支全部提交且未 squash；此后新工作从 main 开分支 | [ ] 待 D1/D2；D6 已勘误为 `-s ours` 方案（§1.3） |
+| SD1.1 | 干净环境验证（原 CI-0） | 全新 clone + 新 venv 仅装 `.[dev,ingest-formats]`，`pytest tests -q` 复现 2460 passed / 11 skipped，或差异逐项解释并修复（修测试，不改业务语义） | [x] 2026-11-13，差异与修复见 §3.1 |
+| SD1.2 | `ci.yml` Python job（原 CI-1） | PR 与 push 默认分支自动触发；步骤与 AGENTS.md 本地命令逐字同源；首次真实 run 全绿 | [~] `ci.yml` 已写，干净 clone 本地按同命令全绿；首次真实 run 待推送 |
+| SD1.3 | `ci.yml` 前端 job（原 CI-2） | 与 Python job 并行；`npm ci` + typecheck / lint / test 首次真实 run 全绿 | [~] 干净 clone `npm ci` 后本地全绿（262 tests）；首次真实 run 待推送 |
 | SD1.4 | Web UI 冒烟接 CI（原 CI-3，可选） | 前端 job 追加 build 后 `pytest tests/e2e_web -q` 通过；不 build 时维持 skip 语义 | [ ] |
-| SD1.5 | 禁网测试（原 CI-5） | 方案 a/b 定稿并回填 §3.1；一个故意发真实 HTTP 请求的单测在 CI 中失败；loopback 的 e2e_web 不受影响 | [ ] |
-| SD1.6 | `check_redlines.py` + 单测（原 CI-6） | 三条规则与白名单 / 豁免按 §3.1 实现，`test_check_redlines.py` 通过；对真实仓库零违规；故意 `import sirchmunk` 的 PR 被 CI 拦下 | [ ] |
-| SD1.7 | CODEOWNERS + 分支保护（原 CI-7） | `.github/CODEOWNERS` 覆盖 §3.1 所列路径；main 开启 required checks（python、frontend）与 Code Owners review；改白名单的 PR 未经 owner 审批无法合并 | [ ] |
-| SD1.8 | 文档同步（原 CI-4） | AGENTS.md 常用命令增补 CI 说明；`requirements.txt` 补齐或 README 注明以 `pyproject.toml` 为准（D3）；README badge 视需要 | [ ] |
+| SD1.5 | 禁网测试（原 CI-5） | 方案 a/b 定稿并回填 §3.1；一个故意发真实 HTTP 请求的单测在 CI 中失败；loopback 的 e2e_web 不受影响 | [~] 方案 a 定稿；本地探针：外网 connect / httpx 被拦、loopback 放行；CI 中验证待推送 |
+| SD1.6 | `check_redlines.py` + 单测（原 CI-6） | 三条规则与白名单 / 豁免按 §3.1 实现，`test_check_redlines.py` 通过；对真实仓库零违规；故意 `import sirchmunk` 的 PR 被 CI 拦下 | [~] 脚本 + 14 条单测通过、真实仓库零违规；PR 拦截验证待推送 |
+| SD1.7 | CODEOWNERS + 分支保护（原 CI-7） | `.github/CODEOWNERS` 覆盖 §3.1 所列路径；main 开启 required checks（python、frontend）与 Code Owners review；改白名单的 PR 未经 owner 审批无法合并 | [~] `.github/CODEOWNERS` 已建；分支保护待 D1/D2 |
+| SD1.8 | 文档同步（原 CI-4） | AGENTS.md 常用命令增补 CI 说明；`requirements.txt` 补齐或 README 注明以 `pyproject.toml` 为准（D3）；README badge 视需要 | [x] 2026-11-13：AGENTS.md 增补 CI 节、`requirements.txt` 补齐测试依赖；badge 待 CI 上线后再加 |
 | SD2.1 | 核实 review 指令读取位置与 fork 安装 | 两项结论回填 §3.2；任一不成立时 §3.2 写明替代方案 | [ ] |
 | SD2.2 | `REVIEW.md` | 含三遍扫、Important / Nit 界限、Nit 上限 5、排除路径；若 review 不读该文件，指令落点与其互链 | [ ] |
 | SD2.3 | 接入自动 review | 连续 5 个 PR 自动拿到按 `REVIEW.md` 格式、按严重度排序的 review；至少一条 Important 被修复或书面说明 | [ ] |
