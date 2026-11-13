@@ -229,6 +229,7 @@ Re-execute any flagged test. Do NOT proceed until 0 flags.
 |------|---------|
 | `.factory/skills/qa-tester/QA_TEST_PLAN.md` | Test steps and expected results |
 | `.factory/skills/qa-tester/QA_TEST_PROGRESS.md` | Execution status and notes |
+| `.factory/skills/qa-tester/QA_PYTEST_MAP.md` | QA case ↔ pytest map; the 可离线 column marks cases safe for offline regression |
 | `config/settings.yaml` | System configuration |
 | `scripts/ingest.py` / `query.py` / `evaluate.py` | CLI commands |
 | `tests/e2e/test_mcp_client.py` | MCP E2E tests |

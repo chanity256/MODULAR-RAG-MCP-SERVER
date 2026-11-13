@@ -16,7 +16,7 @@
 - `docs/reference/USAGE_GUIDE.md` — 使用速查（启动、配置、sidecar 用法）。
 - `docs/backlog/` — 候选功能与待开发规格（OBSIDIAN V 系列的 M3/M4 可选增强在此待排期，其 M1/M2 已由 IR7 交付；新提案约定见其 README）。
 - `docs/frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md` — SR 系列 Streamlit 退役（已收口冻结）：物理删除 Streamlit 页面层 / `start_dashboard.py` / `streamlit` 依赖 / Streamlit-only 配置与页面级测试，文档与技能镜像同步；`observability/dashboard/services/` 及其测试保留（API 层依赖），sidecar 托管唯一入口为 `start_api.py --manage-sidecar`；改动 `src/core/settings.py` 配置模型或 docs/ 链接前先读。
-- `docs/specs/AI_NATIVE_SDLC_SPEC.md` — SD 系列 AI-Native SDLC 流程升级（**开发中**，SD1 已交付（含 `fork` 上真实 CI 与分支保护）：`ci.yml` / 禁网 / 红线脚本 / CODEOWNERS；SD2 review 规则已交付：`REVIEW.md` + `.factory/skills/review-guidelines/`；SD6 skill 单一来源已交付：`.factory/skills/` 为来源、`scripts/sync_skills.py` 生成 `.claude/` / `.github/` 镜像，auto-coder 含 plan 规则 / `Fix-Rounds` trailer / D1 门控的 PR 流程，QA 计划已清理（SD3.1）；D1/D2 已终裁、D6 baseline PR 已合入；自动 review（SD2.3）暂不接入）：前置决策 D1–D6、CI 确定性门（禁网 pytest、`scripts/check_redlines.py`、CODEOWNERS，承接已存档的 ci-pipeline 提案）、AI PR review、QA 对照与 agent evals、定时闭环、过程度量、skill 单一来源 + per-task plan + PR 化；改动 `.github/`、skill 镜像、`.factory/hooks*`、`evals/` 或执行 SD 任务前先读。不改 `src/` 业务行为。
+- `docs/specs/AI_NATIVE_SDLC_SPEC.md` — SD 系列 AI-Native SDLC 流程升级（**开发中**，SD1 已交付（含 `fork` 上真实 CI 与分支保护）：`ci.yml` / 禁网 / 红线脚本 / CODEOWNERS；SD2 review 规则已交付：`REVIEW.md` + `.factory/skills/review-guidelines/`；SD6 skill 单一来源已交付：`.factory/skills/` 为来源、`scripts/sync_skills.py` 生成 `.claude/` / `.github/` 镜像，auto-coder 含 plan 规则 / `Fix-Rounds` trailer / D1 门控的 PR 流程，QA 计划已清理（SD3.1），QA ↔ pytest 对照表与离线缺口补测已交付（SD3.2/SD3.3：`.factory/skills/qa-tester/QA_PYTEST_MAP.md`、`tests/e2e/test_qa_offline_gaps.py`）；SD5 过程度量已交付：`scripts/measure_process.py` + `docs/analysis/process-metrics.md` 1.0 基线；SD7 规格结构校验已交付：`tests/unit/test_spec_structure.py`（`docs/specs/` 与编号 ≥10 的冻结规格须有任务表验收标准列、测试方案、In/Out of Scope，新规格照此写）；D1/D2 已终裁、D6 baseline PR 已合入；自动 review（SD2.3）暂不接入）：前置决策 D1–D6、CI 确定性门（禁网 pytest、`scripts/check_redlines.py`、CODEOWNERS，承接已存档的 ci-pipeline 提案）、AI PR review、QA 对照与 agent evals、定时闭环、过程度量、skill 单一来源 + per-task plan + PR 化；改动 `.github/`、skill 镜像、`.factory/hooks*`、`evals/` 或执行 SD 任务前先读。不改 `src/` 业务行为。
 
 **[docs/MOC.md](docs/MOC.md) 是 docs/ 目录的索引文档（MOC, Map of Content）**：在 docs/ 下增删文档后，必须同步更新 MOC.md 的对应条目；根目录 README 的「开发文档」导航表同步维护。
 
@@ -26,7 +26,7 @@
 source .venv/bin/activate            # 主项目 venv
 
 # 测试（全量离线，零网络，默认必须全绿）
-pytest tests -q                      # 看计数用 pytest tests -o addopts="" -q；当前 2484 passed / 11 skipped（干净 clone 未 build frontend/out 时 2481 / 14）
+pytest tests -q                      # 看计数用 pytest tests -o addopts="" -q；当前 2516 passed / 11 skipped / 1 xfailed（干净 clone 未 build frontend/out 时 2513 / 14 / 1；xfail 为 QA N-05 已知缺陷）
 pytest tests/unit/test_xxx.py -q     # 单文件
 pytest tests/unit/test_xxx.py::test_name   # 单用例
 pytest tests/e2e_web -q              # Web UI 假后端启动冒烟（frontend/out 未构建则 skip）
@@ -35,6 +35,7 @@ pytest tests/e2e_web -q              # Web UI 假后端启动冒烟（frontend/o
 NO_PROXY='*' pytest tests -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,localhost,::1
 python scripts/check_redlines.py     # 红线静态检查（sirchmunk import / llm_fallback / MCP stdout）
 python scripts/sync_skills.py        # skill 镜像同步：改 .factory/skills/ 后运行（--check 只校验；drift guard 见 test_skill_mirrors.py）
+python scripts/measure_process.py    # 过程度量：离线读 git 历史出基线（--json；--rev 指定统计终点），结果维护在 docs/analysis/process-metrics.md
 
 # 门控的真实集成测试（默认跳过，仅显式开启才触网）
 RAG_LLM_INTEGRATION=1 pytest ...

@@ -200,3 +200,23 @@ def test_factory_config_driven_chunk_size(tmp_path, registered):
     small = registered.create(settings_small).split_text(text)
     large = registered.create(settings_large).split_text(text)
     assert len(small) > len(large)
+
+
+def test_overlap_zero_vs_positive_adjacent_chunks():
+    """QA M-10 / M-11：每个 chunk 不超过 chunk_size；overlap=0 时相邻 chunk 无重复文本，>0 时有。"""
+    from core.settings import SplitterConfig
+
+    text = " ".join(f"w{i:03d}" for i in range(300))  # 每个词唯一，重叠可按词集合精确判断
+
+    def _chunks(overlap: int) -> list[str]:
+        sp = RecursiveSplitter(SplitterConfig(provider="recursive", chunk_size=100, chunk_overlap=overlap))
+        return sp.split_text(text)
+
+    no_overlap = _chunks(0)
+    with_overlap = _chunks(40)
+    assert len(no_overlap) > 1 and len(with_overlap) > len(no_overlap)
+    assert max(len(c) for c in no_overlap + with_overlap) <= 100
+    for prev, nxt in zip(no_overlap, no_overlap[1:]):
+        assert not set(prev.split()) & set(nxt.split())
+    for prev, nxt in zip(with_overlap, with_overlap[1:]):
+        assert set(prev.split()) & set(nxt.split())
