@@ -87,22 +87,26 @@ def evaluate():
 
 
 def delete_document(source_path, collection="default"):
-    """Delete a document via DataService."""
+    """Delete a document via DataService (same service as Web UI Data Browser delete)."""
     code = f"""
 import sys
-sys.path.insert(0, '{REPO_ROOT}')
-from src.observability.dashboard.services.data_service import DataService
+from pathlib import Path
+sys.path.insert(0, {str(REPO_ROOT / "src")!r})
+from observability.dashboard.services.data_service import DataService
 svc = DataService()
-docs = svc.list_documents('{collection}')
-for d in docs:
-    if '{Path(source_path).name}' in d['source_path']:
-        result = svc.delete_document(d['source_path'], '{collection}', d['source_hash'])
-        print(f'DELETED: chunks={{result.chunks_deleted}}, success={{result.success}}')
+name = {Path(source_path).name!r}
+for d in svc.list_documents({collection!r}):
+    if Path(d.source_path).name == name:
+        r = svc.delete_document(d.source_path, {collection!r})
+        print(f'DELETED: chroma={{r.chroma_deleted}}, bm25={{r.bm25_deleted}}, '
+              f'images={{r.images_deleted}}, integrity_removed={{r.integrity_removed}}')
         break
 else:
     print('NOT_FOUND: document not in collection')
 """
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=str(REPO_ROOT))
+    if r.returncode != 0:
+        return f"ERROR: {r.stderr.strip().splitlines()[-1] if r.stderr.strip() else r.returncode}"
     return r.stdout.strip()
 
 
