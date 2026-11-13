@@ -20,6 +20,7 @@ from libs.agentic_search.base_agentic_search import (
     AgenticSearchTimeoutError,
 )
 from libs.agentic_search.fake_backend import FakeAgenticSearch
+from libs.agentic_search.path_guard import PathGuard
 from mcp_server.protocol_handler import ProtocolHandler, ToolInvalidParams
 from mcp_server.server import build_default_protocol_handler
 from mcp_server.tools.agentic_search import (
@@ -208,8 +209,11 @@ class TestTrace:
         assert stage["details"]["evidences"] == 1
 
     def test_no_persist_without_settings(self, env):
-        tool = AgenticSearchTool(search=FakeAgenticSearch(), settings=None)
-        result = tool({"query": "q"})  # settings=None 时不落 trace，不报错
+        # 显式 path_guard + paths：缺省 allowed_roots（./data/documents）不入 git，干净 checkout 中不存在。
+        tool = AgenticSearchTool(
+            search=FakeAgenticSearch(), settings=None, path_guard=PathGuard([str(env["docs"])])
+        )
+        result = tool({"query": "q", "paths": [str(env["docs"])]})  # settings=None 时不报错
         assert result["structuredContent"]["agentic"]["mode"] == "FAST"
 
 
