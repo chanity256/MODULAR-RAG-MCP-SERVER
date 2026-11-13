@@ -7,7 +7,7 @@
 - 模式被配置门控拒绝（``agentic_search.enabled`` / ``allow_deep``）→ 403 统一错误体，
   code ``AGENTIC_DISABLED`` / ``DEEP_DISABLED``，请求不会触达 sidecar；
 - 检索本身失败（sidecar 不可达、工具 ``isError``、参数被工具拒绝）→ 200 + ``is_error: true``，
-  与 Streamlit 页同口径：这是一次「执行了但失败」的结果，而非协议错误。
+  这是一次「执行了但失败」的结果，而非协议错误。
 
 WS 协议（对齐 chat WS 先例）：握手先 accept，Origin 校验 / WS token / 门控
 （``api.deep_progress_stream``，默认 false，SX5.3 上游线程泄漏）失败都以

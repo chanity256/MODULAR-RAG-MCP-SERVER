@@ -1,8 +1,7 @@
 """Sidecar 托管编排（WEBUI_SIDECAR_SPEC WS0）：探活 → 拉起 → 等健康 → 随主进程退出回收。
 
-自 ``start_dashboard.py`` 迁出的共享模块：Web UI 入口（``start_api.py --manage-sidecar``）
-与 legacy ``start_dashboard.py`` 共用同一套编排。只做 subprocess 拉起 + urllib 探活，
-主 venv 永不 import sirchmunk（SIRCHMUNK_INTEGRATION_SPEC 3.1 进程隔离红线不变）。
+Web UI 唯一托管入口（``start_api.py --manage-sidecar``）。只做 subprocess 拉起 +
+urllib 探活，主 venv 永不 import sirchmunk（SIRCHMUNK_INTEGRATION_SPEC 3.1 进程隔离红线不变）。
 """
 
 from __future__ import annotations

@@ -11,7 +11,7 @@ import { clampOffset, documentKey, fetchDocuments, type DeleteResult } from "@/l
 
 const PAGE_SIZE = 10;
 
-/** Ingested documents with a confirm-to-delete control per row (parity with the Streamlit page). */
+/** Ingested documents with a confirm-to-delete control per row. */
 export default function ManagedDocuments({
   refreshSignal,
   onChanged,

@@ -1,6 +1,6 @@
 """Dashboard 服务层单测（阶段 G1/G3/G5）。
 
-ConfigService / DataService / TraceService 均可注入，不启动 Streamlit。
+ConfigService / DataService / TraceService 均可注入，不启动 Web 服务。
 """
 
 from __future__ import annotations
@@ -44,8 +44,6 @@ _VALID_YAML = dedent(
       provider: recursive
       chunk_size: 512
       chunk_overlap: 64
-    dashboard:
-      port: 8502
     observability:
       log_file: ./logs/custom-traces.jsonl
     """
@@ -97,7 +95,8 @@ def test_config_service_agentic_card_enabled(tmp_path):
 def test_config_service_loads_from_explicit_path(tmp_path):
     _settings_obj, path = _settings(tmp_path)
     service = ConfigService(config_path=path)
-    assert service.get_settings().dashboard.port == 8502
+    # dashboard 节已随 Streamlit 退役删除；改断言 fixture 独有的 observability 值
+    assert service.get_settings().observability.log_file == "./logs/custom-traces.jsonl"
 
 
 class FakeManager:

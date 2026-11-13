@@ -43,7 +43,7 @@ _bearer = HTTPBearer(auto_error=False, description="RAG_API_TOKEN (api.api_token
 
 
 def probe_sidecar(base_url: str, timeout: float = 2.0) -> bool:
-    """探活 sidecar：任何 HTTP 响应（含 401）都算进程存活，与 start_dashboard 口径一致。"""
+    """探活 sidecar：任何 HTTP 响应（含 401）都算进程存活。"""
     try:
         httpx.get(f"{base_url.rstrip('/')}/api/v1/search/status", timeout=timeout)
         return True

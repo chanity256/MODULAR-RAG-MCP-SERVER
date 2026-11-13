@@ -127,14 +127,6 @@ observability:
     log_level: INFO         # DEBUG | INFO | WARNING | ERROR | CRITICAL
   detail_level: standard    # minimal | standard | verbose
 
-# Dashboard 管理平台配置
-dashboard:
-  enabled: true
-  port: 8501
-  traces_dir: ./logs
-  auto_refresh: true
-  refresh_interval: 5
-
 # Chat 配置（可选节，WEBUI_CHAT_SPEC §7.1；缺失走默认，非法值启动即报错）
 chat:
   enabled: true
@@ -152,7 +144,7 @@ chat:
 
 # Web API 配置（可选节，WEBUI_CHAT_SPEC §7.1；缺失走默认，非法值启动即报错）
 api:
-  enabled: false            # 只影响 scripts/start_api.py；Streamlit 不受影响
+  enabled: false            # 只影响 scripts/start_api.py
   host: 127.0.0.1
   port: 8600
   # D9：独立于 sidecar token。未解析（占位符原样保留）视同无 token，host 非 loopback 时启动失败

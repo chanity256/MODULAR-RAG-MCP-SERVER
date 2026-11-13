@@ -32,7 +32,6 @@ __all__ = [
     "RerankConfig",
     "EvaluationConfig",
     "ObservabilityConfig",
-    "DashboardConfig",
     "ChunkRefinerConfig",
     "MetadataEnricherConfig",
     "ImageCaptionerConfig",
@@ -161,16 +160,6 @@ class ObservabilityConfig:
     retention_days: int = 30
     log_level: str = "INFO"
     detail_level: str = "standard"
-    extra: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class DashboardConfig:
-    enabled: bool = True
-    port: int = 8501
-    traces_dir: str = "./logs"
-    auto_refresh: bool = True
-    refresh_interval: int = 5
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -393,7 +382,6 @@ class Settings:
     rerank: RerankConfig
     evaluation: EvaluationConfig
     observability: ObservabilityConfig
-    dashboard: DashboardConfig
     ingestion: IngestionConfig = field(default_factory=IngestionConfig)
     agentic_search: AgenticSearchConfig = field(default_factory=AgenticSearchConfig)
     chat: ChatSettings = field(default_factory=ChatSettings)
@@ -415,7 +403,7 @@ _REQUIRED_FIELDS: dict[str, list[str]] = {
     "retrieval": ["sparse_backend", "fusion_algorithm"],
     "rerank": ["backend"],
     "evaluation": ["backends"],
-    # observability / dashboard 均有合理默认值，不强制必填
+    # observability 有合理默认值，不强制必填
 }
 
 
@@ -590,18 +578,6 @@ def _build_observability(sec: dict[str, Any]) -> ObservabilityConfig:
         retention_days=retention_days,
         log_level=log_level,
         detail_level=_opt(sec, "detail_level", "standard"),
-        extra=_extra(sec, known),
-    )
-
-
-def _build_dashboard(sec: dict[str, Any]) -> DashboardConfig:
-    known = {"enabled", "port", "traces_dir", "auto_refresh", "refresh_interval"}
-    return DashboardConfig(
-        enabled=bool(_opt(sec, "enabled", True)),
-        port=int(_opt(sec, "port", 8501)),
-        traces_dir=_opt(sec, "traces_dir", "./logs"),
-        auto_refresh=bool(_opt(sec, "auto_refresh", True)),
-        refresh_interval=int(_opt(sec, "refresh_interval", 5)),
         extra=_extra(sec, known),
     )
 
@@ -1040,15 +1016,12 @@ def load_settings(path: str | os.PathLike[str] = "config/settings.yaml") -> Sett
     # 可选节：缺失时使用默认值。
     splitter_sec = data.get("splitter") or {}
     obs_sec = data.get("observability") or {}
-    dashboard_sec = data.get("dashboard") or {}
     ingestion_sec = data.get("ingestion") or {}
     agentic_sec = data.get("agentic_search") or {}
     if not isinstance(splitter_sec, dict):
         raise ConfigError("config section 'splitter' must be a mapping")
     if not isinstance(obs_sec, dict):
         raise ConfigError("config section 'observability' must be a mapping")
-    if not isinstance(dashboard_sec, dict):
-        raise ConfigError("config section 'dashboard' must be a mapping")
     if not isinstance(ingestion_sec, dict):
         raise ConfigError("config section 'ingestion' must be a mapping")
     if not isinstance(agentic_sec, dict):
@@ -1061,7 +1034,6 @@ def load_settings(path: str | os.PathLike[str] = "config/settings.yaml") -> Sett
         raise ConfigError("config section 'api' must be a mapping")
     splitter = _build_splitter(splitter_sec)
     observability = _build_observability(obs_sec)
-    dashboard = _build_dashboard(dashboard_sec)
     ingestion = _build_ingestion(ingestion_sec)
     agentic_search = _build_agentic_search(agentic_sec)
     chat = _build_chat(chat_sec)
@@ -1077,7 +1049,6 @@ def load_settings(path: str | os.PathLike[str] = "config/settings.yaml") -> Sett
         rerank=rerank,
         evaluation=evaluation,
         observability=observability,
-        dashboard=dashboard,
         ingestion=ingestion,
         agentic_search=agentic_search,
         chat=chat,

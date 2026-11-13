@@ -1,6 +1,6 @@
 """EvaluationService：评估后端路由 + runner 构建 + 执行（框架无关，WC1.4）。
 
-Streamlit 评估面板与未来 FastAPI 路由共用：
+供 ``src/api/`` 路由使用：
 
 - :func:`evaluator_for_backend` —— ``custom`` / ``ragas`` / ``composite`` 路由；
 - :func:`resolve_test_set_path` / :meth:`EvaluationService.default_test_set_path`

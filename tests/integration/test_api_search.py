@@ -217,7 +217,7 @@ class TestCapabilities:
 
 
 class TestWithRealSearchService:
-    """真实 SearchService + fake tool：验证与 Streamlit 页同一条归一化链路。"""
+    """真实 SearchService + fake tool：验证归一化链路。"""
 
     @staticmethod
     def _service(*, enabled, allow_deep, agentic_tool=None):

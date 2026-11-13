@@ -14,7 +14,7 @@ from observability.dashboard.services.trace_service import TraceService
 
 router = APIRouter(prefix="/traces", tags=["traces"])
 
-# 与 Streamlit 追踪页的瀑布图阶段口径一致。
+# 瀑布图阶段口径。
 _INGEST_STAGES = ["load", "split", "transform", "embed", "store", "upsert"]
 _QUERY_STAGES = ["query_processing", "dense_retrieval", "sparse_retrieval", "fusion", "hybrid", "rerank"]
 

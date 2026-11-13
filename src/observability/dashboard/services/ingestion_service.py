@@ -1,6 +1,6 @@
 """IngestionService：上传保存 + 摄取编排（框架无关，WC1.2）。
 
-Streamlit 页面与未来 FastAPI 路由共用同一套摄取编排：
+供 ``src/api/`` 路由使用：
 
 - :meth:`IngestionService.save_uploads` —— 把 ``(filename, bytes)`` 安全写入
   上传目录（仅保留 basename，目录不存在时自动创建）；

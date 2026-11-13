@@ -52,12 +52,6 @@ _MINIMAL_VALID_YAML = dedent(
       logging:
         log_level: INFO
       detail_level: standard
-    dashboard:
-      enabled: true
-      port: 8501
-      traces_dir: ./logs
-      auto_refresh: true
-      refresh_interval: 5
     """
 )
 
@@ -91,6 +85,20 @@ def test_load_settings_minimal_valid(tmp_path: Path) -> None:
     assert settings.llm.provider == "azure"
     assert settings.embedding.provider == "openai"
     assert settings.retrieval.top_k_dense == 20
+
+
+def test_legacy_dashboard_section_is_ignored(tmp_path: Path) -> None:
+    """SR3：旧配置残留的 `dashboard:` 顶层节（未登记字段）被静默忽略，不 fail-fast。"""
+    legacy = _MINIMAL_VALID_YAML + dedent(
+        """\
+        dashboard:
+          enabled: true
+          port: 8501
+        """
+    )
+    path = _write(tmp_path, legacy)
+    settings = load_settings(path)
+    assert not hasattr(settings, "dashboard")
 
 
 def test_validate_settings_passes_on_valid(tmp_path: Path) -> None:

@@ -1,4 +1,4 @@
-"""Web Dashboard（阶段 G）。"""
+"""API 层共享服务包（``src/api/`` 的 services 依赖层；Streamlit 页面层已退役）。"""
 
 from observability.dashboard.services.config_service import ConfigService
 from observability.dashboard.services.data_service import DataService

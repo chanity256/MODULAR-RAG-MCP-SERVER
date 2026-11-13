@@ -37,7 +37,7 @@ def get_overview(
         for card in config.component_cards()
     ]
 
-    # 与 Streamlit 总览一致：统计读取失败只告警，页面其余部分照常展示。
+    # 统计读取失败只告警，总览其余部分照常展示。
     try:
         stats = [CollectionStatsModel(**item.to_dict()) for item in data.get_collection_stats()]
     except Exception:
