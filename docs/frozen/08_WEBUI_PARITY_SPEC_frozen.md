@@ -6,9 +6,9 @@
 >
 > - 冻结时间：2026-10-18
 > - 完成概要：WP0–WP2 三项全部收口（追踪列表服务端 offset 翻页、评估历史内联 SVG 趋势图、评估提交路径 422 预检）；审计 L3 关闭、L4 仅剩已接受的「默认路径回显」。实测 pytest 2470 passed / 11 skipped、vitest 250 passed、Playwright 24 passed。实现偏差见 5 章进度备注（翻页复用 `Pagination`/`pageInfo`/`clampOffset`，钳制走渲染期调整模式）。
-> - 遗留：见 [backlog/webui-parity-followups_backlog.md](../backlog/webui-parity-followups_backlog.md)（#1 Deep 进度日志、#4 sidecar 托管编排）
+> - 遗留：见 webui-parity-followups 台账（已晋升为 [../specs/STREAMLIT_RETIREMENT_SPEC.md](../specs/STREAMLIT_RETIREMENT_SPEC.md)）（#1 Deep 进度日志、#4 sidecar 托管编排）
 
-> 版本：0.2 — 由 [backlog/webui-parity-followups_backlog.md](../backlog/webui-parity-followups_backlog.md) 拆分移交晋升（#5、#2、#3 的 422 预检三项承接为本规格；#1、#4 及 #3 其余部分留在 backlog）。v0.2 为立项审核修订：纠正审计编号（L3/L4）、WP0 覆盖两个追踪页、WP2 预检经服务层注入并对齐既有路径解析与错误信封、补齐测试落点
+> 版本：0.2 — 由 webui-parity-followups 台账（已晋升为 [../specs/STREAMLIT_RETIREMENT_SPEC.md](../specs/STREAMLIT_RETIREMENT_SPEC.md)，原文见 git 历史）拆分移交晋升（#5、#2、#3 的 422 预检三项承接为本规格；#1、#4 及 #3 其余部分留在 backlog）。v0.2 为立项审核修订：纠正审计编号（L3/L4）、WP0 覆盖两个追踪页、WP2 预检经服务层注入并对齐既有路径解析与错误信封、补齐测试落点
 >
 > 起源与决策依据：[analysis/WEBUI_PARITY_AUDIT.md](../analysis/WEBUI_PARITY_AUDIT.md)（WC10.1 缺口清单 L3：追踪列表 500 条上限；L4：评估页三处小差异中的趋势图与路径提交前校验）+ 上述 backlog 台账的决策三问（原文见 git 历史）
 >
