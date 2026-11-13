@@ -94,8 +94,8 @@
 
 | # | 决策 | 现状事实 | 建议（SD0.1 回填终裁） |
 |---|------|----------|------|
-| D1 | PR 流程与分支保护 | 提交直接落在 feature 分支；没有 required status checks 时 CI 红灯不阻止合并 | 采用「feature 分支 → PR → main」，main 开启 branch protection，`ci.yml` 两个 job 设为 required。若仓库套餐不支持分支保护（私有仓库免费套餐不支持），§0 的「确定性」降级为「可见」，本规格需如实标注。**现状核实（2026-11-13）**：`fork` 为 public 仓库、使用者有 ADMIN 权限，分支保护可用，无需降级。**终裁：待定**——使用者决定当前只做本地工作、暂不推送 |
-| D2 | Actions 跑在哪个仓库 | 两个 remote：`origin`（jerry-ai-dev，上游）与 `fork`（chanity256） | 在自己有管理权限的仓库（预计 `fork`）启用 Actions、Secrets、分支保护与自动 review；不向上游推 workflow。**终裁：待定**（同 D1） |
+| D1 | PR 流程与分支保护 | 提交直接落在 feature 分支；没有 required status checks 时 CI 红灯不阻止合并 | 采用「feature 分支 → PR → main」，main 开启 branch protection，`ci.yml` 两个 job 设为 required。若仓库套餐不支持分支保护（私有仓库免费套餐不支持），§0 的「确定性」降级为「可见」，本规格需如实标注。**现状核实（2026-11-13）**：`fork` 为 public 仓库、使用者有 ADMIN 权限，分支保护可用，无需降级。**终裁（2026-11-13）**：采纳——在 `fork` 上走「feature 分支 → PR → main」，D6 baseline PR 合入后开启分支保护（`python`、`frontend` 为 required checks + Code Owners review） |
+| D2 | Actions 跑在哪个仓库 | 两个 remote：`origin`（jerry-ai-dev，上游）与 `fork`（chanity256） | 在自己有管理权限的仓库（预计 `fork`）启用 Actions、Secrets、分支保护与自动 review；不向上游推 workflow。**终裁（2026-11-13）**：`fork`（chanity256，public，Actions 已启用）；`origin` 只读不推 |
 | D3 | CI 运行环境与依赖安装 | 本地 `.venv` 为 Python 3.13.13；`pyproject.toml` 写 `>=3.10`；`requirements.txt` 缺测试依赖；无 lock 文件 | CI 固定 Python 3.13；安装命令 `pip install -e ".[dev,ingest-formats]"`；pip 缓存以 `pyproject.toml` 哈希为 key。是否引入 lock 文件单独决定（Out of Scope）。`requirements.txt` 要么补齐，要么在 README 注明以 `pyproject.toml` 为准。**终裁（2026-11-13）**：采纳上述 CI 环境与安装命令；`requirements.txt` 补齐测试依赖（pytest / pytest-check / pytest-socket），与 `pyproject.toml` dev extra 同步 |
 | D4 | 处理工作区未提交改动 | ✅ 已解决：`2b04c03` 时工作区干净 | 无需动作。SD6 动 skill 前再确认一次 |
 | D5 | agent eval 执行器与预算 | `droid exec` 1.10.0 可用；**没有预算参数** | 执行器用 `droid exec --auto medium -o stream-json -m <固定模型>`（默认只读，跑 pytest 和改文件需要 `--auto medium`；判据要读工具调用记录，需 `stream-json`）。预算靠三层：用例数 × 重复次数上限、workflow `timeout-minutes`、Factory 账户侧额度。Secret 名为 `FACTORY_API_KEY`。**终裁：待定**（SD3b 门控项，开工 SD3.4 前再定） |
