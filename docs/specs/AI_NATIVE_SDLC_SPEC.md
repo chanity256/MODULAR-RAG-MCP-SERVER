@@ -220,6 +220,17 @@ main ──▶ measure_process.py 读 git 历史 → docs/analysis/process-metri
 
 修复后干净环境（禁网命令）：`2471 passed, 14 skipped`；本地：`2474 passed, 11 skipped`（2460 + `test_check_redlines.py` 14 条）。两者只差上述 3 条 e2e_web skip。
 
+**本地模拟 CI 演练（2026-11-13，`fc50dff` 全新 clone；本机无 Docker / act，用一次性脚本逐条执行 `ci.yml` 的 `run:` 步骤，`uses:` 步骤以本地 venv / node 代替；不推送远端）**：
+
+| 场景 | python job | frontend job | 结论 |
+|------|-----------|--------------|------|
+| 基线（HEAD） | PASS | PASS | 门全绿 |
+| A：`src/` 某函数体内 `import sirchmunk` | FAIL（`test_check_redlines.py::test_real_repository_has_no_violations` 先于红线步骤拦下） | PASS | 拦截 |
+| B：新增单测 `httpx.get("https://example.com")` | FAIL（`SocketConnectBlockedError`） | PASS | 拦截 |
+| C：改坏一条 vitest 断言 | PASS | FAIL | 拦截 |
+
+演练只证明 workflow 命令能拦下违规；「PR 无法合并」仍需推送后由 required checks 与分支保护实测。
+
 **workflow**：沿用提案命名 `.github/workflows/ci.yml`，触发条件 PR + push 默认分支，两个并行 job：
 
 - `python`：Python 3.13 → `pip install -e ".[dev,ingest-formats]"` → 禁网 → `pytest tests -q` → `python scripts/check_redlines.py`。`test_docs_links.py`、双登记单测、`llm_fallback` 单测已在 `pytest tests` 内，不再单独跑；
@@ -518,8 +529,8 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 | SD1.2 | `ci.yml` Python job（原 CI-1） | PR 与 push 默认分支自动触发；步骤与 AGENTS.md 本地命令逐字同源；首次真实 run 全绿 | [~] `ci.yml` 已写，干净 clone 本地按同命令全绿；首次真实 run 待推送 |
 | SD1.3 | `ci.yml` 前端 job（原 CI-2） | 与 Python job 并行；`npm ci` + typecheck / lint / test 首次真实 run 全绿 | [~] 干净 clone `npm ci` 后本地全绿（262 tests）；首次真实 run 待推送 |
 | SD1.4 | Web UI 冒烟接 CI（原 CI-3，可选） | 前端 job 追加 build 后 `pytest tests/e2e_web -q` 通过；不 build 时维持 skip 语义 | [ ] |
-| SD1.5 | 禁网测试（原 CI-5） | 方案 a/b 定稿并回填 §3.1；一个故意发真实 HTTP 请求的单测在 CI 中失败；loopback 的 e2e_web 不受影响 | [~] 方案 a 定稿；本地探针：外网 connect / httpx 被拦、loopback 放行；CI 中验证待推送 |
-| SD1.6 | `check_redlines.py` + 单测（原 CI-6） | 三条规则与白名单 / 豁免按 §3.1 实现，`test_check_redlines.py` 通过；对真实仓库零违规；故意 `import sirchmunk` 的 PR 被 CI 拦下 | [~] 脚本 + 14 条单测通过、真实仓库零违规；PR 拦截验证待推送 |
+| SD1.5 | 禁网测试（原 CI-5） | 方案 a/b 定稿并回填 §3.1；一个故意发真实 HTTP 请求的单测在 CI 中失败；loopback 的 e2e_web 不受影响 | [~] 方案 a 定稿；本地探针：外网 connect / httpx 被拦、loopback 放行；本地模拟 CI 演练 B 拦截（§3.1）；GitHub 真实 run 待推送 |
+| SD1.6 | `check_redlines.py` + 单测（原 CI-6） | 三条规则与白名单 / 豁免按 §3.1 实现，`test_check_redlines.py` 通过；对真实仓库零违规；故意 `import sirchmunk` 的 PR 被 CI 拦下 | [~] 脚本 + 14 条单测通过、真实仓库零违规；本地模拟 CI 演练 A 拦截（§3.1）；PR 拦截验证待推送 |
 | SD1.7 | CODEOWNERS + 分支保护（原 CI-7） | `.github/CODEOWNERS` 覆盖 §3.1 所列路径；main 开启 required checks（python、frontend）与 Code Owners review；改白名单的 PR 未经 owner 审批无法合并 | [~] `.github/CODEOWNERS` 已建；分支保护待 D1/D2 |
 | SD1.8 | 文档同步（原 CI-4） | AGENTS.md 常用命令增补 CI 说明；`requirements.txt` 补齐或 README 注明以 `pyproject.toml` 为准（D3）；README badge 视需要 | [x] 2026-11-13：AGENTS.md 增补 CI 节、`requirements.txt` 补齐测试依赖；badge 待 CI 上线后再加 |
 | SD2.1 | 核实 review 指令读取位置与 fork 安装 | 两项结论回填 §3.2；任一不成立时 §3.2 写明替代方案 | [x] 2026-11-13：指令落点为 `.factory/skills/review-guidelines/SKILL.md`；fork 按文档可行，实装待推送（§3.2） |
