@@ -24,5 +24,5 @@
 | 文档 | 一句话说明 |
 |------|-----------|
 | [OBSIDIAN_RAG_SPEC_backlog.md](OBSIDIAN_RAG_SPEC_backlog.md) | Obsidian Vault RAG 扩展规格（V 系列；M1/M2 Markdown 摄取已移交 INGESTION_ROBUSTNESS_SPEC 阶段 IR7，剩余 M3/M4 待排期） |
-| [webui-parity-followups_backlog.md](webui-parity-followups_backlog.md) | WebUI 双轨核验遗留差异（WC10.1）：#5 翻页/#2 趋势图/#3 预检已随 [frozen/08_WEBUI_PARITY_SPEC_frozen.md](../frozen/08_WEBUI_PARITY_SPEC_frozen.md) 收口（WP 系列），#4 托管编排/#1 Deep 进度日志已随 [frozen/09_WEBUI_SIDECAR_SPEC_frozen.md](../frozen/09_WEBUI_SIDECAR_SPEC_frozen.md) 收口（WS 系列）；仅剩 #3 展示细节接受项 |
+| [ci-pipeline_backlog.md](ci-pipeline_backlog.md) | CI 持续集成管线提案：承接 [frozen/01_DEV_SPEC_frozen.md](../frozen/01_DEV_SPEC_frozen.md) §4.5 可选 CI/CD 设计与路线图 §6.7「CI 分别执行 Python 与前端检查」，最小 GitHub Actions 双 job（Python 离线全量测试 + 前端检查），不做 CD / 门控真实测试 / 质量评估 |
 | [sirchmunk-extension-followups_backlog.md](sirchmunk-extension-followups_backlog.md) | Sirchmunk SX 规格遗留事项台账：明确不做（evolver 等 6 项）、实验负结果存档（编译 GX 不通过、复用保持关闭）、已知缺陷与候选池（流式线程泄漏等 7 项） |
