@@ -54,7 +54,7 @@ docs/ 文档分两类：
 | 日志分层（LG） | 会话内 `logs/traces.jsonl` 体量审计（无独立文件） | — | [07_LOGGING_SPEC_frozen.md](frozen/07_LOGGING_SPEC_frozen.md) | 遗留见规格 2.2（未建台账） | 跳过提案 |
 | 存储扩容 | [STORAGE_SCALING_ANALYSIS.md](analysis/STORAGE_SCALING_ANALYSIS.md) | — | — | — | 止于分析（阶段 0 保持文件型存储不动） |
 | 微服务演进 | [MICROSERVICES_ANALYSIS.md](analysis/MICROSERVICES_ANALYSIS.md) | — | — | — | 止于分析（保持模块化单体） |
-| 持续集成（CI） | [01_DEV_SPEC_frozen.md](frozen/01_DEV_SPEC_frozen.md) §4.5（可选 CI/CD 设计）；[FUTURE_OPTIMIZATION_ROADMAP.md](reference/FUTURE_OPTIMIZATION_ROADMAP.md) §6.7 | [ci-pipeline_backlog.md](backlog/ci-pipeline_backlog.md) | — | — | —（提案待立项） |
+| AI-Native SDLC 流程升级（SD，含持续集成 CI） | Anthropic [The AI-native SDLC playbook](https://claude.com/resources/articles/the-ai-native-sdlc-playbook)（外部参照）→ 常驻分析 `AI_NATIVE_SDLC_UPGRADE_PLAN.md` v0.4（就地升级为规格，未入 git）；CI 部分起源 [01_DEV_SPEC_frozen.md](frozen/01_DEV_SPEC_frozen.md) §4.5、[FUTURE_OPTIMIZATION_ROADMAP.md](reference/FUTURE_OPTIMIZATION_ROADMAP.md) §6.7 | [ci-pipeline_backlog_frozen.md](frozen/ci-pipeline_backlog_frozen.md)（CI-1~CI-4 并入 SD1） | [AI_NATIVE_SDLC_SPEC.md](specs/AI_NATIVE_SDLC_SPEC.md) | — | 单文件晋升（分析就地升级）；提案存档（ci-pipeline） |
 | WebUI 双轨差异收口（WP） | [WEBUI_PARITY_AUDIT.md](analysis/WEBUI_PARITY_AUDIT.md)（WC10.1 缺口清单 L3/L4） | webui-parity-followups 台账（已晋升为 [frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)，原文见 git 历史） | [08_WEBUI_PARITY_SPEC_frozen.md](frozen/08_WEBUI_PARITY_SPEC_frozen.md) | 台账剩余项二次移交 WS 规格（见下行） | 拆分移交 |
 | WebUI sidecar 补齐（WS） | 同上台账（#4 sidecar 托管编排、#1 Deep 进度日志） | webui-parity-followups 台账（第二次拆分移交；已晋升为 [frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)） | [09_WEBUI_SIDECAR_SPEC_frozen.md](frozen/09_WEBUI_SIDECAR_SPEC_frozen.md) | [sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md) #1（SX5.3 线程泄漏，门控默认关闭的依据） | 拆分移交 |
 | Streamlit 退役（SR） | [WEBUI_PARITY_AUDIT.md](analysis/WEBUI_PARITY_AUDIT.md)（退役门槛清单）；webui-parity-followups 台账（#3 接受项决议并入其 Out of Scope） | [STREAMLIT_RETIREMENT_SPEC.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)（单文件晋升，原台账原文见 git 历史） | [10_STREAMLIT_RETIREMENT_SPEC_frozen.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)（已收口冻结） | — | 单文件晋升 |
@@ -66,7 +66,7 @@ docs/ 文档分两类：
 
 | 文档 | 说明 |
 |------|------|
-| _（暂无进行中的规格）_ | 新规格从 [backlog/](backlog/) 晋升后列于此 |
+| [AI_NATIVE_SDLC_SPEC.md](specs/AI_NATIVE_SDLC_SPEC.md) | AI-Native SDLC 流程升级规格（SD 系列，v0.5 立项、SD0–SD8 未开始）：前置决策 D1–D6 + baseline PR、CI 确定性门（干净环境 / 双 job / 禁网 / 红线脚本 / CODEOWNERS，承接 ci-pipeline 提案）、AI PR review、QA 对照与 agent evals（门控）、定时闭环（门控）、过程度量、skill 单一来源 + plan + PR 化、规格结构校验（可选）；不改 `src/` 业务行为 |
 
 ## frozen/ — 已冻结文档
 
@@ -85,6 +85,7 @@ docs/ 文档分两类：
 | [09_WEBUI_SIDECAR_SPEC_frozen.md](frozen/09_WEBUI_SIDECAR_SPEC_frozen.md) | WebUI sidecar 补齐规格（WS 系列，WS0–WS4 已收口冻结）：`scripts/sidecar_manager.py` 共享托管编排 + `start_api.py --manage-sidecar`、`core/chat/progress.py` 共享日志转帧、门控 `WS /api/v1/search/ws`（`api.deep_progress_stream` 默认 false，SX5.3 规避）、Playground Deep 前端流式接入；承接自 webui-parity-followups 台账（已晋升为 [frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)）的 #4/#1 |
 | [10_STREAMLIT_RETIREMENT_SPEC_frozen.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md) | Streamlit 退役规格（SR 系列，SR0–SR6 已收口冻结）：物理删除 Streamlit 页面层 / `start_dashboard.py` / streamlit 依赖 / Streamlit-only 配置与页面级测试，文档与技能镜像同步；`services/` 层及其测试保留（API 层依赖）；由 webui-parity-followups 台账单文件晋升，#3 接受项决议存档于其 Out of Scope；实测 2460 passed / 11 skipped |
 | [dashboard-api-migration_backlog_frozen.md](frozen/dashboard-api-migration_backlog_frozen.md) | Dashboard 前后端分离迁移提案（**已立项并入** [frozen/06_WEBUI_CHAT_SPEC_frozen.md](frozen/06_WEBUI_CHAT_SPEC_frozen.md) WC 系列并收口冻结；原 Vue 3 选型被其 D1 推翻，保留作决策依据与 P1 拆解；backlog 提案冻结后保留 `_backlog` 后缀追加 `_frozen`） |
+| [ci-pipeline_backlog_frozen.md](frozen/ci-pipeline_backlog_frozen.md) | CI 持续集成管线提案（**已立项并入** [specs/AI_NATIVE_SDLC_SPEC.md](specs/AI_NATIVE_SDLC_SPEC.md) SD1：CI-1~CI-4 → SD1.2/1.3/1.4/1.8；保留作决策依据，其 Out of Scope 继承为规格 §2.2） |
 | [sirchmunk-capability-completion_backlog_frozen.md](frozen/sirchmunk-capability-completion_backlog_frozen.md) | Sirchmunk 剩余能力补齐提案（已立项并收口冻结为 SX 系列，保留作决策依据：telemetry/compile/复用/SSE/参数透传，源码复核证据） |
 
 ## analysis/ — 分析与规划
@@ -105,7 +106,6 @@ docs/ 文档分两类：
 
 | 文档 | 说明 |
 |------|------|
-| [ci-pipeline_backlog.md](backlog/ci-pipeline_backlog.md) | CI 持续集成管线提案：GitHub Actions 双 job（Python 离线全量测试 + 前端 typecheck/lint/test），承接 DEV_SPEC §4.5 可选 CI/CD 设计与路线图 §6.7；不做 CD / 门控真实测试 / RAG 质量评估 |
 | [OBSIDIAN_RAG_SPEC_backlog.md](backlog/OBSIDIAN_RAG_SPEC_backlog.md) | Obsidian Vault RAG 扩展规格（V 系列；v0.2 起 M1/M2 Markdown 摄取已移交 IR 规格 IR7，本规格保留 M3 sentence-transformers / M4 Semantic Walk 待排期） |
 | [sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md) | Sirchmunk SX 规格遗留事项台账：明确不做（evolver 等 6 项）、实验负结果存档（编译 GX 不通过、复用保持关闭）、已知缺陷与候选池（流式线程泄漏等 7 项） |
 

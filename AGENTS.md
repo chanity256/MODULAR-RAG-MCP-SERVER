@@ -16,6 +16,7 @@
 - `docs/reference/USAGE_GUIDE.md` — 使用速查（启动、配置、sidecar 用法）。
 - `docs/backlog/` — 候选功能与待开发规格（OBSIDIAN V 系列的 M3/M4 可选增强在此待排期，其 M1/M2 已由 IR7 交付；新提案约定见其 README）。
 - `docs/frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md` — SR 系列 Streamlit 退役（已收口冻结）：物理删除 Streamlit 页面层 / `start_dashboard.py` / `streamlit` 依赖 / Streamlit-only 配置与页面级测试，文档与技能镜像同步；`observability/dashboard/services/` 及其测试保留（API 层依赖），sidecar 托管唯一入口为 `start_api.py --manage-sidecar`；改动 `src/core/settings.py` 配置模型或 docs/ 链接前先读。
+- `docs/specs/AI_NATIVE_SDLC_SPEC.md` — SD 系列 AI-Native SDLC 流程升级（**开发中**，SD0–SD8 未开始）：前置决策 D1–D6、CI 确定性门（禁网 pytest、`scripts/check_redlines.py`、CODEOWNERS，承接已存档的 ci-pipeline 提案）、AI PR review、QA 对照与 agent evals、定时闭环、过程度量、skill 单一来源 + per-task plan + PR 化；改动 `.github/`、skill 镜像、`.factory/hooks*`、`evals/` 或执行 SD 任务前先读。不改 `src/` 业务行为。
 
 **[docs/MOC.md](docs/MOC.md) 是 docs/ 目录的索引文档（MOC, Map of Content）**：在 docs/ 下增删文档后，必须同步更新 MOC.md 的对应条目；根目录 README 的「开发文档」导航表同步维护。
 

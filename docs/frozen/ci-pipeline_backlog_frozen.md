@@ -2,6 +2,8 @@
 
 # CI 持续集成管线提案
 
+> **状态**：**已立项**（2026-11-13）——CI-1~CI-4 原样并入 [specs/AI_NATIVE_SDLC_SPEC.md](../specs/AI_NATIVE_SDLC_SPEC.md) SD1（CI-1→SD1.2、CI-2→SD1.3、CI-3→SD1.4、CI-4→SD1.8），规格另追加 CI-0/5/6/7（SD1.1/1.5/1.6/1.7）；本文 Out of Scope 继承为规格 §2.2，其中「不引入新工具链」一条由规格 SD1.5 按需修订。本文正文保留作决策依据（提案存档，只读），细节以规格为准。
+>
 > 版本：0.1 — 候选提案（草案），未立项排期
 >
 > 起源：[01_DEV_SPEC_frozen.md §4.5「测试工具链与 CI/CD 集成」](../frozen/01_DEV_SPEC_frozen.md)（可选 CI/CD Pipeline 设计，明确注明「本地项目不强制要求 CI/CD」）；[FUTURE_OPTIMIZATION_ROADMAP.md §6.7「测试与工程质量」](../reference/FUTURE_OPTIMIZATION_ROADMAP.md)「CI 分别执行 Python 与前端检查」
