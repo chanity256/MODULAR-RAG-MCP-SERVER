@@ -98,7 +98,7 @@
 | D2 | Actions 跑在哪个仓库 | 两个 remote：`origin`（jerry-ai-dev，上游）与 `fork`（chanity256） | 在自己有管理权限的仓库（预计 `fork`）启用 Actions、Secrets、分支保护与自动 review；不向上游推 workflow。**终裁（2026-11-13）**：`fork`（chanity256，public，Actions 已启用）；`origin` 只读不推 |
 | D3 | CI 运行环境与依赖安装 | 本地 `.venv` 为 Python 3.13.13；`pyproject.toml` 写 `>=3.10`；`requirements.txt` 缺测试依赖；无 lock 文件 | CI 固定 Python 3.13；安装命令 `pip install -e ".[dev,ingest-formats]"`；pip 缓存以 `pyproject.toml` 哈希为 key。是否引入 lock 文件单独决定（Out of Scope）。`requirements.txt` 要么补齐，要么在 README 注明以 `pyproject.toml` 为准。**终裁（2026-11-13）**：采纳上述 CI 环境与安装命令；`requirements.txt` 补齐测试依赖（pytest / pytest-check / pytest-socket），与 `pyproject.toml` dev extra 同步 |
 | D4 | 处理工作区未提交改动 | ✅ 已解决：`2b04c03` 时工作区干净 | 无需动作。SD6 动 skill 前再确认一次 |
-| D5 | agent eval 执行器与预算 | `droid exec` 1.10.0 可用；**没有预算参数** | 执行器用 `droid exec --auto medium -o stream-json -m <固定模型>`（默认只读，跑 pytest 和改文件需要 `--auto medium`；判据要读工具调用记录，需 `stream-json`）。预算靠三层：用例数 × 重复次数上限、workflow `timeout-minutes`、Factory 账户侧额度。Secret 名为 `FACTORY_API_KEY`。**终裁：待定**（SD3b 门控项，开工 SD3.4 前再定） |
+| D5 | agent eval 执行器与预算 | `droid exec` 1.10.0 可用；**没有预算参数** | 执行器用 `droid exec --auto medium -o stream-json -m <固定模型>`（默认只读，跑 pytest 和改文件需要 `--auto medium`；判据要读工具调用记录，需 `stream-json`）。预算靠三层：用例数 × 重复次数上限、workflow `timeout-minutes`、Factory 账户侧额度。Secret 名为 `FACTORY_API_KEY`。**终裁（2026-11-13，SD3.4）**：执行器形态采纳；固定模型为 `custom:glm-5.3-Flash-2`（使用者 BYOK，智谱 `open.bigmodel.cn` 的 Anthropic 兼容端点）——Factory 托管的 `glm-5.3-flash` 实测返回 404 不可用。BYOK 下 `factory_credits` 为 0，花费计入使用者的智谱额度；CI 除 `FACTORY_API_KEY` 外还需注入 custom model 配置与智谱 key（SD3.6 落地）。预算 5 条用例 × 3 次，实测数据见 §3.3「SD3.4 测量记录」 |
 | D6 | 216 个存量提交如何进入 main | `feat/sirchmunk-agentic-search` 领先 `main` 216 个提交、落后 1 个；`origin/main` 与 `fork/main` 相同。**勘误（2026-11-13）**：两者**无共同祖先**（`git merge-base` 为空），`main` 是单个上游 squash 提交 `f658c5a`，「rebase / merge 那 1 个落后提交」不可直接执行 | 开启分支保护**之前**完成一次性落地：先以 `git merge -s ours --allow-unrelated-histories main` 把 `main` 记为父提交（分支文件内容不变、保留全部提交，不改写 `fork/main`），再以一个「baseline」PR 合入 main（不 squash，保留 `[SERIES-N]` 审计链）。之后才开启 required checks，新工作一律从 main 开新分支。**已执行（2026-11-13）**：`e2f33c2`（`-s ours`，树不变）→ baseline PR [#1](https://github.com/chanity256/MODULAR-RAG-MCP-SERVER/pull/1) CI 全绿后以 merge commit `dd4ed99` 合入 `fork/main`（228 个提交，未 squash） |
 
 ### 1.4 与 ci-pipeline 提案的承接关系（提案存档）
@@ -334,6 +334,14 @@ QA 计划测的是**产品行为**，改了 skill 文本，`ingest.py` 的输出
 | 密钥与成本 | `FACTORY_API_KEY` 走 GitHub Secrets；成本上限靠用例上限 + `timeout-minutes` + 账户额度三层（`droid exec` 无预算参数） |
 
 **门控条件**：SD3.4 测得单次花费并经使用者确认预算后，SD3.5–SD3.6 才开工；且 SD6 必须先完成（镜像不一致时 eval 结果没有意义）。
+
+**SD3.4 测量记录（2026-11-13）**：
+- 用例：[evals/cases/sd34-htm-extension.yaml](../../evals/cases/sd34-htm-extension.yaml)（「让摄取链路支持 `.htm`，按 HTML 处理」，`required_reads` 为 01 / 04 冻结规格，考察先读规格与双登记约束）。fixture 为 `git worktree add --detach` 到 `3d9559c` 的临时目录（软链主 `.venv`），开跑前离线基线 2513 passed / 14 skipped / 1 xfailed。
+- 命令：`droid exec --auto medium -o stream-json -m custom:glm-5.3-Flash-2 --cwd <fixture> -f <prompt>`，外包 `perl -e 'alarm 1800'` 作 30 分钟硬超时。Factory 托管的 `glm-5.3-flash` 首跑 8 秒即返回 `404 The given endpoint does not exist`，未产生工具调用，改用 BYOK 模型（D5）。
+- 单次花费（`completion` 事件 `usage`）：耗时 379.6 s（20 轮、40 次工具调用）；未缓存输入 50,887、缓存读取 617,920、输出 14,653（其中思考 13,240）token；`factory_credits` 为 0（BYOK）。金额按使用者要求不记录。
+- 判据人工复核：① **失败**——第一次 Edit（第 22 次调用）前未 Read 两份 `required_reads`，01 未触及，04 只做了 Grep 关键词检索；② 通过（`check_redlines.py` 0 违规）；③ 通过（仅把期望集合扩为含 `.htm`，无删除或弱化）；④ 不适用（未进入修复轮）；⑤ 通过（独立复跑 2517 passed / 14 skipped / 1 xfailed，+4 条用例）。双登记两处（`markitdown_loader._DOC_TYPES`、`scripts/ingest.py`）均已同步。判据①一次即抓到真实偏差，说明有区分度；「Grep 是否算读过」留给 SD3.5 的 `check.py` 口径定义。
+- 环境噪声：本机运行会加载用户级 `~/.factory/settings.json`（stderr 有 hook 被忽略提示，工具列表含用户 MCP / Slack 工具），CI 中不存在，SD3.6 基线需在 CI 内重测。
+- 预算（使用者确认，2026-11-13）：SD3.5–SD3.6 按 **5 条用例 × 3 次 ≈ 15 次会话**放行，按本次实测外推串行约 95 分钟、约 0.76M 未缓存输入 + 9.3M 缓存读取 + 0.22M 输出 token；单会话超时建议 15 分钟（实测的 2.4 倍），workflow `timeout-minutes` 在 SD3.6 按并发度确定。
 
 **test-file 保护 hook（SD3.7，可选加固）**：PreToolUse hook 阻止修改**已有**测试文件，只在「Test & Auto-Fix」阶段生效：
 - 生效条件：auto-coder 进入该阶段时创建标记文件（如 `.factory/state/fix_mode`，加入 `.gitignore`），离开时删除；hook 只在标记存在时拦截 `tests/` 下已有文件的 Edit/Write；
@@ -576,7 +584,7 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 
 | 编号 | 任务 | 验收标准 | 状态 |
 |------|------|----------|------|
-| SD0.1 | D1–D3、D5 决策拍板 | §1.3 每行回填终裁；若分支保护不可用，§0 与 SD1.7 标注「确定性」降级为「可见」 | [~] D1/D2/D3 已终裁（2026-11-13）；CODEOWNERS 部分按 D1 标注降级为「可见」（§3.1）；D5 随 SD3b 门控再定 |
+| SD0.1 | D1–D3、D5 决策拍板 | §1.3 每行回填终裁；若分支保护不可用，§0 与 SD1.7 标注「确定性」降级为「可见」 | [x] D1/D2/D3 已终裁（2026-11-13）；CODEOWNERS 部分按 D1 标注降级为「可见」（§3.1）；D5 随 SD3.4 终裁（2026-11-13，BYOK `custom:glm-5.3-Flash-2`） |
 | SD0.2 | D6 baseline PR | 先合入落后的 1 个提交；baseline PR 合入后 main 包含当前分支全部提交且未 squash；此后新工作从 main 开分支 | [x] 2026-11-13：PR #1 以 merge commit `dd4ed99` 合入；此后新工作从 main 开分支（§1.3 D6） |
 | SD1.1 | 干净环境验证（原 CI-0） | 全新 clone + 新 venv 仅装 `.[dev,ingest-formats]`，`pytest tests -q` 复现 2460 passed / 11 skipped，或差异逐项解释并修复（修测试，不改业务语义） | [x] 2026-11-13，差异与修复见 §3.1 |
 | SD1.2 | `ci.yml` Python job（原 CI-1） | PR 与 push 默认分支自动触发；步骤与 AGENTS.md 本地命令逐字同源；首次真实 run 全绿 | [x] 2026-11-13：首次真实 run（PR #1）全绿，2481 passed / 14 skipped；main push run 全绿 |
@@ -592,7 +600,7 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 | SD3.1 | QA 计划清理（3a，随 SD6.1） | A 段标失效；N-02/N-04/N-06/O-07 无 Dashboard 步骤（改为 CLI / Web UI 等价操作或标失效） | [x] 2026-11-13：计划 v1.1；删除步骤改为 Web UI Data Browser（N-01/N-06 另有 `qa_multistep.py` 自动化），Clear All Data 改为 `qa_bootstrap.py clear`；G–O 其余 Dashboard 页面引用改为 Web UI，M-08/M-09 Trace 路径改为 `logs/traces/` 按日文件 |
 | SD3.2 | QA ↔ pytest 对照表（3a） | `QA_PYTEST_MAP.md` 覆盖 G、H、I、J、M、N、O 全部用例，每条标注对应 pytest 与能否离线 | [x] 2026-11-13：66 条逐条对照（93 个节点均可收集）；QA 计划 1.2 按对照结果订正与代码不符的步骤 / 键名 / 预期，I-03/I-04 标失效（§3.3 落地记录） |
 | SD3.3 | 补缺口测试（3a） | 「能离线且无对应 pytest」的用例全部有测试，复用现有 fake，随 `pytest tests` 全绿 | [x] 2026-11-13：15 条缺口全部补齐（`tests/e2e/test_qa_offline_gaps.py` 12 条 + `test_query_entry.py` 2 条 + `test_recursive_splitter_lib.py` 1 条）；N-05 为已知缺陷，strict xfail；离线计数 2506 passed / 11 skipped / 1 xfailed |
-| SD3.4 | evals 单次成本测量（3b 门控入口） | 1 条用例 1 次运行的花费与耗时记录在 §3.3；使用者确认预算后才开工 SD3.5 | [ ] |
+| SD3.4 | evals 单次成本测量（3b 门控入口） | 1 条用例 1 次运行的花费与耗时记录在 §3.3；使用者确认预算后才开工 SD3.5 | [x] 2026-11-13：379.6 s、50,887 未缓存输入 + 617,920 缓存读取 + 14,653 输出 token；判据①失败、②③⑤通过；预算确认 5 条 × 3 次（§3.3 测量记录） |
 | SD3.5 | evals 用例 / fixture / 判据（3b） | 5–8 条用例；`evals/check.py` 实现判据①–⑤；`test_eval_judges.py` 离线通过 | [ ] |
 | SD3.6 | `agent-evals.yml` + 基线校准（3b） | 改一处 skill 文本触发 evals；故意删掉 auto-coder「先读规格」规则后判据①失败；门槛按基线校准后回填 §3.3 | [ ] |
 | SD3.7 | test-file 保护 hook（3b，可选） | 标记文件存在时拦截 `tests/` 下已有文件的 Edit/Write，新建测试文件不拦截 | [ ] |
