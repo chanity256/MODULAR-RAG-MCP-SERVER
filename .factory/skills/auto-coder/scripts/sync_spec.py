@@ -7,7 +7,7 @@ prefixed chapter files instead of clobbering the main DEV_SPEC chapters.
 
 Usage:
     python scripts/sync_spec.py [--force]
-        Sync the main spec (docs/frozen/DEV_SPEC_frozen.md), files like 01-overview.md.
+        Sync the main spec (docs/frozen/01_DEV_SPEC_frozen.md), files like 01-overview.md.
 
     python scripts/sync_spec.py --spec docs/specs/SIRCHMUNK_EXTENSION_SPEC.md --prefix sx [--force]
         Sync an extra spec; chapter files become sx-01-overview.md, sx-07-schedule.md, ...
@@ -91,9 +91,9 @@ def _default_spec() -> Path:
     skill_dir = Path(__file__).parent.parent          # auto-coder/
     repo_root = skill_dir.parent.parent.parent        # project root
     candidates = (
-        repo_root / "docs/frozen/DEV_SPEC_frozen.md",  # frozen spec (docs reorg)
-        repo_root / "docs/specs/DEV_SPEC_frozen.md",   # legacy location 1
-        repo_root / "DEV_SPEC_frozen.md",              # legacy location 2
+        repo_root / "docs/frozen/01_DEV_SPEC_frozen.md",  # frozen spec (docs reorg)
+        repo_root / "docs/specs/01_DEV_SPEC_frozen.md",   # legacy location 1
+        repo_root / "01_DEV_SPEC_frozen.md",              # legacy location 2
     )
     for cand in candidates:
         if cand.exists():

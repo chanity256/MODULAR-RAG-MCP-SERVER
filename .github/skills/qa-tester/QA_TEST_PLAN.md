@@ -310,7 +310,7 @@
 | O-03 | 含图表/流程图的 PDF | Baseline | 1. 确保 Vision LLM 启用<br>2. 摄取 `chinese_table_chart_doc.pdf`<br>3. 用图表描述的内容查询（如"流程图"、"耗时分布"） | 图片被提取、Caption 被生成，查询相关关键信息可命中 |
 | O-04 | 多页长文档 (30+ 页) | Baseline | 1. 摄取 `chinese_long_doc.pdf`<br>2. 分别用文档前半部分（如"Transformer 位置编码"）和后半部分（如"项目实战经验"）的内容查询 | 所有页面均被处理；前后部分内容均可被召回；Chunk 的 page metadata 正确 |
 | O-05 | 包含代码块的技术文档 | Baseline | 1. 摄取 `complex_technical_doc.pdf`（含大量技术术语和组件名）<br>2. 执行 `python scripts/query.py --query "ChromaDB text-embedding-ada-002 vector storage"` | 代码块和技术术语被保留在 Chunk 中（不被分块破坏），通过技术关键词 "ChromaDB" 或 "ada-002" 可召回对应内容段 |
-| O-06 | 已摄取 DEV_SPEC 自身 | Baseline | 1. 摄取 DEV_SPEC_frozen.md（如果支持 md 格式）<br>2. 用 golden test set 中的查询测试 | 查询 "What is Modular RAG" 等命中 DEV_SPEC 相关内容 |
+| O-06 | 已摄取 DEV_SPEC 自身 | Baseline | 1. 摄取 01_DEV_SPEC_frozen.md（如果支持 md 格式）<br>2. 用 golden test set 中的查询测试 | 查询 "What is Modular RAG" 等命中 DEV_SPEC 相关内容 |
 | O-07 | 替换文档后重新评估 | Baseline | 1. Dashboard Clear All Data<br>2. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/complex_technical_doc.pdf` → 运行 `python scripts/evaluate.py` → 记录分数<br>3. Dashboard Clear All Data<br>4. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/chinese_technical_doc.pdf` → 运行 `python scripts/evaluate.py` → 记录分数 | complex_technical_doc.pdf 的评估分数应较高（英文内容与 golden_test_set 匹配度高）；chinese_technical_doc.pdf 的分数应较低（中文内容与英文 golden_test_set 匹配度低） |
 | O-08 | 扫描目录批量摄取多份 PDF | Baseline | 1. `python scripts/ingest.py --path tests/fixtures/sample_documents/` | 所有 PDF 依次被处理，终端输出处理汇总（成功数/总数），Dashboard 可看到所有文档 |
 | O-09 | 博客/非技术类短文档 | Baseline | 1. 摄取 `blogger_intro.pdf`（博主自我介绍类短文档）<br>2. 用文档内容关键词查询（如"博客"、"自我介绍"） | 短文档正确分块（Chunk 数量较少），查询可命中相关内容，验证非技术类文档的摄取兼容性 |

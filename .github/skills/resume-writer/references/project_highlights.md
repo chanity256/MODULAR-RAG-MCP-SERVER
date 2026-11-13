@@ -186,7 +186,7 @@
 ## 亮点 11：Skill 驱动全流程开发（AI Agent 自动化工程实践）
 
 **技术要点**：
-- 设计并实现 DEV_SPEC 驱动开发模式：通过结构化开发规格文档（DEV_SPEC_frozen.md）定义架构、接口、任务排期，AI Agent 基于 Spec 自动生成符合规格的代码
+- 设计并实现 DEV_SPEC 驱动开发模式：通过结构化开发规格文档（01_DEV_SPEC_frozen.md）定义架构、接口、任务排期，AI Agent 基于 Spec 自动生成符合规格的代码
 - 内置 5 大 Agent Skill 覆盖完整开发生命周期：
   - **auto-coder**：读取 DEV_SPEC 中的任务定义与架构规范，自动实现代码并运行测试，支持最多 3 轮自动修复
   - **qa-tester**：基于 QA_TEST_PLAN 自动执行全类型测试（CLI / Dashboard UI / MCP 协议 / Provider 切换），自动诊断并修复失败用例

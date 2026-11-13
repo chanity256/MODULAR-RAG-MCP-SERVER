@@ -1,6 +1,6 @@
 ---
 name: auto-coder
-description: Autonomous spec-driven development agent. Syncs DEV_SPEC_frozen.md and active specs (docs/specs/*.md) into chapter-based reference files, identifies the next pending task from the schedules, implements code following spec architecture and patterns, runs tests with up to 3 auto-fix rounds, and persists progress with atomic commits. Use when user says "auto code", "自动开发", "自动写代码", "auto dev", "一键开发", "autopilot", or wants fully automated spec-to-code workflow.
+description: Autonomous spec-driven development agent. Syncs 01_DEV_SPEC_frozen.md and active specs (docs/specs/*.md) into chapter-based reference files, identifies the next pending task from the schedules, implements code following spec architecture and patterns, runs tests with up to 3 auto-fix rounds, and persists progress with atomic commits. Use when user says "auto code", "自动开发", "自动写代码", "auto dev", "一键开发", "autopilot", or wants fully automated spec-to-code workflow.
 ---
 
 # Auto Coder
@@ -45,7 +45,7 @@ All files under `.factory/skills/auto-coder/references/`. The **main spec** (DEV
 ### 1. Sync Spec
 
 ```powershell
-# Main spec (DEV_SPEC_frozen.md)
+# Main spec (01_DEV_SPEC_frozen.md)
 python .factory/skills/auto-coder/scripts/sync_spec.py
 
 # Each active incremental spec under docs/specs/ (prefix = its own series)
@@ -143,7 +143,7 @@ Round 3 still failing → STOP, show failure report to user
 
 ### 5. Persist
 
-1. **Update the OWNING spec** — the spec file the task's schedule came from (main: `docs/frozen/DEV_SPEC_frozen.md`; incremental: e.g. `docs/specs/SIRCHMUNK_EXTENSION_SPEC.md`): change task marker `[ ]` → `[x]`, fill in 完成日期/备注 as the table provides. Never edit the generated reference files by hand.
+1. **Update the OWNING spec** — the spec file the task's schedule came from (main: `docs/frozen/01_DEV_SPEC_frozen.md`; incremental: e.g. `docs/specs/SIRCHMUNK_EXTENSION_SPEC.md`): change task marker `[ ]` → `[x]`, fill in 完成日期/备注 as the table provides. Never edit the generated reference files by hand.
 2. **Spec freeze discipline**: when the LAST task of an incremental spec closes, follow its own closing note — move the spec into `docs/frozen/` (`*_frozen.md`), and update `docs/MOC.md` plus the README 开发文档 nav table. Do not add new tasks to a frozen spec's table.
 3. **Re-sync**: `python .factory/skills/auto-coder/scripts/sync_spec.py --force` (plus `--spec ... --prefix ... --force` for the owning incremental spec)
 4. **Show summary & ask**:
