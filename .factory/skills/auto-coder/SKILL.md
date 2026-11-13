@@ -96,7 +96,12 @@ Quick-check predecessor artifacts exist (file-level only). On mismatch, log a wa
 
 3. **Test-plan precedence**: if the owning spec has its own test plan section (e.g. its §5 测试方案), it **overrides** the generic `04-testing.md` conventions. `04-testing.md` is a fallback for tasks without a spec-level plan.
 
-4. **Plan** files to create/modify before writing any code.
+4. **Plan** files to create/modify before writing any code. A task is **complex** if ANY of these holds:
+   - it touches 2+ top-level packages under `src/` (e.g. `core/` + `ingestion/`);
+   - it changes a storage structure (Chroma metadata fields, SQLite tables, BM25 index format);
+   - it changes a pipeline stage contract, an MCP tool schema, or the structure of `config/settings.yaml`.
+
+   For a complex task, write `.agents/plans/<task-id>.md` BEFORE coding (format: `.agents/plans/README.md`): files to change, order, risks, and how correctness will be proven. If the implementation deviates, update the plan in the same commit; the plan is committed with the task as an audit record. Simple tasks skip the file and use the schedule's acceptance-criteria column.
 
 5. **Code** — project-specific rules:
    - Treat spec as single source of truth
@@ -134,6 +139,8 @@ Round 0..2:
 Round 3 still failing → STOP, show failure report to user
 ```
 
+**Fix-round count** (recorded in the commit trailer, see Persist): `Fix-Rounds: N`, where N is the number of fix-and-rerun rounds needed before the run went green (0 = green on the first run). Doc tasks that skip pytest record `Fix-Rounds: 0`.
+
 **Completion semantics — two distinct states:**
 
 - **Code complete**: offline pytest all green. For a gated task this is NOT "done" — it means implementation finished, gated verification pending.
@@ -153,12 +160,17 @@ Round 3 still failing → STOP, show failure report to user
    Files: src/libs/agentic_search/converter.py, tests/unit/test_agentic_converter.py
    Tests: 12/12 passed (offline)
    Commit: feat(agentic): [SX1.1] parse top-level telemetry whitelist
+           Fix-Rounds: 1
 
    "commit" → git add + commit
    "skip"   → end
    "next"   → commit + start next task
 ```
 
-Commit message format: `<type>(<scope>): [<SERIES-N>] <summary>` — scope and type follow the change (e.g. `feat(agentic)`, `docs(spec)`, `chore(scripts)`), series prefix matches the task ID.
+Commit message format: `<type>(<scope>): [<SERIES-N>] <summary>` — scope and type follow the change (e.g. `feat(agentic)`, `docs(spec)`, `chore(scripts)`), series prefix matches the task ID. Every task commit carries the trailer `Fix-Rounds: N` (see Test & Auto-Fix) on its own line in the trailer block.
+
+**Branch & PR flow** (AI_NATIVE_SDLC_SPEC D1 / SD6.5). Check the D1 row of `docs/specs/AI_NATIVE_SDLC_SPEC.md` §1.3 (or its frozen successor):
+- **D1 not yet in effect** (no branch protection on `main`): commit on the current branch and **do not push**.
+- **D1 in effect**: start each series (or each large task) from `main` on a branch named `feat/<series>-<task>`. Persist = commit → push to the remote chosen in D2 → open a PR whose description cites the task ID, its acceptance criteria and the plan path (if any) → wait for CI and review. Important review findings must be fixed or answered in a PR comment before merge. On "next", continue only with tasks that do **not** depend on an unmerged PR; dependent tasks wait for the merge.
 
 On "next", loop back to step 1 and start the next task.

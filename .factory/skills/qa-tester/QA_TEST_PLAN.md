@@ -1,8 +1,8 @@
 # QA 专项测试计划 — Modular RAG MCP Server
 
-> **版本**: 1.0  
-> **日期**: 2025-02-25  
-> **测试范围**: 系统功能验证、Dashboard UI 交互、CLI 脚本、Provider 切换、数据生命周期、容错降级  
+> **版本**: 1.1（AI_NATIVE_SDLC_SPEC SD3.1：A–F 标失效；G–O 的 Dashboard 步骤改为 Web UI / CLI 等价操作；脚本路径迁至单一来源 `.factory/skills/qa-tester/`）  
+> **日期**: 2025-02-25（1.0）  
+> **测试范围**: 系统功能验证、Web UI 页面核对（A–F Streamlit Dashboard 用例已退役）、CLI 脚本、Provider 切换、数据生命周期、容错降级  
 > **测试环境**: Windows, Python 3.11+, 虚拟环境 `.venv`  
 > **当前配置**: Azure 全家桶 (LLM/Embedding/Vision LLM 均为 Azure OpenAI)
 
@@ -34,8 +34,8 @@
 
 | 状态值 | 含义 | 如何到达 |
 |--------|------|---------|
-| `Empty` | 全空：无数据、无 Trace | `qa_bootstrap.py` 中 clear 步骤，或 Dashboard Clear All Data |
-| `Baseline` | 标准数据：default 集合(simple.pdf + with_images.pdf)、test_col 集合(complex_technical_doc.pdf)、有 Trace | `python .github/skills/qa-tester/scripts/qa_bootstrap.py` |
+| `Empty` | 全空：无数据、无 Trace | `python .factory/skills/qa-tester/scripts/qa_bootstrap.py clear`（Web UI 无 Clear All Data） |
+| `Baseline` | 标准数据：default 集合(simple.pdf + with_images.pdf)、test_col 集合(complex_technical_doc.pdf)、有 Trace | `python .factory/skills/qa-tester/scripts/qa_bootstrap.py` |
 | `DeepSeek` | Baseline + LLM 切到 DeepSeek + Vision 关闭 | `qa_config.py apply deepseek`（需 test_credentials.yaml） |
 | `Rerank_LLM` | Baseline + LLM 重排启用 | `qa_config.py apply rerank_llm` |
 | `NoVision` | Baseline + Vision LLM 关闭 | `qa_config.py apply no_vision` |
@@ -47,7 +47,7 @@
 
 ---
 
-## A. Dashboard — Overview 页面
+## A. Dashboard — Overview 页面（⚠️ Streamlit 已退役，用例失效）
 
 > ⚠️ **Streamlit 已退役（2026-11-13，见 `docs/frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md`）**：A–F 全部 Dashboard UI 用例失效，**不要执行**；原启动方式 `python scripts/start_dashboard.py` 已随启动器一并删除。替代方案（Playwright / Web UI）如需要另走 backlog 提案。
 
@@ -164,7 +164,7 @@
 |----|---------|------|---------|--------- |
 | G-01 | 摄取单个 PDF 文件 | Baseline | 1. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/simple.pdf` | 控制台输出各阶段处理信息，最终显示摄取成功，exit code=0 |
 | G-02 | 摄取整个目录 | Baseline | 1. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/` | 自动发现目录下所有 .pdf 文件，逐个处理，最终显示摄取汇总（成功数/失败数） |
-| G-03 | 指定集合名摄取 | Baseline | 1. 执行 `python scripts/ingest.py --path simple.pdf --collection test_col` | 文件摄取到 test_col 集合，可在 Dashboard Data Browser 中看到 |
+| G-03 | 指定集合名摄取 | Baseline | 1. 执行 `python scripts/ingest.py --path simple.pdf --collection test_col` | 文件摄取到 test_col 集合，可在 Web UI Data Browser 中看到 |
 | G-04 | --dry-run 模式 | Baseline | 1. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/ --dry-run` | 仅列出将要处理的文件列表，不实际执行摄取，无 API 调用 |
 | G-05 | --force 强制重新处理 | Baseline | 1. 执行 `python scripts/ingest.py --path simple.pdf --force` | 跳过 SHA256 检查，强制重新处理全流程 |
 | G-06 | 重复摄取（无 --force） | Baseline | 1. 执行 `python scripts/ingest.py --path simple.pdf`（不加 --force） | 控制台提示文件已处理/跳过，不产生重复 Chunk |
@@ -191,7 +191,7 @@
 | H-07 | 超长查询的处理 | Any | 1. 执行 `python scripts/query.py --query "Transformer 模型中的自注意力机制如何工作，包括 Multi-Head Attention 和 RoPE 位置编码的原理，以及 KV Cache 优化策略。同时请解释 RAG 系统中混合检索的工作流程，包括 Dense Retrieval、BM25 Sparse Retrieval 和 RRF 融合算法的具体实现方式。还有 Cross-Encoder Reranker 和 LLM Reranker 的对比分析，以及在生产环境中如何选择合适的向量数据库（如 ChromaDB、FAISS、Milvus）来存储和检索 Embedding 向量。请详细说明每个组件的优缺点和适用场景。"`（约 250 字符） | 正常处理（查询可能被截断），返回结果，不超时不崩溃 |
 | H-08 | 与摄取文档内容相关的查询 | Baseline | 1. 执行 `python scripts/query.py --query "Precision@5 Recall@10 performance benchmarks" --top-k 3`（该内容存在于 complex_technical_doc.pdf 的性能基准章节） | Top-3 结果中至少有 1 条来自 complex_technical_doc.pdf，文本片段包含 "Precision" 或 "benchmarks" 相关内容，source_file 字段为 complex_technical_doc.pdf |
 | H-09 | 与摄取文档无关的查询 | Baseline | 1. 执行 `python scripts/query.py --query "量子力学薛定谔方程"` | 返回结果，但分数较低或无结果，行为合理 |
-| H-10 | 查询后 Trace 记录验证 | Baseline | 1. 执行 `python scripts/query.py --query "What is hybrid search and how does it work"`<br>2. 打开 Dashboard Query Traces 页面 | 最新一条 Trace 的 query 文本显示 "What is hybrid search and how does it work"，时间戳为刚才执行的时间 |
+| H-10 | 查询后 Trace 记录验证 | Baseline | 1. 执行 `python scripts/query.py --query "What is hybrid search and how does it work"`<br>2. 打开 Web UI Query Traces 页面 | 最新一条 Trace 的 query 文本显示 "What is hybrid search and how does it work"，时间戳为刚才执行的时间 |
 
 ---
 
@@ -236,18 +236,18 @@
 
 | ID | 测试标题 | 状态 | 操作步骤 | 预期现象 |
 |----|---------|------|---------|--------- |
-| K-01 | settings.yaml 切换 LLM 到 DeepSeek | DeepSeek | 1. 执行 `python .github/skills/qa-tester/scripts/qa_config.py apply deepseek`<br>2. 检查输出确认切换成功 | 输出显示 "LLM -> deepseek / deepseek-chat"，settings.yaml 已更新 |
+| K-01 | settings.yaml 切换 LLM 到 DeepSeek | DeepSeek | 1. 执行 `python .factory/skills/qa-tester/scripts/qa_config.py apply deepseek`<br>2. 检查输出确认切换成功 | 输出显示 "LLM -> deepseek / deepseek-chat"，settings.yaml 已更新 |
 | K-02 | DeepSeek LLM — CLI 查询 | DeepSeek | 1. 执行 `python scripts/query.py --query "What is hybrid search and how does it work" --verbose` | 查询成功，返回检索结果（来自 Baseline 数据）。Verbose 输出中可看到 LLM provider 为 DeepSeek |
 | K-03 | DeepSeek LLM — 摄取（Chunk Refiner） | DeepSeek | 1. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/simple.pdf --force --verbose` | Transform 阶段使用 DeepSeek 进行 Chunk 重写，日志可见。重写后的 Chunk 内容合理、中文通顺 |
-| K-04 | DeepSeek LLM — 摄取（Metadata Enricher） | DeepSeek | 1. 同 K-03 摄取流程<br>2. 查看 Dashboard Data Browser 中的 Chunk Metadata | Metadata 中 title/summary/tags 字段由 DeepSeek 生成，内容合理 |
-| K-05 | DeepSeek LLM — Dashboard Overview 反映配置 | DeepSeek | 1. 打开 Dashboard Overview 页面 | LLM 卡片显示 provider=deepseek, model=deepseek-chat |
-| K-06 | DeepSeek LLM — Dashboard Ingestion 管理 | DeepSeek | 1. 在 Dashboard Ingestion Manager 上传 `tests/fixtures/sample_documents/chinese_technical_doc.pdf` 并摄取到 default 集合 | 进度条正常推进，Transform 阶段使用 DeepSeek LLM 完成 Chunk Refine 和 Metadata Enrich，最终成功。Data Browser 中可看到该文档 |
+| K-04 | DeepSeek LLM — 摄取（Metadata Enricher） | DeepSeek | 1. 同 K-03 摄取流程<br>2. 查看 Web UI Data Browser 中的 Chunk Metadata | Metadata 中 title/summary/tags 字段由 DeepSeek 生成，内容合理 |
+| K-05 | DeepSeek LLM — Web UI Overview 反映配置 | DeepSeek | 1. 打开 Web UI Overview 页面 | LLM 卡片显示 provider=deepseek, model=deepseek-chat |
+| K-06 | DeepSeek LLM — Web UI Ingestion 管理 | DeepSeek | 1. 在 Web UI Ingestion Manager 上传 `tests/fixtures/sample_documents/chinese_technical_doc.pdf` 并摄取到 default 集合 | 进度条正常推进，Transform 阶段使用 DeepSeek LLM 完成 Chunk Refine 和 Metadata Enrich，最终成功。Data Browser 中可看到该文档 |
 | K-07 | DeepSeek LLM — 关闭 Vision LLM | DeepSeek | 1. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/with_images.pdf --force --verbose` | 图片 Captioning 跳过（因 DeepSeek 无 Vision API），不阻塞流程。日志中显示跳过 captioning，with_images.pdf 的 Chunk 中图片引用保留但无 caption 文本 |
 | K-08 | DeepSeek LLM — LLM Rerank 模式 | DeepSeek | 1. 执行 `python scripts/query.py --query "Retrieval-Augmented Generation modular architecture" --verbose` | Rerank 阶段使用 DeepSeek LLM 进行重排序，Verbose 输出可见重排前后的顺序变化，结果来自 complex_technical_doc.pdf |
-| K-09 | DeepSeek 回退 Azure 验证 | DeepSeek | 1. 执行 `python .github/skills/qa-tester/scripts/qa_config.py restore`<br>2. 执行 `python scripts/query.py --query "Sample Document PDF loader" --verbose` | 功能恢复正常，Verbose 输出显示使用 Azure LLM，查询结果包含 simple.pdf 相关内容，验证切换回来无副作用 |
+| K-09 | DeepSeek 回退 Azure 验证 | DeepSeek | 1. 执行 `python .factory/skills/qa-tester/scripts/qa_config.py restore`<br>2. 执行 `python scripts/query.py --query "Sample Document PDF loader" --verbose` | 功能恢复正常，Verbose 输出显示使用 Azure LLM，查询结果包含 simple.pdf 相关内容，验证切换回来无副作用 |
 | K-10 | DeepSeek API Key 无效的报错 | DeepSeek | 1. 设置 `llm.provider: deepseek`，`api_key` 填入一个无效值<br>2. 执行查询 | 返回清晰的认证失败错误信息（如 401 Unauthorized），不崩溃 |
 | K-11 | DeepSeek + Azure Embedding 混合配置 | DeepSeek | 1. 保持 embedding 为 azure<br>2. 执行完整的 ingest→query 流程 | 摄取使用 Azure Embedding 生成向量 + DeepSeek LLM 做 Transform；查询使用 Azure Embedding 做向量检索 + DeepSeek 做 Rerank（如启用）。全流程跑通 |
-| K-12 | Ragas 评估使用 DeepSeek LLM | DeepSeek | 1. 在 Dashboard Evaluation Panel 选择 ragas 后端<br>2. 运行评估 | Ragas 使用 DeepSeek 作为 Judge LLM，返回评估指标。（注意：Ragas 可能对 LLM 能力有要求，观察结果是否合理） |
+| K-12 | Ragas 评估使用 DeepSeek LLM | DeepSeek | 1. 在 Web UI Evaluation 页面 选择 ragas 后端<br>2. 运行评估 | Ragas 使用 DeepSeek 作为 Judge LLM，返回评估指标。（注意：Ragas 可能对 LLM 能力有要求，观察结果是否合理） |
 
 ---
 
@@ -257,7 +257,7 @@
 |----|---------|------|---------|--------- |
 | L-01 | Reranker=None 模式（默认） | Baseline | 1. 执行 `python scripts/query.py --query "What is hybrid search and how does it work" --verbose` | Verbose 输出显示 Rerank 阶段被跳过，最终结果 = RRF 融合结果，结果包含 complex_technical_doc.pdf 的 Chunk |
 | L-02 | 切换到 LLM Reranker | Rerank_LLM | 1. 执行 `python scripts/query.py --query "Explain the chunking strategy and how documents are split" --verbose` | Verbose 输出显示 Rerank 使用 LLM 打分，结果包含 LLM 的相关性评分，重排后排序可能与 RRF 融合结果不同 |
-| L-03 | Rerank 前后对比（Query Traces） | Rerank_LLM | 1. 打开 Dashboard Query Traces<br>2. 展开最新的查询 Trace<br>3. 对比 Fusion Tab 和 Rerank Tab | Rerank 之后的排序与 Fusion 排序不同（某些 Chunk 排名上升/下降） |
+| L-03 | Rerank 前后对比（Query Traces） | Rerank_LLM | 1. 打开 Web UI Query Traces<br>2. 展开最新的查询 Trace<br>3. 对比 Fusion Tab 和 Rerank Tab | Rerank 之后的排序与 Fusion 排序不同（某些 Chunk 排名上升/下降） |
 | L-04 | Reranker top_k 参数生效 | Rerank_LLM | 1. 执行 `python scripts/query.py --query "Retrieval-Augmented Generation modular architecture" --verbose` | Rerank 后最终返回 3 条结果（而非 Fusion 的 10 条），结果应主要来自 complex_technical_doc.pdf |
 | L-05 | Reranker 失败后 Fallback | Rerank_LLM | 1. 将 `llm.api_key` 临时改为无效值<br>2. 执行 `python scripts/query.py --query "performance benchmarks Precision Recall" --verbose` | 控制台显示 Rerank 失败的警告，但查询仍返回结果（Fallback 到 RRF 排序），不崩溃 |
 
@@ -270,16 +270,16 @@
 | M-01 | Azure LLM API key 错误 | InvalidKey | 1. 将 `llm.api_key` 改为 "invalid_key_12345"<br>2. 执行 `python scripts/query.py --query "测试"` | 终端输出清晰的 API 认证错误（如 "401 Unauthorized" 或 "Invalid API key"），exit code ≠ 0 |
 | M-02 | Azure Embedding API key 错误 | InvalidEmbedKey | 1. 将 `embedding.api_key` 改为无效值<br>2. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/simple.pdf --force` | 在 Embed 阶段报错，错误信息明确指向 Embedding API 问题（如 "401 Unauthorized" 或 "Invalid API key"） |
 | M-03 | Azure Endpoint URL 错误 | Baseline | 1. 将 `llm.azure_endpoint` 改为 "https://invalid.openai.azure.com/"<br>2. 执行 `python scripts/query.py --query "Sample Document PDF loader"` | 输出连接失败或 DNS 解析失败的错误，不挂起不卡死，exit code ≠ 0 |
-| M-04 | Vision LLM 关闭后的摄取 | NoVision | 1. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/with_images.pdf --force --verbose` | 摄取成功完成，日志中显示图片 Captioning 跳过。Dashboard Ingestion Trace 的 Transform Tab 显示 captioned=0，但 Chunk 数量正常 |
+| M-04 | Vision LLM 关闭后的摄取 | NoVision | 1. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/with_images.pdf --force --verbose` | 摄取成功完成，日志中显示图片 Captioning 跳过。Web UI Ingestion Trace 的 Transform Tab 显示 captioned=0，但 Chunk 数量正常 |
 | M-05 | settings.yaml 语法错误 | Baseline | 1. 在 settings.yaml 中引入 YAML 语法错误（如缺少冒号）<br>2. 执行 `python scripts/query.py --query "测试"` | 输出配置文件解析错误的清晰提示，exit code=2 |
 | M-06 | settings.yaml 缺少必填字段 | Baseline | 1. 删除 `embedding` 整个配置段<br>2. 执行摄取 | 输出明确的缺少配置项的错误提示 |
 | M-07 | Chroma 数据目录不存在 | Baseline | 1. 将 `vector_store.persist_directory` 改为一个不存在的路径<br>2. 执行摄取 | 自动创建目录或输出清晰错误 |
-| M-08 | traces.jsonl 被删除后的 Dashboard | Baseline | 1. 手动删除 `logs/traces.jsonl`<br>2. 刷新 Dashboard 各页面 | Overview：显示 "No traces recorded yet"；Ingestion/Query Traces：显示空状态提示。不崩溃不报错 |
-| M-09 | traces.jsonl 含损坏行 | Baseline | 1. 在 `logs/traces.jsonl` 中手动插入一行非 JSON 内容（如 "broken line"）<br>2. 刷新 Dashboard Traces 页面 | 正常跳过损坏行，其他 Trace 正常展示 |
-| M-10 | Chunk Size 参数调整 | Baseline | 1. 将 `ingestion.chunk_size` 从 1000 改为 500<br>2. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/simple.pdf --force`<br>3. 在 Dashboard Data Browser 查看 simple.pdf 的 Chunk 数量 | 生成更多更短的 Chunk（数量应比 chunk_size=1000 时多），每个 Chunk 文本长度 ≤ 500 字符（约） |
-| M-11 | Chunk Overlap 参数调整 | Baseline | 1. 将 `ingestion.chunk_overlap` 从 200 改为 0<br>2. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/simple.pdf --force`<br>3. 在 Dashboard Data Browser 展开 simple.pdf 的相邻 Chunk | Chunk 之间无重叠文本（相邻 Chunk 的开头不应与前一个 Chunk 的结尾重复） |
-| M-12 | 关闭 LLM Chunk Refiner | Baseline | 1. 将 `ingestion.chunk_refiner.provider` 改为非 LLM 模式（如 rule-based）<br>2. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/simple.pdf --force --verbose`<br>3. 在 Dashboard Data Browser 查看 Chunk 内容 | Transform 使用规则方式（非 LLM）精简 Chunk，摄取速度更快（日志无 LLM 调用记录），Chunk 文本与原始 Split 结果更接近 |
-| M-13 | 关闭 LLM Metadata Enricher | Baseline | 1. 将 `ingestion.metadata_enricher.provider` 改为非 LLM 模式（如 rule-based）<br>2. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/simple.pdf --force`<br>3. 在 Dashboard Data Browser 查看 simple.pdf 的 Chunk Metadata | Metadata 中 title/summary/tags 由规则方式生成（可能为空或简略），无 LLM 增强内容，summary 不会是 LLM 编写的自然语言摘要 |
+| M-08 | Trace 文件被删除后的 Web UI | Baseline | 1. 手动删除当天的 `logs/traces/traces-YYYY-MM-DD.jsonl`<br>2. 刷新 Web UI 各页面 | Overview：显示 "No traces recorded yet"；Ingestion/Query Traces：显示空状态提示。不崩溃不报错 |
+| M-09 | Trace 文件含损坏行 | Baseline | 1. 在当天的 `logs/traces/traces-YYYY-MM-DD.jsonl` 中手动插入一行非 JSON 内容（如 "broken line"）<br>2. 刷新 Web UI Traces 页面 | 正常跳过损坏行，其他 Trace 正常展示 |
+| M-10 | Chunk Size 参数调整 | Baseline | 1. 将 `ingestion.chunk_size` 从 1000 改为 500<br>2. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/simple.pdf --force`<br>3. 在 Web UI Data Browser 查看 simple.pdf 的 Chunk 数量 | 生成更多更短的 Chunk（数量应比 chunk_size=1000 时多），每个 Chunk 文本长度 ≤ 500 字符（约） |
+| M-11 | Chunk Overlap 参数调整 | Baseline | 1. 将 `ingestion.chunk_overlap` 从 200 改为 0<br>2. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/simple.pdf --force`<br>3. 在 Web UI Data Browser 展开 simple.pdf 的相邻 Chunk | Chunk 之间无重叠文本（相邻 Chunk 的开头不应与前一个 Chunk 的结尾重复） |
+| M-12 | 关闭 LLM Chunk Refiner | Baseline | 1. 将 `ingestion.chunk_refiner.provider` 改为非 LLM 模式（如 rule-based）<br>2. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/simple.pdf --force --verbose`<br>3. 在 Web UI Data Browser 查看 Chunk 内容 | Transform 使用规则方式（非 LLM）精简 Chunk，摄取速度更快（日志无 LLM 调用记录），Chunk 文本与原始 Split 结果更接近 |
+| M-13 | 关闭 LLM Metadata Enricher | Baseline | 1. 将 `ingestion.metadata_enricher.provider` 改为非 LLM 模式（如 rule-based）<br>2. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/simple.pdf --force`<br>3. 在 Web UI Data Browser 查看 simple.pdf 的 Chunk Metadata | Metadata 中 title/summary/tags 由规则方式生成（可能为空或简略），无 LLM 增强内容，summary 不会是 LLM 编写的自然语言摘要 |
 | M-14 | 调整 retrieval.dense_top_k | Baseline | 1. 将 `retrieval.dense_top_k` 从 20 改为 5<br>2. 执行 `python scripts/query.py --query "Retrieval-Augmented Generation" --verbose` | Dense 路召回最多 5 条结果（Verbose 中 Dense Results 数量 ≤ 5），减少候选集大小 |
 | M-15 | 调整 retrieval.rrf_k 常数 | Baseline | 1. 将 `retrieval.rrf_k` 从 60 改为 10<br>2. 执行 `python scripts/query.py --query "Retrieval-Augmented Generation" --verbose`<br>3. 对比与 rrf_k=60 时的融合排序 | RRF 融合使用不同的平滑常数（k=10 会让排名靠前的结果权重更大），Verbose 中可见 fusion 分数变化 |
 
@@ -289,12 +289,12 @@
 
 | ID | 测试标题 | 状态 | 操作步骤 | 预期现象 |
 |----|---------|------|---------|--------- |
-| N-01 | 完整闭环: 摄取→查询→删除→查询 | Empty | 1. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/simple.pdf`<br>2. 执行 `python scripts/query.py --query "Sample Document PDF loader"` → 确认命中<br>3. 在 Dashboard Data Browser 删除 default 集合中的 simple.pdf<br>4. 再次执行 `python scripts/query.py --query "Sample Document PDF loader"` | 步骤 2 返回结果，source_file 含 simple.pdf；步骤 4 不再返回 simple.pdf 相关结果（结果为空或仅含其他文档） |
-| N-02 | 删除后重新摄取 | Baseline | 1. 在 Dashboard 删除 default 集合中的 simple.pdf<br>2. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/simple.pdf`<br>3. 执行 `python scripts/query.py --query "Sample Document PDF loader"` | 摄取成功（FileIntegrity 记录已清理，不会被跳过），查询重新命中 simple.pdf 的 Chunk |
+| N-01 | 完整闭环: 摄取→查询→删除→查询 | Empty | 1. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/simple.pdf`<br>2. 执行 `python scripts/query.py --query "Sample Document PDF loader"` → 确认命中<br>3. 在 Web UI Data Browser（`python scripts/start_api.py --serve-ui`）删除 default 集合中的 simple.pdf（自动化：`qa_multistep.py N-01`，与 Web UI 同走 DataService）<br>4. 再次执行 `python scripts/query.py --query "Sample Document PDF loader"` | 步骤 2 返回结果，source_file 含 simple.pdf；步骤 4 不再返回 simple.pdf 相关结果（结果为空或仅含其他文档） |
+| N-02 | 删除后重新摄取 | Baseline | 1. 在 Web UI Data Browser 删除 default 集合中的 simple.pdf<br>2. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/simple.pdf`<br>3. 执行 `python scripts/query.py --query "Sample Document PDF loader"` | 摄取成功（FileIntegrity 记录已清理，不会被跳过），查询重新命中 simple.pdf 的 Chunk |
 | N-03 | 多集合隔离验证 | Baseline | 1. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/simple.pdf --collection isolate_a`<br>2. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/complex_technical_doc.pdf --collection isolate_b`<br>3. 执行 `python scripts/query.py --query "Sample Document PDF loader" --collection isolate_a`<br>4. 执行 `python scripts/query.py --query "Retrieval-Augmented Generation" --collection isolate_b` | 集合 isolate_a 查询仅返回 simple.pdf 内容（source_file=simple.pdf）；集合 isolate_b 查询仅返回 complex_technical_doc.pdf 内容，互不干扰 |
-| N-04 | Clear All Data 后全功能验证 | Baseline | 1. Dashboard Clear All Data<br>2. 执行 `python scripts/query.py --query "Sample Document"` → 无结果<br>3. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/simple.pdf`<br>4. 执行 `python scripts/query.py --query "Sample Document PDF loader"` → 命中 | 清空后查询返回空；重新摄取 simple.pdf 后查询命中，系统完全恢复正常 |
+| N-04 | Clear All Data 后全功能验证 | Baseline | 1. 执行 `python .factory/skills/qa-tester/scripts/qa_bootstrap.py clear`（⚠️ 清空 data/ 下全部存储；Web UI 无 Clear All Data）<br>2. 执行 `python scripts/query.py --query "Sample Document"` → 无结果<br>3. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/simple.pdf`<br>4. 执行 `python scripts/query.py --query "Sample Document PDF loader"` → 命中 | 清空后查询返回空；重新摄取 simple.pdf 后查询命中，系统完全恢复正常 |
 | N-05 | 同一文件摄取到多个集合 | Baseline | 1. 摄取 simple.pdf 到 collection_1<br>2. 再次摄取 simple.pdf 到 collection_2 | 两个集合各自独立拥有该文档的 Chunk，互不影响 |
-| N-06 | 删除集合 A 中的文档不影响集合 B | Baseline | 1. 在 Dashboard 删除 collection_1 中的 simple.pdf<br>2. 查询 `--collection collection_2` | collection_2 中的数据不受影响，仍可查询命中 |
+| N-06 | 删除集合 A 中的文档不影响集合 B | Baseline | 1. 在 Web UI Data Browser 删除 collection_1 中的 simple.pdf（自动化：`qa_multistep.py N-06`，集合名为 col_1 / col_2）<br>2. 查询 `--collection collection_2` | collection_2 中的数据不受影响，仍可查询命中 |
 
 ---
 
@@ -311,8 +311,8 @@
 | O-04 | 多页长文档 (30+ 页) | Baseline | 1. 摄取 `chinese_long_doc.pdf`<br>2. 分别用文档前半部分（如"Transformer 位置编码"）和后半部分（如"项目实战经验"）的内容查询 | 所有页面均被处理；前后部分内容均可被召回；Chunk 的 page metadata 正确 |
 | O-05 | 包含代码块的技术文档 | Baseline | 1. 摄取 `complex_technical_doc.pdf`（含大量技术术语和组件名）<br>2. 执行 `python scripts/query.py --query "ChromaDB text-embedding-ada-002 vector storage"` | 代码块和技术术语被保留在 Chunk 中（不被分块破坏），通过技术关键词 "ChromaDB" 或 "ada-002" 可召回对应内容段 |
 | O-06 | 已摄取 DEV_SPEC 自身 | Baseline | 1. 摄取 01_DEV_SPEC_frozen.md（如果支持 md 格式）<br>2. 用 golden test set 中的查询测试 | 查询 "What is Modular RAG" 等命中 DEV_SPEC 相关内容 |
-| O-07 | 替换文档后重新评估 | Baseline | 1. Dashboard Clear All Data<br>2. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/complex_technical_doc.pdf` → 运行 `python scripts/evaluate.py` → 记录分数<br>3. Dashboard Clear All Data<br>4. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/chinese_technical_doc.pdf` → 运行 `python scripts/evaluate.py` → 记录分数 | complex_technical_doc.pdf 的评估分数应较高（英文内容与 golden_test_set 匹配度高）；chinese_technical_doc.pdf 的分数应较低（中文内容与英文 golden_test_set 匹配度低） |
-| O-08 | 扫描目录批量摄取多份 PDF | Baseline | 1. `python scripts/ingest.py --path tests/fixtures/sample_documents/` | 所有 PDF 依次被处理，终端输出处理汇总（成功数/总数），Dashboard 可看到所有文档 |
+| O-07 | 替换文档后重新评估 | Baseline | 1. 执行 `python .factory/skills/qa-tester/scripts/qa_bootstrap.py clear`（⚠️ 清空 data/ 下全部存储；Web UI 无 Clear All Data）<br>2. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/complex_technical_doc.pdf` → 运行 `python scripts/evaluate.py` → 记录分数<br>3. 同步骤 1 清空<br>4. 执行 `python scripts/ingest.py --path tests/fixtures/sample_documents/chinese_technical_doc.pdf` → 运行 `python scripts/evaluate.py` → 记录分数 | complex_technical_doc.pdf 的评估分数应较高（英文内容与 golden_test_set 匹配度高）；chinese_technical_doc.pdf 的分数应较低（中文内容与英文 golden_test_set 匹配度低） |
+| O-08 | 扫描目录批量摄取多份 PDF | Baseline | 1. `python scripts/ingest.py --path tests/fixtures/sample_documents/` | 所有 PDF 依次被处理，终端输出处理汇总（成功数/总数），Web UI 可看到所有文档 |
 | O-09 | 博客/非技术类短文档 | Baseline | 1. 摄取 `blogger_intro.pdf`（博主自我介绍类短文档）<br>2. 用文档内容关键词查询（如"博客"、"自我介绍"） | 短文档正确分块（Chunk 数量较少），查询可命中相关内容，验证非技术类文档的摄取兼容性 |
 
 ---
@@ -361,7 +361,7 @@ Copy-Item config/test_credentials.yaml.example config/test_credentials.yaml
 # 打开 config/test_credentials.yaml，将 <YOUR_DEEPSEEK_API_KEY> 替换为真实 Key
 
 # 步骤 3: 验证配置
-python .github/skills/qa-tester/scripts/qa_config.py check
+python .factory/skills/qa-tester/scripts/qa_config.py check
 ```
 
 该文件已添加到 `.gitignore`，不会被提交到 Git，可安全存储 API Key。
@@ -372,15 +372,15 @@ python .github/skills/qa-tester/scripts/qa_config.py check
 
 ```powershell
 # 查看可用 Profile
-python .github/skills/qa-tester/scripts/qa_config.py show
+python .factory/skills/qa-tester/scripts/qa_config.py show
 
 # 切换到 DeepSeek（自动备份 settings.yaml，注入 API Key）
-python .github/skills/qa-tester/scripts/qa_config.py apply deepseek
+python .factory/skills/qa-tester/scripts/qa_config.py apply deepseek
 
 # 执行测试...
 
 # 测试完成后恢复原始配置
-python .github/skills/qa-tester/scripts/qa_config.py restore
+python .factory/skills/qa-tester/scripts/qa_config.py restore
 ```
 
 | Profile 名称 | 用途 | 对应测试 | 需要 Credentials |

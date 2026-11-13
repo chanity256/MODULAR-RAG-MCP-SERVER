@@ -97,9 +97,13 @@ logs/
 *.log
 traces.jsonl
 
-# Auto-coder skill cache
-.github/skills/auto-coder/.spec_hash
-.factory/skills/auto-coder/
+# auto-coder generated files: sync_spec.py output, regenerated every cycle (AI_NATIVE_SDLC_SPEC SD6.1)
+/.factory/skills/auto-coder/references/
+/.factory/skills/auto-coder/.spec_hash*
+/.claude/skills/auto-coder/references/
+/.claude/skills/auto-coder/.spec_hash*
+/.github/skills/auto-coder/references/
+/.github/skills/auto-coder/.spec_hash*
 
 # Archify 工具产物
 .archify/
