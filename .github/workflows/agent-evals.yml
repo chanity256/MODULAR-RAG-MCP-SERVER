@@ -1,0 +1,167 @@
+# AI_NATIVE_SDLC_SPEC SD3.6：agent steering evals（付费，D5 BYOK）。
+# 只在 steering 文件变更或手动触发时跑；不用 .github/**，否则改任何 workflow 都会花一次钱。
+# 需要 Actions secrets：FACTORY_API_KEY（droid exec 鉴权）、ZHIPU_API_KEY（BYOK 模型，见 evals/ci/factory-settings.json）。
+name: Agent evals
+
+on:
+  pull_request:
+    paths:
+      - ".factory/skills/**"
+      - ".claude/skills/**"
+      - ".github/skills/**"
+      - "AGENTS.md"
+      - ".factory/hooks.json"
+      - ".factory/hooks/**"
+  workflow_dispatch:
+    inputs:
+      cases:
+        description: "Case ids, space-separated (empty = all of evals/cases/)"
+        required: false
+        default: ""
+      repeat:
+        description: "Runs per case (a case passes with >= 2 passing runs)"
+        required: false
+        default: "3"
+
+permissions:
+  contents: read
+
+# 不取消进行中的运行：文档回填推送会排队，由 gate 跳过，而不是打断正在花钱的基线。
+concurrency:
+  group: agent-evals-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # evals/ci/factory-settings.json 的唯一条目：custom:<displayName>-<index>
+  EVAL_MODEL: custom:glm-5.3-Flash-0
+  EVAL_CASES: ${{ inputs.cases }}
+  EVAL_REPEAT: ${{ inputs.repeat || '3' }}
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+      cases: ${{ steps.gate.outputs.cases }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: gate
+        env:
+          ACTION: ${{ github.event.action }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+        run: |
+          run=true
+          # 推送到已开的 PR：paths 按整个 PR 的 diff 触发，这里只看本次推送，没碰 steering 文件就不花钱。
+          if [ "$ACTION" = "synchronize" ] && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            changed=$(git diff --name-only "$BEFORE" "$AFTER")
+            hits=$(printf '%s\n' "$changed" | grep -cE '^(\.factory/skills/|\.claude/skills/|\.github/skills/|AGENTS\.md$|\.factory/hooks\.json$|\.factory/hooks/)' || true)
+            if [ "$hits" = "0" ]; then run=false; fi
+          fi
+          if [ -n "$EVAL_CASES" ]; then
+            cases=$(printf '%s' "$EVAL_CASES" | tr -s ' ' '\n' | sed '/^$/d' | jq -R . | jq -sc .)
+          else
+            cases=$(for f in evals/cases/*.yaml; do basename "$f" .yaml; done | jq -R . | jq -sc .)
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "cases=$cases" >> "$GITHUB_OUTPUT"
+          echo "run=$run cases=$cases"
+
+  evals:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    # 3 次会话 × 15 分钟上限 + 每次约 1.5 分钟离线 pytest 判据 + 安装
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        case: ${{ fromJSON(needs.gate.outputs.cases) }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # fixture worktree 需要用例的 fixture_commit
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -e ".[dev,ingest-formats]"
+      - name: Install Droid CLI
+        run: |
+          curl -fsSL https://app.factory.ai/cli | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Configure BYOK model (D5)
+        run: |
+          mkdir -p ~/.factory
+          cp evals/ci/factory-settings.json ~/.factory/settings.json
+          droid --version
+      - name: Run evals
+        env:
+          FACTORY_API_KEY: ${{ secrets.FACTORY_API_KEY }}
+          ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY }}
+          CASE: ${{ matrix.case }}
+        # 门由 summary job 统一判；这里不中断，保证 artifact 上传。
+        run: |
+          .venv/bin/python evals/run.py --case "$CASE" --repeat "$EVAL_REPEAT" --model "$EVAL_MODEL" \
+            --python .venv/bin/python --out "evals/runs/$CASE" || echo "::warning::case $CASE did not pass"
+      - name: Redact secrets from run output
+        if: always()
+        env:
+          FACTORY_API_KEY: ${{ secrets.FACTORY_API_KEY }}
+          ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          secrets = [v.encode() for k in ("FACTORY_API_KEY", "ZHIPU_API_KEY") if (v := os.environ.get(k))]
+          root = Path("evals/runs")
+          for path in root.rglob("*") if root.exists() else []:
+              if path.is_file():
+                  data = path.read_bytes()
+                  redacted = data
+                  for secret in secrets:
+                      redacted = redacted.replace(secret, b"***")
+                  if redacted != data:
+                      path.write_bytes(redacted)
+                      print(f"redacted {path}")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evals-${{ matrix.case }}
+          path: evals/runs/
+          retention-days: 14
+          if-no-files-found: warn
+
+  summary:
+    needs: [gate, evals]
+    if: always() && needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: pip install pyyaml
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: evals-*
+          path: evals/runs-ci
+      # 3 取 2 + 通过率门槛 + 不得回退（evals/baseline.json）
+      - name: Gate
+        run: |
+          python evals/run.py --summarize evals/runs-ci --model "$EVAL_MODEL" \
+            --out evals/runs/summary --md-out "$GITHUB_STEP_SUMMARY"

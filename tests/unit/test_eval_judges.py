@@ -1,4 +1,4 @@
-"""SD3.5: evals/check.py 判据与 evals/run.py fixture 准备（离线：录制样本 + tmp_path git 仓库，不调用 droid exec）。"""
+"""SD3.5 / SD3.6: evals/check.py 判据、evals/run.py fixture 准备与汇总门、agent-evals.yml 配置（离线：录制样本 + tmp_path git 仓库，不调用 droid exec）。"""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SAMPLE = REPO_ROOT / "tests" / "fixtures" / "evals" / "sd34_htm_run.jsonl"
@@ -380,3 +381,99 @@ def test_prepare_fixture_overlays_steering_without_counting_it_as_agent_diff(rep
         run.remove_fixture(repo, fixture)
     assert not fixture.exists()
     assert str(fixture) not in _git(repo, "worktree", "list")
+
+# --------------------------------------------------------------------------- SD3.6 gate + workflow
+
+WORKFLOW = REPO_ROOT / ".github" / "workflows" / "agent-evals.yml"
+CI_SETTINGS = REPO_ROOT / "evals" / "ci" / "factory-settings.json"
+STEERING_PATHS = [".factory/skills/**", ".claude/skills/**", ".github/skills/**",
+                  "AGENTS.md", ".factory/hooks.json", ".factory/hooks/**"]
+
+
+def _report(case: str, passed: bool, failed_judges: tuple = (), exit_code: int | None = 0,
+            timed_out: bool = False) -> dict:
+    judges = {"diff_patterns": {"passed": True, "detail": ""}}
+    judges.update({j: {"passed": False, "detail": "x"} for j in failed_judges})
+    return {"case": case, "passed": passed, "judges": judges,
+            "agent": {"exit_code": exit_code, "timed_out": timed_out, "seconds": 1.0},
+            "usage": {"inputTokens": 10, "outputTokens": 2}}
+
+
+def test_aggregate_counts_judge_failures_and_agent_errors():
+    runs = [_report("a", False, ("required_reads_before_edit",)),
+            _report("a", False, ("required_reads_before_edit", "redlines")),
+            _report("a", False, exit_code=1),
+            _report("a", False, timed_out=True, exit_code=None)]
+    agg = run.aggregate("a", runs)
+    assert agg["judge_failures"] == {"required_reads_before_edit": 2, "redlines": 1}
+    assert agg["agent_errors"] == 2 and not agg["passed"]
+
+
+def test_summarize_fails_on_regression_even_above_threshold():
+    cases = [{"case": "a", "passed": True}, {"case": "b", "passed": False}]
+    assert run.summarize(cases, 0.5)["ok"]
+    gated = run.summarize(cases, 0.5, {"passing_cases": ["a", "b"]})
+    assert gated["regressions"] == ["b"] and not gated["ok"]
+    # A baseline case missing from this run (e.g. a dispatch subset) is not a regression.
+    assert run.summarize(cases[:1], 0.5, {"passing_cases": ["a", "b"]})["ok"]
+
+
+def test_summarize_mode_merges_matrix_dirs_and_applies_baseline(tmp_path):
+    for case, results in {"a": (True, True, False), "b": (False, False, True)}.items():
+        d = tmp_path / "ci" / f"evals-{case}"
+        d.mkdir(parents=True)
+        for i, ok in enumerate(results, 1):
+            failed = () if ok else ("required_reads_before_edit",)
+            (d / f"{case}-{i}.report.json").write_text(json.dumps(_report(case, ok, failed)), encoding="utf-8")
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text(json.dumps({"min_pass_rate": 0.5, "passing_cases": ["a"]}), encoding="utf-8")
+    md = tmp_path / "summary.md"
+    out = tmp_path / "out"
+    code = run.main(["--summarize", str(tmp_path / "ci"), "--baseline", str(baseline),
+                     "--out", str(out), "--md-out", str(md), "--model", "m"])
+    summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+    assert code == 0 and summary["ok"]
+    assert summary["min_pass_rate"] == 0.5 and summary["pass_rate"] == 0.5
+    assert [(c["case"], c["passes"], c["passed"]) for c in summary["per_case"]] == [("a", 2, True), ("b", 1, False)]
+    assert summary["usage"] == {"inputTokens": 60, "outputTokens": 12}
+    text = md.read_text(encoding="utf-8")
+    assert "## Agent evals: PASS" in text and "| `b` | 1/3 | FAIL | required_reads_before_edit ×2 | 0 |" in text
+
+    baseline.write_text(json.dumps({"min_pass_rate": 0.5, "passing_cases": ["a", "b"]}), encoding="utf-8")
+    assert run.main(["--summarize", str(tmp_path / "ci"), "--baseline", str(baseline),
+                     "--out", str(out), "--model", "m"]) == 1
+
+
+def test_agent_evals_workflow_triggers_only_on_steering_paths():
+    wf = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    on = wf.get("on", wf.get(True))
+    assert on["pull_request"]["paths"] == STEERING_PATHS
+    assert "workflow_dispatch" in on and "push" not in on
+    assert not any(p.startswith(".github/") and "skills" not in p for p in on["pull_request"]["paths"])
+    assert wf["concurrency"]["cancel-in-progress"] is False
+    gate = "\n".join(s.get("run", "") for s in wf["jobs"]["gate"]["steps"])
+    for prefix in (r"\.factory/skills/", r"\.claude/skills/", r"\.github/skills/", r"AGENTS\.md$",
+                   r"\.factory/hooks\.json$", r"\.factory/hooks/"):
+        assert prefix in gate
+
+
+def test_overlay_covers_every_trigger_path():
+    # A steering change the overlay misses is either not measured or breaks the fixture (mirror drift).
+    assert sorted(p.removesuffix("/**") for p in STEERING_PATHS) == sorted(run.OVERLAY_PATHS)
+
+
+def test_agent_evals_workflow_uses_ci_byok_settings_without_plaintext_keys():
+    wf = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    settings = json.loads(CI_SETTINGS.read_text(encoding="utf-8"))
+    (model,) = settings["customModels"]
+    assert model["apiKey"] == "${ZHIPU_API_KEY}"
+    assert model["baseUrl"] == "https://open.bigmodel.cn/api/anthropic"
+    assert wf["env"]["EVAL_MODEL"] == f"custom:{model['displayName'].replace(' ', '-')}-0" == model["id"]
+    evals = wf["jobs"]["evals"]
+    steps = {s.get("name"): s for s in evals["steps"]}
+    assert steps["Run evals"]["env"]["FACTORY_API_KEY"] == "${{ secrets.FACTORY_API_KEY }}"
+    assert steps["Run evals"]["env"]["ZHIPU_API_KEY"] == "${{ secrets.ZHIPU_API_KEY }}"
+    assert "evals/ci/factory-settings.json" in steps["Configure BYOK model (D5)"]["run"]
+    assert evals["steps"][0]["with"]["fetch-depth"] == 0
+    assert evals["strategy"]["fail-fast"] is False
+    assert evals["timeout-minutes"] >= run.DEFAULT_REPEAT * run.DEFAULT_TIMEOUT_MIN

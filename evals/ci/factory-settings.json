@@ -1,0 +1,15 @@
+{
+  "customModels": [
+    {
+      "model": "glm-5.3-Flash",
+      "id": "custom:glm-5.3-Flash-0",
+      "index": 0,
+      "baseUrl": "https://open.bigmodel.cn/api/anthropic",
+      "apiKey": "${ZHIPU_API_KEY}",
+      "provider": "anthropic",
+      "displayName": "glm-5.3-Flash",
+      "maxOutputTokens": 131072,
+      "noImageSupport": false
+    }
+  ]
+}

@@ -15,13 +15,17 @@ covered offline by `tests/unit/test_eval_judges.py`.
 | `check.py` | Judges one run from its stream-json transcript and the fixture diff |
 | `run.py` | Fixture worktree → `droid exec` → `check.py`; 3 runs per case, ≥2 passing runs pass the case |
 | `runs/` | Run output (transcripts, per-run reports, `summary.json`); git-ignored |
+| `baseline.json` | Calibrated gate: `min_pass_rate` and the cases that passed the baseline run |
+| `ci/factory-settings.json` | BYOK model entry used by the CI workflow (no key, env reference only) |
 
 ## Fixtures
 
 `run.py` creates a detached `git worktree` at the case's `fixture_commit`, then copies the
-steering files under test (`AGENTS.md`, `.factory/skills/`, `.factory/hooks.json`,
-`.factory/hooks/`) from the current checkout into it, so a run measures the steering
-version being changed rather than the one frozen at `fixture_commit`. The baseline is a
+steering files under test (`AGENTS.md`, `.factory/skills/` and its `.claude/skills/` /
+`.github/skills/` mirrors, `.factory/hooks.json`, `.factory/hooks/`) from the current
+checkout into it, so a run measures the steering version being changed rather than the
+one frozen at `fixture_commit`. Mirrors are overlaid as well; otherwise the skill-mirror
+drift guard fails inside the fixture. The baseline is a
 tree snapshot taken after that overlay (throwaway index, no commit), so the overlay is not
 counted as an agent change. The main `.venv` is symlinked in.
 
@@ -42,8 +46,24 @@ counted as an agent change. The main `.venv` is symlinked in.
 source .venv/bin/activate
 python evals/run.py --case sd34-htm-extension --repeat 1   # one paid session
 python evals/run.py                                        # full suite (5 × 3 sessions)
+python evals/run.py --summarize evals/runs/<dir> [...]     # merge run dirs and apply the gate only
 python evals/check.py --case evals/cases/<id>.yaml --fixture <dir> --stream <run.jsonl> --base <tree>
 ```
 
-`run.py` exits non-zero when the case pass rate is below `--min-pass-rate` (initial 0.9,
-calibrated in SD3.6).
+`run.py` exits non-zero when the gate fails: the case pass rate is below `--min-pass-rate`
+(default: `min_pass_rate` from `baseline.json`), or a case listed in `baseline.json`'s
+`passing_cases` fails. A run whose `droid exec` exits non-zero or times out counts as failed.
+
+## CI (`.github/workflows/agent-evals.yml`, SD3.6)
+
+- Triggers: a pull request touching `.factory/skills/**`, `.claude/skills/**`, `.github/skills/**`,
+  `AGENTS.md`, `.factory/hooks.json` or `.factory/hooks/**`, or `workflow_dispatch` (inputs
+  `cases`, `repeat`). Not `.github/**`: editing any workflow would start a paid run.
+- On later pushes to an open PR, the `gate` job runs the evals only if that push itself
+  touched a steering path, so doc-only follow-up commits cost nothing.
+- One matrix job per case (5 in parallel, 3 sessions each); the `summary` job merges the
+  per-case artifacts with `run.py --summarize` and writes the gate result to the job summary.
+- Model: `custom:glm-5.3-Flash-0`, the only entry of `ci/factory-settings.json` (copied to
+  `~/.factory/settings.json`; same model and endpoint as the local `custom:glm-5.3-Flash-2`).
+  Secrets: `FACTORY_API_KEY` (droid auth) and `ZHIPU_API_KEY` (expanded from `${ZHIPU_API_KEY}`
+  at runtime). Key values are replaced with `***` in run output before it is uploaded.
