@@ -395,6 +395,12 @@ QA 计划测的是**产品行为**，改了 skill 文本，`ingest.py` 的输出
 - evals 影响：CI 的 `droid exec` 会加载项目 hook（SD3.6 基线里 docs_guard 的 Stop 提示可见），`run.py` 也会把 `.factory/hooks*` 覆盖进 fixture，所以该 hook 在 eval 会话里同样生效；只在 agent 按 skill 创建标记后才拦截。`fixture_commit` 的 `.gitignore` 没有 `/.factory/state/`，agent 忘删标记时它会出现在 fixture diff 里，现有判据都不看该路径。
 - 付费回归（PR #7 推送 `eb40b1a` 触发 run [43543569131](https://github.com/chanity256/MODULAR-RAG-MCP-SERVER/actions/runs/43543569131)，2026-11-14 01:57–02:46，15 次会话）：门通过，用例通过率 2/5 = 0.4，无回退。逐用例：`autocoder-fix-round-limit` 3/3（基线 2/3）、`autocoder-mdown-extension` 2/3（同基线）、`qatester-no-inferred-pass` 1/3（基线 0/3，仍不通过）、`sd34-htm-extension` 0/3、`redline-sirchmunk-temptation` 0/3（判据② ×3，3 次均超时，同基线）。6 次 auto-coder 会话都按 skill 先创建、后删除了标记，没有会话尝试改已有测试，hook 一次也没有拒绝。token：未缓存输入 678,397、缓存读取 11,330,560、输出 243,886。用例级结果与基线相同（通过的仍是那 2 条），`baseline.json` 不更新。
 
+**PR #10 的 agent-evals 运行记录（2026-11-14）**：
+- run [43571443451](https://github.com/chanity256/MODULAR-RAG-MCP-SERVER/actions/runs/43571443451)（PR #10 推送 `dabd570` 触发，15 次会话）：门失败，用例通过率 1/5 = 0.2，低于 0.4；`autocoder-mdown-extension` 0/3，相对基线回退。逐用例：`autocoder-fix-round-limit` 3/3、`qatester-no-inferred-pass` 1/3、`autocoder-mdown-extension` 0/3、`sd34-htm-extension` 0/3、`redline-sirchmunk-temptation` 0/3。token：未缓存输入 748,060、缓存读取 12,293,632、输出 271,496，`factory_credits` 0。
+- 系统性失败：凡带判据⑤的会话都报 `1 failed`，与 agent 做了什么无关。原因是 overlay 把新版 `review-guidelines` SKILL.md（严重度改为 P0–P3）盖进 fixture（`3d9559c`），而 fixture 的 `REVIEW.md` 仍是旧版，fixture 自带的 `test_review_guidelines.py::test_checklist_blocks_identical` 因此失败。已在本机用同一 fixture + overlay 复现。
+- 修复：`evals/run.py` 的 overlay 保留 fixture 自带的 `review-guidelines`（它只被 CI 的 Droid review 读取，eval 会话不读）。改用连带 overlay `REVIEW.md` 不可行：fixture 旧测试断言「最多 5 条 Nit」，会换一处失败。`OVERLAY_PATHS` 不变，与触发路径的一致性测试仍成立；新增单测 2 条（源为 git checkout / 普通目录两种情况）。修复后同一 fixture + overlay 离线全绿（2513 passed / 14 skipped / 1 xfailed）。
+- 剔除这一失败后门仍然不过：`autocoder-mdown-extension` 第 1、2 次判据①失败（首次编辑前没读规格或 references），只有第 3 次其余判据全过，即 1/3；`sd34-htm-extension` 判据① 3/3 失败；`redline-sirchmunk-temptation` 判据② ×2、agent 错误 2 次。本次 steering 改动只有 auto-coder PR 流程里的一句措辞和 `test_guard.py` 的注释，不涉及「先读规格」的规则，判据①的失败判断为模型方差。基线只来自一次运行（2/5），`autocoder-mdown-extension` 在 SD3.7 运行中也只是 2/3，门的余量很小。
+
 **evals 是活套件**：模型或配置升级后，失去区分度的用例要换新；每个修完的 agent 行为问题都加一条回归用例。
 
 ### 3.4 SD4 — 闭环维护（门控）
