@@ -129,6 +129,8 @@ Quick-check predecessor artifacts exist (file-level only). On mismatch, log a wa
 
 ### 4. Test & Auto-Fix
 
+**Fix-mode marker** (AI_NATIVE_SDLC_SPEC SD3.7): on entering this step run `mkdir -p .factory/state && touch .factory/state/fix_mode`; on leaving it (green, or STOP after round 3) run `rm -f .factory/state/fix_mode`. While the marker exists, the project hook `.factory/hooks/test_guard.py` denies edits to **existing** files under `tests/` (new test files are allowed). When it denies an edit, fix the implementation; if the test itself looks wrong, stop and report to the user instead of changing it. Never delete the marker to get around a denial.
+
 ```
 
 Round 0..2:

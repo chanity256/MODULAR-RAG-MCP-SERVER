@@ -376,6 +376,13 @@ QA 计划测的是**产品行为**，改了 skill 文本，`ingest.py` 的输出
 - 新建测试文件不拦截，避免和 auto-coder 第 6 步「写代码时同时写测试」冲突；
 - 局限：hook 只在本地 Droid 会话生效且可被绕过，确定性兜底仍是 SD2 的「弱化测试断言记 Important」与 SD3b 判据③。
 
+**SD3.7 落地记录（2026-11-14）**：
+- 交付：[.factory/hooks/test_guard.py](../../.factory/hooks/test_guard.py)（`pre` 挂 PreToolUse，matcher `^(Edit|Create|ApplyPatch|Execute)$`；`reset` 挂 SessionStart）、`.factory/hooks.json` 注册、`.gitignore` 忽略 `/.factory/state/`、auto-coder Test & Auto-Fix 段的标记规则（进入时 `touch .factory/state/fix_mode`，转绿或第 3 轮后 STOP 时 `rm -f`；被拒时修实现，测试本身有误就停下报告，不得删标记绕过）；离线单测 `tests/unit/test_test_guard_hook.py` 55 条。计划见 `.agents/plans/SD3.7.md`。
+- 判定：标记不存在时第一步就放行。存在时，只拦写入 `<项目根>/tests/` 下**已有**文件（或含已有文件的目录）的调用，路径经 realpath 归一（`tests/../src`、macOS `/tmp` → `/private/tmp` 都对齐）。Edit / Create 看 `file_path`；ApplyPatch 看 `*** Update File` / `*** Delete File`，`*** Add File` 放行。拒绝用 `permissionDecision: deny` 加理由。
+- 与原设计的偏差：(a) 原文只写 Edit/Write，按使用者决定另加 Execute 启发式：重定向 `>` / `>>` 的目标，`rm` / `unlink` / `truncate` / `shred` / `mv` / `tee` 的参数，`cp` / `install` / `ln` 的目标，`sed -i` / `perl -i`，`git rm|mv|checkout|restore`，`dd of=`，`find -delete`；here-doc 正文不当命令解析，`2>&1` 这类 fd 复制不算写入。不覆盖 `python -c` 或脚本内部写文件、`cd` 后的相对路径、`xargs`。(b) 新增 SessionStart `reset`：`source` 为 `startup` / `clear` 时删除上个会话崩溃留下的标记，`resume` / `compact` 不删，避免残留标记在 Implement 阶段误拦合法的测试改动；代价是同一工作树的并发会话会清掉别人的标记（方向是放行）。(c) fail-open：stdin 或单行 shell 解析失败（如引号不配对）、未知子命令、内部异常一律放行，只写 stderr，与 docs_guard 一致。
+- 本机真实会话验证（`droid exec --auto medium -m custom:glm-5.3-Flash-2`，临时 worktree，7 轮约 96 s，未缓存输入 20,358、缓存读取 113,920、输出 4,520 token）：agent 先在会话内创建标记，随后 Edit 与 `sed -i` 改已有测试都被 droid 以 hook 理由拒绝、文件未变，Create 新测试文件与 `head` 读取成功。第一次尝试时标记由测试方在会话前创建，被 SessionStart `reset` 按设计清掉、两次写入都放行，这次同时证明了 reset 生效。
+- evals 影响：CI 的 `droid exec` 会加载项目 hook（SD3.6 基线里 docs_guard 的 Stop 提示可见），`run.py` 也会把 `.factory/hooks*` 覆盖进 fixture，所以该 hook 在 eval 会话里同样生效；只在 agent 按 skill 创建标记后才拦截。`fixture_commit` 的 `.gitignore` 没有 `/.factory/state/`，agent 忘删标记时它会出现在 fixture diff 里，现有判据都不看该路径。
+
 **evals 是活套件**：模型或配置升级后，失去区分度的用例要换新；每个修完的 agent 行为问题都加一条回归用例。
 
 ### 3.4 SD4 — 闭环维护（门控）
@@ -534,6 +541,8 @@ tests/unit/test_skill_mirrors.py    # SD6.2
 tests/unit/test_measure_process.py  # SD5.1
 tests/unit/test_eval_judges.py      # SD3.5：判据逻辑的离线单测（录制的 stream-json 样本）
 tests/unit/test_spec_structure.py   # SD7（可选）
+.factory/hooks/test_guard.py        # SD3.7：Test & Auto-Fix 阶段保护已有测试文件（PreToolUse + SessionStart）
+tests/unit/test_test_guard_hook.py  # SD3.7
 evals/cases/  evals/fixtures/  evals/check.py   # SD3b
 REVIEW.md                           # SD2（人读版本）
 .factory/skills/review-guidelines/SKILL.md   # SD2.1：自动 review 实际读取的指令文件
@@ -565,7 +574,8 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
   - `test_skill_mirrors.py`：来源目录与两份镜像逐文件一致（排除清单显式列出）；
   - `test_measure_process.py`：在 `tmp_path` 中构造临时 git 仓库（specs/ 出现 → frozen/ 重命名、`[XX-N]` 前缀提交、revert 提交），断言各指标口径；
   - `test_eval_judges.py`：用录制的 stream-json 样本（不调用 `droid exec`）验证判据①–⑤；
-  - `test_spec_structure.py`（SD7）：豁免名单之外的规格三项结构齐全。
+  - `test_spec_structure.py`（SD7）：豁免名单之外的规格三项结构齐全；
+  - `test_test_guard_hook.py`（SD3.7）：伪造 stdin 调用 hook，覆盖各工具的拦截与放行、Execute 启发式正反例、reset 的 source 区分、fail-open，以及 hooks.json 注册与 skill 标记路径一致。
 - **真实依赖门控**：
   - agent evals 真实运行需 `FACTORY_API_KEY` 与 `droid exec`，**不进** `pytest tests` 收集范围，只经 `agent-evals.yml`（路径触发或 `workflow_dispatch`）或本地手动运行；
   - 既有门控 `RAG_LLM_INTEGRATION` / `RAG_E2E_INTEGRATION` / `RAG_AGENTIC_INTEGRATION` 在 CI 中保持未设置（默认 skip）。
@@ -631,7 +641,7 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 | SD3.4 | evals 单次成本测量（3b 门控入口） | 1 条用例 1 次运行的花费与耗时记录在 §3.3；使用者确认预算后才开工 SD3.5 | [x] 2026-11-13：379.6 s、50,887 未缓存输入 + 617,920 缓存读取 + 14,653 输出 token；判据①失败、②③⑤通过；预算确认 5 条 × 3 次（§3.3 测量记录） |
 | SD3.5 | evals 用例 / fixture / 判据（3b） | 5–8 条用例；`evals/check.py` 实现判据①–⑤；`test_eval_judges.py` 离线通过 | [x] 2026-11-13：5 条用例；`check.py` 判据①–⑤ + 新增⑥ `diff_patterns`；`run.py` 负责 fixture（worktree + steering 覆盖 + 树快照）与 3 取 2；`test_eval_judges.py` 31 条离线通过；不跑付费运行（§3.3 SD3.5 落地记录） |
 | SD3.6 | `agent-evals.yml` + 基线校准（3b） | 改一处 skill 文本触发 evals；故意删掉 auto-coder「先读规格」规则后判据①失败；门槛按基线校准后回填 §3.3 | [x] 2026-11-14：PR #7 的 skill 改动触发 CI 基线（15 次会话，2/5 通过）；删规则 PR #8 判据① 3/3 失败（基线 1/3）；门槛 0.4 + 2 条不得回退（`evals/baseline.json`）；智谱 key 改经 `apiKeyHelper` 读取（§3.3 SD3.6 落地记录） |
-| SD3.7 | test-file 保护 hook（3b，可选） | 标记文件存在时拦截 `tests/` 下已有文件的 Edit/Write，新建测试文件不拦截 | [ ] |
+| SD3.7 | test-file 保护 hook（3b，可选） | 标记文件存在时拦截 `tests/` 下已有文件的 Edit/Write，新建测试文件不拦截 | [x] 2026-11-14：`.factory/hooks/test_guard.py` 拦截 Edit / Create / ApplyPatch 与 Execute 启发式写入，SessionStart 清残留标记；单测 55 条；本机真实 `droid exec` 会话中 Edit 与 `sed -i` 被拒、新建测试文件成功（§3.3 SD3.7 落地记录） |
 | SD4.1 | 核实 Automations 运行位置（门控入口） | 本机 / 云端结论回填 §3.4，并据此确定 automation ① 的日志输入方式 | [x] 2026-11-13：终裁本机执行（桌面 App 常驻），① 保留日志输入、外发限脱敏摘要，② 复用 `.venv`（§3.4 落地记录） |
 | SD4.2 | automation ① followups 扫描 | 连续两周无人干预，backlog 出现至少一条机器起草、经人 triage 的提案草案 PR | [~] automation 已建并 active（2026-11-13，id `0b05417b`）；「连续两周」验收观察窗口为 2026-11-16 / 11-23 两次运行 |
 | SD4.3 | automation ② QA 回归 | 每周运行可离线回归段，失败项写回 QA 进度文件并标 🔧 | [~] automation 已建并 active（2026-11-13，id `bc210885`）；禁网回归 + 失败写回路径待 2026-11-16 首 run 验证 |
