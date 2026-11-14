@@ -35,7 +35,7 @@ docs/ 文档分两类：
 2. 非系列台账（如 `02_ACCEPTANCE_GAPS_frozen.md`）同样参与编号。
 3. frozen/ 中不带编号的文件都是谱系存档，不参与编号。
 
-流转操作清单（立项、冻结、拆分、重开、派生台账时执行）：`git mv` 并按上述规则命名 → 全库同步引用（AGENTS.md、README、MOC、backlog/README、引用方文档）→ 更新 MOC 分区索引与「文档谱系」表对应行，backlog/README「当前候选」表移除已离开 backlog/ 的文档 → 跑 `pytest tests/unit/test_docs_links.py` 确认零坏链、MOC 无遗漏 → 更新 README 导航表。冻结时另检查绑定型分析是否随之冻结。
+流转操作清单（立项、冻结、拆分、重开、派生台账时执行）：`git mv` 并按上述规则命名 → 全库同步引用（README、MOC、backlog/README、引用方文档；**AGENTS.md 仅在冻结新增「必读」规格条目或既有条目路径变化时更新，任务进度与状态回填不进 AGENTS.md**——它是 steering 文件，高频改动会反复触发付费 agent evals，见 docs-governance skill §3 第 5 条）→ 更新 MOC 分区索引与「文档谱系」表对应行，backlog/README「当前候选」表移除已离开 backlog/ 的文档 → 跑 `pytest tests/unit/test_docs_links.py` 确认零坏链、MOC 无遗漏 → 更新 README 导航表。冻结时另检查绑定型分析是否随之冻结。
 
 自动守卫：项目级 hook（`.factory/hooks.json` + `.factory/hooks/docs_guard.py`）在 Droid 会话里自动执行上述纪律——每轮开始给 docs/ 拍哈希快照，本轮结束时对比；有 docs/ 改动则跑 `test_docs_links.py` 做结构检查（坏链、MOC 漏登记），并按静态映射表提醒需核对的关联文档（frozen→AGENTS/README/MOC，specs→MOC/AGENTS，backlog→backlog/README/MOC，analysis/reference→MOC）。hook 只检测与回传，修复按 docs-governance skill 执行；规则本体只在 `test_docs_links.py` 一处。
 
@@ -58,6 +58,7 @@ docs/ 文档分两类：
 | WebUI 双轨差异收口（WP） | [WEBUI_PARITY_AUDIT.md](analysis/WEBUI_PARITY_AUDIT.md)（WC10.1 缺口清单 L3/L4） | webui-parity-followups 台账（已晋升为 [frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)，原文见 git 历史） | [08_WEBUI_PARITY_SPEC_frozen.md](frozen/08_WEBUI_PARITY_SPEC_frozen.md) | 台账剩余项二次移交 WS 规格（见下行） | 拆分移交 |
 | WebUI sidecar 补齐（WS） | 同上台账（#4 sidecar 托管编排、#1 Deep 进度日志） | webui-parity-followups 台账（第二次拆分移交；已晋升为 [frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)） | [09_WEBUI_SIDECAR_SPEC_frozen.md](frozen/09_WEBUI_SIDECAR_SPEC_frozen.md) | [sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md) #1（SX5.3 线程泄漏，门控默认关闭的依据） | 拆分移交 |
 | Streamlit 退役（SR） | [WEBUI_PARITY_AUDIT.md](analysis/WEBUI_PARITY_AUDIT.md)（退役门槛清单）；webui-parity-followups 台账（#3 接受项决议并入其 Out of Scope） | [STREAMLIT_RETIREMENT_SPEC.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)（单文件晋升，原台账原文见 git 历史） | [10_STREAMLIT_RETIREMENT_SPEC_frozen.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)（已收口冻结） | — | 单文件晋升 |
+| Chat 模式选择器着色（CMC） | 会话内用户截图（三按钮同质难辨认，无独立文件） | chat-mode-selector-colors_backlog.md（单文件晋升，原文见 git 历史） | [11_CHAT_MODE_COLORS_SPEC_frozen.md](frozen/11_CHAT_MODE_COLORS_SPEC_frozen.md)（已收口冻结） | — | 单文件晋升 |
 ## specs/ — 开发规格（落点）
 
 **立项后新规格的存放处**（从 [backlog/](backlog/) 晋升）。任务全收口后冻结入 frozen/（SX 系列先例见 [frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md](frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md)）。
@@ -84,6 +85,7 @@ docs/ 文档分两类：
 | [08_WEBUI_PARITY_SPEC_frozen.md](frozen/08_WEBUI_PARITY_SPEC_frozen.md) | WebUI 双轨遗留差异收口规格（WP 系列，WP0–WP2 已收口冻结）：Ingestion / Query 追踪列表服务端 offset 翻页、评估历史内联 SVG 趋势图、评估提交路径 422 预检；承接自 webui-parity-followups 台账（已晋升为 [frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)）的 #5/#2/#3 预检 |
 | [09_WEBUI_SIDECAR_SPEC_frozen.md](frozen/09_WEBUI_SIDECAR_SPEC_frozen.md) | WebUI sidecar 补齐规格（WS 系列，WS0–WS4 已收口冻结）：`scripts/sidecar_manager.py` 共享托管编排 + `start_api.py --manage-sidecar`、`core/chat/progress.py` 共享日志转帧、门控 `WS /api/v1/search/ws`（`api.deep_progress_stream` 默认 false，SX5.3 规避）、Playground Deep 前端流式接入；承接自 webui-parity-followups 台账（已晋升为 [frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)）的 #4/#1 |
 | [10_STREAMLIT_RETIREMENT_SPEC_frozen.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md) | Streamlit 退役规格（SR 系列，SR0–SR6 已收口冻结）：物理删除 Streamlit 页面层 / `start_dashboard.py` / streamlit 依赖 / Streamlit-only 配置与页面级测试，文档与技能镜像同步；`services/` 层及其测试保留（API 层依赖）；由 webui-parity-followups 台账单文件晋升，#3 接受项决议存档于其 Out of Scope；实测 2460 passed / 11 skipped |
+| [11_CHAT_MODE_COLORS_SPEC_frozen.md](frozen/11_CHAT_MODE_COLORS_SPEC_frozen.md) | Chat 模式选择器按模式着色规格（CMC 系列，CMC1–CMC2 已收口冻结，2026-11-14）：Hybrid / Agentic (fast) / Agentic (deep) 选中态黄 / 绿 / 蓝，light 浅底深字、dark 半透明底亮字，实测对比度均 ≥ 6.3:1；只改 `ModeSelector.tsx` 与单测；由 chat-mode-selector-colors 提案单文件晋升，无遗留 |
 | [dashboard-api-migration_backlog_frozen.md](frozen/dashboard-api-migration_backlog_frozen.md) | Dashboard 前后端分离迁移提案（**已立项并入** [frozen/06_WEBUI_CHAT_SPEC_frozen.md](frozen/06_WEBUI_CHAT_SPEC_frozen.md) WC 系列并收口冻结；原 Vue 3 选型被其 D1 推翻，保留作决策依据与 P1 拆解；backlog 提案冻结后保留 `_backlog` 后缀追加 `_frozen`） |
 | [ci-pipeline_backlog_frozen.md](frozen/ci-pipeline_backlog_frozen.md) | CI 持续集成管线提案（**已立项并入** [specs/AI_NATIVE_SDLC_SPEC.md](specs/AI_NATIVE_SDLC_SPEC.md) SD1：CI-1~CI-4 → SD1.2/1.3/1.4/1.8；保留作决策依据，其 Out of Scope 继承为规格 §2.2） |
 | [sirchmunk-capability-completion_backlog_frozen.md](frozen/sirchmunk-capability-completion_backlog_frozen.md) | Sirchmunk 剩余能力补齐提案（已立项并收口冻结为 SX 系列，保留作决策依据：telemetry/compile/复用/SSE/参数透传，源码复核证据） |

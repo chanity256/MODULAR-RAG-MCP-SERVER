@@ -488,6 +488,8 @@ chat:
 | `agentic_fast` | 经 `AgenticSearchTool`（PathGuard / 参数校验 / trace 原样生效）调 sidecar FAST，**sidecar 答案整块透传**，不再经本项目 LLM | `agentic_search.enabled: true` + sidecar 运行 |
 | `agentic_deep` | 同上，DEEP 模式（数十秒） | 另需 `agentic_search.allow_deep: true`，否则 `error{DEEP_DISABLED}` |
 
+选中态按模式着色以便一眼区分：Hybrid 黄、Agentic (fast) 绿、Agentic (deep) 蓝（明暗两种主题下均保证文字对比度，见 CHAT_MODE_COLORS_SPEC §3.1）。
+
 **降级与 `grounded`**：
 
 - 检索失败默认直接发 `error` 帧（引用必须可溯源）。仅 `chat.fallback_to_chat_only: true` 时降级为纯聊天：先发 `search_error` 帧，再生成答案，且终帧 `result.grounded: false`。`DEEP_DISABLED` 不降级。
