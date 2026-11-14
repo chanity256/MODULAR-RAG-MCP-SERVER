@@ -173,7 +173,7 @@ Commit message format: `<type>(<scope>): [<SERIES-N>] <summary>` — scope and t
 
 **Branch & PR flow** (AI_NATIVE_SDLC_SPEC D1 / SD6.5). Check the D1 row of `docs/specs/AI_NATIVE_SDLC_SPEC.md` §1.3 (or its frozen successor):
 - **D1 not yet in effect** (no branch protection on `main`): commit on the current branch and **do not push**.
-- **D1 in effect**: start each series (or each large task) from `main` on a branch named `feat/<series>-<task>`. Persist = commit → push to the remote chosen in D2 → open a PR whose description cites the task ID, its acceptance criteria and the plan path (if any) → wait for CI and review. Important review findings must be fixed or answered in a PR comment before merge. On "next", continue only with tasks that do **not** depend on an unmerged PR; dependent tasks wait for the merge.
+- **D1 in effect**: start each series (or each large task) from `main` on a branch named `feat/<series>-<task>`. Persist = commit → push to the remote chosen in D2 → open a PR whose description cites the task ID, its acceptance criteria and the plan path (if any) → wait for CI and review. P0 / P1 review findings must be fixed or answered in a PR comment before merge. On "next", continue only with tasks that do **not** depend on an unmerged PR; dependent tasks wait for the merge.
 - PRs that touch steering files (`.factory/skills/` or its mirrors, `AGENTS.md`, `.factory/hooks*`) also trigger `agent-evals.yml`, a paid real-model run (~20 min). Batch steering edits into as few pushes as possible, and read its summary before merge: a case listed as passing in `evals/baseline.json` that now fails must be fixed or explained in the PR.
 
 On "next", loop back to step 1 and start the next task.

@@ -5,13 +5,14 @@
 ## 效力与纪律
 
 - review 是**建议性**的，不是 required check；确定性兜底是 CI（`.github/workflows/ci.yml`）与 CODEOWNERS。
-- **Important 级发现必须修复，或在 PR 评论里写明不修的理由后才能合并**。PR 本身即审计记录。
+- **P0 / P1 级发现必须修复，或在 PR 评论里写明不修的理由后才能合并**；P2 / P3 由作者决定是否采纳。PR 本身即审计记录。
+- 严重度自 2026-11-14 起由 Important / Nit 改为 P0–P3，与 droid-action 的输出标签一致（Important 对应 P0 / P1，Nit 对应 P3），见 AI_NATIVE_SDLC_SPEC §3.2。
 - 本文件与 review 指令文件受 CODEOWNERS 保护，改动需 code owner 审批。
 
 <!-- review-checklist:start -->
 ## 三遍扫
 
-按顺序做三遍，每条发现标注严重度（Important / Nit），按严重度排序输出。
+按顺序做三遍，每条发现标注严重度（P0 / P1 / P2 / P3），以 `[P1] 标题` 的形式开头，按 P0 → P3 排序输出。
 
 ### 第 1 遍：bugs
 
@@ -31,14 +32,17 @@
 - 是否修改了 sirchmunk 上游源码（CI 无法静态检查，只能在 review 中拦）。
 - 测试是否离线确定：新测试不得触网、不得依赖真实模型或本机状态（`data/`、`logs/`、`frontend/out/`）；真实依赖必须走 `RAG_*_INTEGRATION` 环境变量门控。
 - 新增 pipeline 支持的扩展名是否在 `src/ingestion/pipeline.py` 与 `scripts/ingest.py` 两处同步登记。
-- **以下两类一律记 Important**：
+- **以下两类至少记 P1**：
   1. 新增或放宽红线白名单 / 豁免条目（`scripts/check_redlines.py` 的 `STDOUT_ALLOWLIST`、`LLM_FALLBACK_EXEMPTIONS`、扫描范围；CI 的 `--allow-hosts`；`.github/CODEOWNERS`）。
   2. 删除或弱化已有测试断言（删用例、放宽断言、加 skip / xfail、改期望值去迎合新行为）——除非 PR 描述引用了规格依据。
 
 ## 严重度
 
-- **Important**：会导致错误结果、数据丢失、安全问题、违反 frozen 规格契约或红线，或属于上面「一律记 Important」的两类。必须在合并前修复，或在 PR 评论中写明不修的理由。
-- **Nit**：可读性、命名、小的简化建议，不影响正确性。每次 review **最多 5 条 Nit**，只挑最有价值的。
+- **P0**：必须立即修复：安全漏洞、数据丢失或损坏、CI 拦不住的红线违规（如修改 sirchmunk 上游源码）。
+- **P1**：会导致错误结果、回归、违反 frozen 规格契约，或属于上面「至少记 P1」的两类。
+- **P2**：真实但影响有限的问题：少见的边界条件、文档与实现不一致、会误导后续开发的描述。
+- **P3**：可读性、命名、小的简化建议，不影响正确性。每次 review **最多 5 条 P3**，只挑最有价值的。
+- P0 / P1 必须在合并前修复，或在 PR 评论中写明不修的理由；P2 / P3 由作者决定是否采纳。
 - 不提风格偏好、格式问题与架构观点；拿不准的不要报。
 
 ## 排除范围

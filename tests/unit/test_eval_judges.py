@@ -382,6 +382,31 @@ def test_prepare_fixture_overlays_steering_without_counting_it_as_agent_diff(rep
     assert not fixture.exists()
     assert str(fixture) not in _git(repo, "worktree", "list")
 
+
+@pytest.mark.parametrize("source_is_git", [True, False])
+def test_overlay_keeps_the_fixture_review_guidelines(tmp_path, source_is_git):
+    fx_repo = tmp_path / "fx_repo"
+    for rel in ("review-guidelines", "auto-coder"):
+        (fx_repo / ".factory" / "skills" / rel).mkdir(parents=True)
+        (fx_repo / ".factory" / "skills" / rel / "SKILL.md").write_text("old\n", encoding="utf-8")
+    _git(fx_repo, "init", "-q")
+    _git(fx_repo, "add", "-A")
+    _git(fx_repo, "commit", "-q", "-m", "fixture")
+    source = tmp_path / "checkout"
+    for rel in ("review-guidelines", "auto-coder"):
+        (source / ".factory" / "skills" / rel).mkdir(parents=True)
+        (source / ".factory" / "skills" / rel / "SKILL.md").write_text("new\n", encoding="utf-8")
+    if source_is_git:
+        _git(source, "init", "-q")
+    fixture = tmp_path / "fixture"
+    run.prepare_fixture(fx_repo, "HEAD", fixture, overlay_from=source)
+    try:
+        skills = fixture / ".factory" / "skills"
+        assert (skills / "auto-coder" / "SKILL.md").read_text(encoding="utf-8") == "new\n"
+        assert (skills / "review-guidelines" / "SKILL.md").read_text(encoding="utf-8") == "old\n"
+    finally:
+        run.remove_fixture(fx_repo, fixture)
+
 # --------------------------------------------------------------------------- SD3.6 gate + workflow
 
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "agent-evals.yml"

@@ -3,7 +3,7 @@
 For each case and each repeat: create a detached worktree at the case's
 ``fixture_commit``, overlay the steering files under test (``AGENTS.md``,
 ``.factory/skills/`` and its ``.claude/`` / ``.github/`` mirrors, ``.factory/hooks*``) from the current
-checkout, snapshot the baseline tree, run ``droid exec``, then judge the run with
+checkout (the fixture keeps its own ``review-guidelines`` skill), snapshot the baseline tree, run ``droid exec``, then judge the run with
 ``check.py``. A case passes when at least ``--need`` of ``--repeat`` runs pass.
 
 This spends real model tokens; it is never collected by ``pytest tests``.
@@ -61,7 +61,30 @@ def _listed_files(source: Path, rel: str) -> list[str] | None:
     return [p for p in proc.stdout.decode("utf-8").split("\0") if p]
 
 
+# review-guidelines is read only by the CI Droid review, never by eval sessions, and the fixture's own
+# test_review_guidelines.py locks it to the fixture's REVIEW.md: overlaying it alone breaks that test.
+OVERLAY_KEEP_FIXTURE = (".factory/skills/review-guidelines",)
+
+
 def overlay_steering(source: Path, fixture: Path) -> None:
+    with tempfile.TemporaryDirectory() as stash:
+        kept = []
+        for rel in OVERLAY_KEEP_FIXTURE:
+            if (fixture / rel).exists():
+                shutil.move(str(fixture / rel), str(Path(stash) / rel.replace("/", "__")))
+                kept.append(rel)
+        _overlay_paths(source, fixture)
+        for rel in OVERLAY_KEEP_FIXTURE:
+            if (fixture / rel).is_dir():
+                shutil.rmtree(fixture / rel)
+            elif (fixture / rel).exists():
+                (fixture / rel).unlink()
+            if rel in kept:
+                (fixture / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(Path(stash) / rel.replace("/", "__")), str(fixture / rel))
+
+
+def _overlay_paths(source: Path, fixture: Path) -> None:
     for rel in OVERLAY_PATHS:
         src, dst = source / rel, fixture / rel
         if dst.is_dir() and not dst.is_symlink():
