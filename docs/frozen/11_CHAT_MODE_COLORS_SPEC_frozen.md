@@ -1,12 +1,18 @@
-<!-- 开发中规格：Chat 检索模式选择器三按钮按模式着色（CMC 系列）。纯前端样式增量，只改 frontend/components/chat/ModeSelector.tsx 的选中态配色与对应单测，不动 aria 语义、文案、模式可用性逻辑与后端。基线：WC0–WC10 已收口冻结（ModeSelector 由 WC 系列交付），frozen 01–10 已收口。与其他规格的关系：独立增量，不重开 06_WEBUI_CHAT_SPEC。 -->
+<!-- 已冻结规格：Chat 检索模式选择器三按钮按模式着色（CMC 系列，CMC1–CMC2 已收口）。纯前端样式增量，只改 frontend/components/chat/ModeSelector.tsx 的选中态配色与对应单测，不动 aria 语义、文案、模式可用性逻辑与后端。基线：WC0–WC10 已收口冻结（ModeSelector 由 WC 系列交付），frozen 01–10 已收口。与其他规格的关系：独立增量，不重开 06_WEBUI_CHAT_SPEC。 -->
 
 # Chat 模式选择器按模式着色规格 (CHAT_MODE_COLORS_SPEC)
+
+> **📌 冻结记录**
+>
+> - 冻结时间：2026-11-14
+> - 完成概要：CMC1–CMC2 共 2 项任务全部收口（`MODE_TONE` 选中态按模式着色 + 单测断言；构建产物 CSS 6 个配色类核验、Playwright e2e 26/26、`tests/e2e_web` 3 项、明暗双模式 × 三模式 6 张截图人工核验文字清晰可读）；验收清单 5 项全部勾选，§7 回写（AGENTS.md / README / MOC / USAGE_GUIDE 10.4）已完成。
+> - 遗留：无（Out of Scope 中的 Playground 按钮着色等项按规格 §2.2 约定需要时另起提案，不构成本规格遗留）
 
 > 版本：0.1 — 由候选提案升级为可执行规格
 >
 > 起源与决策依据：由 `backlog/chat-mode-selector-colors_backlog.md` 单文件晋升，原文见 git 历史（提交 `54ae922`）；提案三问并入 §1.2。提案的起源是会话内用户截图（Web UI Chat 页三个模式按钮同色难辨认，无独立文件）
 >
-> 基线：[06_WEBUI_CHAT_SPEC_frozen.md](../frozen/06_WEBUI_CHAT_SPEC_frozen.md) WC0–WC10 已收口；前端 Tailwind CSS 3.4（`darkMode: "class"`，`lib/theme.ts` 在 `<html>` 上切换 `dark` 类）
+> 基线：[06_WEBUI_CHAT_SPEC_frozen.md](06_WEBUI_CHAT_SPEC_frozen.md) WC0–WC10 已收口；前端 Tailwind CSS 3.4（`darkMode: "class"`，`lib/theme.ts` 在 `<html>` 上切换 `dark` 类）
 >
 > 日期：2026-11-14
 >
@@ -136,7 +142,7 @@ ChatView ──(capabilities, value, onChange)──▶ ModeSelector
 | CMC1 | `ModeSelector.tsx` 新增 `MODE_TONE` 查表，选中态按模式着色（§3.1 六组类）；在 `chat.components.test.tsx` 的 `ModeSelector` 用例中补断言 | 三个模式选中时各自带 light + dark 两组配色类、未选中按钮不带任何模式配色类；既有 `ModeSelector` 用例不改语义；`npm run typecheck && npm run lint && npm test` 全绿 | ✅ 已完成（2026-11-14）：新增 `MODE_TONE` 常量与 `colors the selected button per mode` 用例；typecheck / lint 0 错误，目标文件 24/24、全量 vitest 263/263 通过 |
 | CMC2 | 构建 + e2e 回归 + 明暗双模式截图核验 | `npm run build` 成功且 `frontend/out/` CSS 含 §4 列出的 6 个类；`npm run e2e` 全绿；light / dark × 三模式共 6 张截图文字清晰可读；`pytest tests/e2e_web -q` 全绿 | ✅ 已完成（2026-11-14）：`npm run build` 成功，产物 CSS（`out/_next/static/chunks/*.css`）含 3 个浅底类与 3 个 `dark:bg-*-500/20` 变体；Playwright e2e 26/26 通过；6 张截图（light/dark × 三模式）人工核验文字均清晰可读；`pytest tests/e2e_web` 3 项通过 |
 
-> 进度备注：交付后在各任务下回填状态与实测数据；全部收口后本规格按冻结清单移入 `docs/frozen/` 并更新 MOC.md。
+> 进度备注：CMC1–CMC2 已于 2026-11-14 全部收口（提交 `b92e07a` / `4d86c42`），本规格按冻结清单移入 `docs/frozen/` 并同步 MOC.md。冻结后任务表不再新增任务。
 
 ## 6. 验收清单
 
