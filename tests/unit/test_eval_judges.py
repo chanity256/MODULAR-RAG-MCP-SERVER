@@ -466,14 +466,18 @@ def test_agent_evals_workflow_uses_ci_byok_settings_without_plaintext_keys():
     wf = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     settings = json.loads(CI_SETTINGS.read_text(encoding="utf-8"))
     (model,) = settings["customModels"]
-    assert model["apiKey"] == "${ZHIPU_API_KEY}"
+    # No credential in the repo file; the workflow adds an apiKeyHelper pointing outside the fixture.
+    assert "apiKey" not in model and "apiKeyHelper" not in model
     assert model["baseUrl"] == "https://open.bigmodel.cn/api/anthropic"
     assert wf["env"]["EVAL_MODEL"] == f"custom:{model['displayName'].replace(' ', '-')}-0" == model["id"]
     evals = wf["jobs"]["evals"]
     steps = {s.get("name"): s for s in evals["steps"]}
     assert steps["Run evals"]["env"]["FACTORY_API_KEY"] == "${{ secrets.FACTORY_API_KEY }}"
-    assert steps["Run evals"]["env"]["ZHIPU_API_KEY"] == "${{ secrets.ZHIPU_API_KEY }}"
-    assert "evals/ci/factory-settings.json" in steps["Configure BYOK model (D5)"]["run"]
+    # The model key must not be visible to the agent session's environment.
+    assert "ZHIPU_API_KEY" not in steps["Run evals"]["env"]
+    configure = steps["Configure BYOK model (D5)"]
+    assert configure["env"]["ZHIPU_API_KEY"] == "${{ secrets.ZHIPU_API_KEY }}"
+    assert "evals/ci/factory-settings.json" in configure["run"] and ".apiKeyHelper" in configure["run"]
     assert evals["steps"][0]["with"]["fetch-depth"] == 0
     assert evals["strategy"]["fail-fast"] is False
     assert evals["timeout-minutes"] >= run.DEFAULT_REPEAT * run.DEFAULT_TIMEOUT_MIN

@@ -65,5 +65,7 @@ python evals/check.py --case evals/cases/<id>.yaml --fixture <dir> --stream <run
   per-case artifacts with `run.py --summarize` and writes the gate result to the job summary.
 - Model: `custom:glm-5.3-Flash-0`, the only entry of `ci/factory-settings.json` (copied to
   `~/.factory/settings.json`; same model and endpoint as the local `custom:glm-5.3-Flash-2`).
-  Secrets: `FACTORY_API_KEY` (droid auth) and `ZHIPU_API_KEY` (expanded from `${ZHIPU_API_KEY}`
-  at runtime). Key values are replaced with `***` in run output before it is uploaded.
+  Secrets: `FACTORY_API_KEY` (droid auth) and `ZHIPU_API_KEY`. The Zhipu key is written to a
+  file outside the fixture and read by droid through `apiKeyHelper`, so it is not in the agent
+  session's environment (a baseline qa-tester session probed for it). `FACTORY_API_KEY` must
+  stay in droid's environment. Key values are replaced with `***` in run output before upload.
