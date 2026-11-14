@@ -297,6 +297,15 @@ main ──▶ measure_process.py 读 git 历史 → docs/analysis/process-metri
 
 **review 结果的效力**：review 是建议性的，不设为 required check。纪律是：Important 级发现必须修复，或在 PR 评论里写明不修的理由后才能合并。PR 本身即审计记录。
 
+**SD2.3 落地记录（2026-11-14）**：使用者决定接入自动 review。
+- workflow：`.github/workflows/droid-review.yml`（`Factory-AI/droid-action`，`pull_request` 的 opened / ready_for_review / reopened 触发，跳过 draft；`automatic_review: true`、`automatic_security_review: true`、`review_depth: shallow`，超时 60 分钟）与 `.github/workflows/droid.yml`（响应 issue / PR 评论中的 `@droid`），随本 PR 新增。
+- 前提：Factory Droid GitHub App 已安装到 fork（使用者确认）；仓库 Secret `FACTORY_API_KEY` 已存在（SD3.6 起）。
+- review 指令：沿用 SD2.1 结论，读 `.factory/skills/review-guidelines/SKILL.md`。
+- 与分支保护的关系（SD2.1 结论第 3 条）：main 的 `required_approving_review_count` 为 0、`require_code_owner_reviews` 为 false，合并条件只有 required checks，bot approval 满足不了任何合并条件，review 保持建议性。
+- 推送方式：`gh` token 无 `workflow` scope，两个 workflow 经 SSH 推送，不走 install-code-review 安装器的 API 路径。
+- 公开仓库的 `@droid` 暴露面：`droid.yml` 的 `if` 只看评论是否含 `@droid`，但 `droid-action` 默认拒绝对仓库没有写权限的触发者（仅设置 `allowed_non_write_users` 时放行，本仓库未设置），陌生人的评论不会进入 Droid 会话、不花 Factory 额度。fork 来的 PR 拿不到 secrets，自动 review 不会在其上运行。`Factory-AI/droid-action@main` 未钉版本，上游变更会直接生效。
+- 验收计数：「连续 5 个 PR 拿到 review、至少一条 Important 被修复或书面说明」从本 PR 起算。
+
 ### 3.3 SD3 — 回归与 agent evals
 
 QA 计划测的是**产品行为**，改了 skill 文本，`ingest.py` 的输出不会变，所以这些用例测不出 agent 被改坏了没有。拆成两项：
@@ -522,7 +531,7 @@ D1 落地后，auto-coder 的 Persist 步骤不能再假设「提交即完成」
 |-----------|--------|------|
 | GitHub Actions + branch protection + CODEOWNERS | SD1 `ci.yml`、SD3b `agent-evals.yml` | 需新建 `.github/workflows/`、`.github/CODEOWNERS`；分支保护依赖 D1/D2 |
 | Droid hooks（`.factory/hooks.json`） | SD3.7 test-file 保护 hook | 机制已验证（docs-guard 在用），仅本地生效 |
-| `install-code-review` skill | SD2 | 环境已具备，未接入仓库；需先核实 REVIEW.md 读取与 fork 安装 |
+| `install-code-review` skill | SD2 | 2026-11-14 接入（SD2.3）：workflow 按其模板手写、经 SSH 推送（§3.2 落地记录） |
 | `droid exec`（1.10.0） | SD3b 执行器 | 本机可用；CI 中需安装并配 `FACTORY_API_KEY` |
 | Factory Automations | SD4 | 已核实并落地：本机执行，两个周度 automation active（§3.4 落地记录） |
 | 现有测试资产（pytest、drift guard、QA_TEST_PLAN、`test_mcp_client.py`） | SD1、SD3a | 直接复用 |
@@ -533,6 +542,8 @@ D1 落地后，auto-coder 的 Persist 步骤不能再假设「提交即完成」
 ```text
 .github/workflows/ci.yml            # SD1：python job（禁网 pytest + 红线）+ frontend job
 .github/workflows/agent-evals.yml   # SD3b：skill/hook/AGENTS.md 变更时跑 evals
+.github/workflows/droid-review.yml  # SD2.3：PR 自动 review（Factory-AI/droid-action）
+.github/workflows/droid.yml         # SD2.3：响应评论中的 @droid
 .github/CODEOWNERS                  # SD1.7：门的自我保护
 scripts/check_redlines.py           # SD1.6
 scripts/sync_skills.py              # SD6.2
@@ -635,7 +646,7 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 | SD1.8 | 文档同步（原 CI-4） | AGENTS.md 常用命令增补 CI 说明；`requirements.txt` 补齐或 README 注明以 `pyproject.toml` 为准（D3）；README badge 视需要 | [x] 2026-11-13：AGENTS.md 增补 CI 节、`requirements.txt` 补齐测试依赖；badge 待 CI 上线后再加 |
 | SD2.1 | 核实 review 指令读取位置与 fork 安装 | 两项结论回填 §3.2；任一不成立时 §3.2 写明替代方案 | [x] 2026-11-13：指令落点为 `.factory/skills/review-guidelines/SKILL.md`；fork 按文档可行，实装待推送（§3.2） |
 | SD2.2 | `REVIEW.md` | 含三遍扫、Important / Nit 界限、Nit 上限 5、排除路径；若 review 不读该文件，指令落点与其互链 | [x] 2026-11-13：`REVIEW.md` + `.factory/skills/review-guidelines/SKILL.md` 互链，checklist 块由 `test_review_guidelines.py` 锁定一致 |
-| SD2.3 | 接入自动 review | 连续 5 个 PR 自动拿到按 `REVIEW.md` 格式、按严重度排序的 review；至少一条 Important 被修复或书面说明 | [ ] 推送已可用（D1/D2 已终裁）；使用者决定暂不接入（需在 fork 配置 `FACTORY_API_KEY` 并安装 Factory Droid GitHub App） |
+| SD2.3 | 接入自动 review | 连续 5 个 PR 自动拿到按 `REVIEW.md` 格式、按严重度排序的 review；至少一条 Important 被修复或书面说明 | [~] 2026-11-14 接入：`droid-review.yml` + `droid.yml`，GitHub App 已装、`FACTORY_API_KEY` 已在，分支保护不计 bot approval（§3.2 落地记录）；验收计数从本 PR 起 |
 | SD3.1 | QA 计划清理（3a，随 SD6.1） | A 段标失效；N-02/N-04/N-06/O-07 无 Dashboard 步骤（改为 CLI / Web UI 等价操作或标失效） | [x] 2026-11-13：计划 v1.1；删除步骤改为 Web UI Data Browser（N-01/N-06 另有 `qa_multistep.py` 自动化），Clear All Data 改为 `qa_bootstrap.py clear`；G–O 其余 Dashboard 页面引用改为 Web UI，M-08/M-09 Trace 路径改为 `logs/traces/` 按日文件 |
 | SD3.2 | QA ↔ pytest 对照表（3a） | `QA_PYTEST_MAP.md` 覆盖 G、H、I、J、M、N、O 全部用例，每条标注对应 pytest 与能否离线 | [x] 2026-11-13：66 条逐条对照（93 个节点均可收集）；QA 计划 1.2 按对照结果订正与代码不符的步骤 / 键名 / 预期，I-03/I-04 标失效（§3.3 落地记录） |
 | SD3.3 | 补缺口测试（3a） | 「能离线且无对应 pytest」的用例全部有测试，复用现有 fake，随 `pytest tests` 全绿 | [x] 2026-11-13：15 条缺口全部补齐（`tests/e2e/test_qa_offline_gaps.py` 12 条 + `test_query_entry.py` 2 条 + `test_recursive_splitter_lib.py` 1 条）；N-05 为已知缺陷，strict xfail；离线计数 2506 passed / 11 skipped / 1 xfailed |
@@ -648,15 +659,15 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 | SD4.3 | automation ② QA 回归 | 每周运行可离线回归段，失败项写回 QA 进度文件并标 🔧 | [~] automation 已建并 active（2026-11-13，id `bc210885`）；禁网回归 + 失败写回路径待 2026-11-16 首 run 验证 |
 | SD4.4 | `bands.yaml` 阈值（后置） | SD1 运行满约 4 周后，基于 Actions 记录与 junit 设定阈值，超阈值才触发 ①/② | [ ] 后置：CI 4 周数据最早 2026-12-11 齐备；收口时未满足则移派生台账 |
 | SD5.1 | `measure_process.py` + 单测 | 对当前仓库输出 5 项「✅ 能」指标基线，覆盖 SR、WS、WP、WC、LG 五个系列；`test_measure_process.py` 通过 | [x] 2026-11-13：5 项 = 立项→首任务、立项→冻结、修复轮数（SD5.2 埋点后可算）、QA 周转、revert/hotfix/fix；8 个规格中除 IR（提交无方括号前缀）外均有首任务样本；`test_measure_process.py` 8 条（§3.5 落地记录） |
-| SD5.2 | `Fix-Rounds` trailer 埋点（随 SD6） | auto-coder SKILL.md 含 trailer 规则；此后 auto-coder 提交带 `Fix-Rounds: N` | [~] 规则已写入 auto-coder（Test & Auto-Fix 计数口径 + Persist trailer）；待后续 auto-coder 提交验证 |
+| SD5.2 | `Fix-Rounds` trailer 埋点（随 SD6） | auto-coder SKILL.md 含 trailer 规则；此后 auto-coder 提交带 `Fix-Rounds: N` | [x] 2026-11-14：`fork/main` 上 18 个提交带 `Fix-Rounds: N`（如 `456009b`、`8f5ed4c`、`eb40b1a` 为 1，`01761e0` 为 0）；`measure_process.py --json` 修复轮数已有样本 n=18（0 轮 13、1 轮 5） |
 | SD5.3 | `process-metrics.md` 基线文档 | `docs/analysis/process-metrics.md` 含口径与第一份基线；登记 MOC 与 README；`test_docs_links.py` 通过 | [x] 2026-11-13：1.0 版基线统计到 `d2a4e61`，目标值按 §3.5 从 1.1 版起设 |
 | SD6.1 | 镜像合并与来源目录确定 | auto-coder、qa-tester 合并为权威版本；来源目录与 `.spec_hash.*` / 生成 references 是否入库的决定记录在 §3.6 | [x] 2026-11-13：来源 `.factory/skills/`，生成物不入库（§3.6 落地记录） |
 | SD6.2 | `sync_skills.py` + `test_skill_mirrors.py` | 脚本可生成 / 校验镜像；drift guard 在 CI 中通过 | [x] 脚本 + 7 条单测通过，镜像零漂移，手改镜像演练被拦；2026-11-13 PR #1 真实 run 中随 `pytest tests` 通过 |
 | SD6.3 | docs-governance 入仓或获取说明 | 入仓到来源目录随同步分发，或 AGENTS.md 写明用户级 skill 及获取方式 | [x] 2026-11-13：入仓 `.factory/skills/docs-governance/`，随同步分发 |
-| SD6.4 | per-task plan 规则 | auto-coder 第 4 步含复杂任务判定与 `.agents/plans/` 规则；下一次复杂任务按规则产出 plan | [~] 规则与 `.agents/plans/README.md` 格式已交付；待下一次复杂任务验证 |
-| SD6.5 | Persist 步骤 PR 化 | auto-coder 提交走「分支 → 推送 → PR → 等 CI 与 review」；下一次复杂任务以 PR 合入 | [~] 规则已写入 auto-coder，按 D1 是否生效分支（未生效时只本地提交、不推送）；PR 合入验证待 D1/D2 |
+| SD6.4 | per-task plan 规则 | auto-coder 第 4 步含复杂任务判定与 `.agents/plans/` 规则；下一次复杂任务按规则产出 plan | [x] 2026-11-14：`.agents/plans/` 下 `SD3.5.md`、`SD3.6.md`、`SD3.7.md` 按 README 格式产出；这三项不改 `src/`、不满足复杂任务判定，属按规则自愿编写，满足判定的 `src/` 复杂任务尚未出现 |
+| SD6.5 | Persist 步骤 PR 化 | auto-coder 提交走「分支 → 推送 → PR → 等 CI 与 review」；下一次复杂任务以 PR 合入 | [x] 2026-11-14：`feat/sd-*` 分支经 PR 以 merge commit 合入：#4 → `d2a4e61`、#6 → `3d9559c`、#7 → `c2018f8`（另 #5 `feat/sd` → `fa51326`），合并前 required checks `python` / `frontend` 均通过 |
 | SD7.1 | `test_spec_structure.py` + 豁免名单（可选） | 在途规格与编号 ≥10 的冻结规格通过；01–09 与无编号存档在豁免名单 | [x] 2026-11-13：豁免按文件名编号机器判定（不手写名单）；受约束 2 份违规数 0，单测 10 条（§3.7 落地记录） |
-| SD8 | 收口回归与回写 | `pytest tests -q` 全绿，实测计数按 §4 公式核对并说明差异；§8 回写清单全部勾选 | [ ] |
+| SD8 | 收口回归与回写 | `pytest tests -q` 全绿，实测计数按 §4 公式核对并说明差异；§8 回写清单全部勾选 | [ ] 收口方案 A（使用者决定 2026-11-14）：2026-11-23 SD4.2 / SD4.3 第二次运行判定后即收口；届时未满足的门控 / 可选项（SD4.4 最早 2026-12-11、SD1.4、SD2.3 若未满 5 个 PR、三条失败 eval 用例的 steering 改进）移入 `docs/backlog/ai-native-sdlc-followups_backlog.md`，规格冻结为 `frozen/11_AI_NATIVE_SDLC_SPEC_frozen.md`；AGENTS.md 的 SD 行（含「自动 review 暂不接入」的过时表述）随 SD8 回写一次更新，避免额外触发付费 evals |
 
 依赖顺序：SD0 → SD1.1 →（SD1.2–SD1.6）→ SD1.7 → SD1.8；SD2 在 SD0 后可与 SD1 并行，SD2.3 需 D2 仓库可用；SD6 →（SD3.1–SD3.3、SD5.2）；SD6 + SD3.4 → SD3.5 → SD3.6；SD4.1 → SD4.2 / SD4.3，SD4.4 需 SD1 运行 4 周；SD7 可在 SD1 后任意时间；SD8 最后。门控（SD3.4–SD3.7、SD4）与可选（SD1.4、SD3.7、SD7.1）任务若在收口时仍未满足门控条件，标注原因后移入派生台账，不阻塞冻结。
 
@@ -669,7 +680,7 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 - [ ] 故意 `import sirchmunk`、单测发真实 HTTP、未经 owner 审批改红线白名单的 PR 都无法合并。（前两项已由演练 PR #2 / #3 实证 `BLOCKED`；第三项按 D1 降级为「可见」）
 - [ ] 每个 PR 自动获得按 `REVIEW.md` 的结构化 review。
 - [x] QA 计划无失效的 Dashboard 步骤；QA ↔ pytest 对照表完整，可离线缺口均已补测试。
-- [ ] skill 镜像由单一来源同步，`test_skill_mirrors.py` 在 CI 中通过；auto-coder 含 plan 规则、PR 化 Persist 与 `Fix-Rounds` trailer。
+- [x] skill 镜像由单一来源同步，`test_skill_mirrors.py` 在 CI 中通过；auto-coder 含 plan 规则、PR 化 Persist 与 `Fix-Rounds` trailer。（2026-11-14：SD6.2 / SD5.2 / SD6.4 / SD6.5 均已验证，见 §5.2）
 - [x] `process-metrics.md` 含 5 项指标基线并登记 MOC。
 - [ ] 门控项（SD3b、SD4）已交付，或门控未满足的原因已记录并移入派生台账。
 - [ ] `pytest tests -q`、`test_docs_links.py`、前端 typecheck / lint / test 全绿，计数变化已在 SD8 记录。
@@ -695,7 +706,7 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 
 ## 8. 实现合入后的回写清单
 
-- [ ] `AGENTS.md`：常用命令增补 CI 说明与 workflow 名（SD1.8）；「开发文档参考」登记本规格（立项时如尚未登记）；docs-governance 获取方式（SD6.3，若不入仓）；离线基线计数按 SD8 实测更新；「规格与排期」已收口列表在冻结时加入 SD 系列。
+- [ ] `AGENTS.md`：常用命令增补 CI 说明与 workflow 名（SD1.8）；「开发文档参考」登记本规格（立项时如尚未登记）；docs-governance 获取方式（SD6.3，若不入仓）；离线基线计数按 SD8 实测更新；「规格与排期」已收口列表在冻结时加入 SD 系列。改 AGENTS.md 会触发付费 evals，SD 行（含「自动 review 暂不接入」的过时表述）推迟到 SD8 回写时一次更新。
 - [ ] `README.md`：开发文档导航表（specs/ 行登记本规格，冻结时移到 frozen/ 行）；视需要加 CI status badge；D3 依赖说明（若选 README 注明方案）。
 - [ ] `requirements.txt`：补齐测试依赖，或保持不动并以 README 注明（D3，二选一）。
 - [x] `docs/analysis/process-metrics.md`：新建并登记 MOC 分区索引与 README 导航表（SD5.3）。
