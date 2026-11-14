@@ -1,6 +1,6 @@
 # Plan: [SD3.6] agent-evals.yml + 基线校准（3b）
 
-Status: planned
+Status: deviated
 
 ## Files
 1. `.github/workflows/agent-evals.yml` — 路径触发（`.factory/skills/**`、`.claude/skills/**`、`.github/skills/**`、`AGENTS.md`、`.factory/hooks.json`、`.factory/hooks/**`）+ `workflow_dispatch`（输入 `cases` / `repeat`）。三个 job：`gate`（算用例列表；`synchronize` 时只看本次推送的提交是否碰了 steering 路径，避免文档回填推送再花一次 15 会话）→ `evals`（按用例矩阵 5 路并行，每路 3 次会话）→ `summary`（汇总 3 取 2、比对基线、写 job summary）。
@@ -29,3 +29,5 @@ Status: planned
 ## Deviations
 - Fixed an SD3.5 overlay gap found in the offline rehearsal (fake `droid` on PATH, no model calls): `run.py` overlaid `.factory/skills/` but not its `.claude/` / `.github/` mirrors, so any skill change made `test_skill_mirrors` fail inside every fixture and judge 5 fail regardless of the agent. `OVERLAY_PATHS` now matches the workflow trigger paths, locked by `test_overlay_covers_every_trigger_path`.
 - `run.py` clamps `--need` to `--repeat`, so a single-run local check (`--repeat 1`) can pass.
+- Key isolation added after the baseline: a qa-tester session checked whether `ZHIPU_API_KEY` was set (value never printed) and considered using it for real calls. The workflow now writes the key to a file outside the fixture and the BYOK entry reads it through `apiKeyHelper`; `Run evals` no longer exports it. `FACTORY_API_KEY` must stay in droid's environment. Per the user's decision, only the mutation check was rerun after the fix; the baseline is recorded as pre-fix.
+- Threshold calibrated to the baseline (user decision): `min_pass_rate` 0.4 plus the two passing cases must not regress (`evals/baseline.json`), instead of the initial 0.9.

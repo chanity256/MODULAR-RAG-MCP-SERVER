@@ -481,3 +481,11 @@ def test_agent_evals_workflow_uses_ci_byok_settings_without_plaintext_keys():
     assert evals["steps"][0]["with"]["fetch-depth"] == 0
     assert evals["strategy"]["fail-fast"] is False
     assert evals["timeout-minutes"] >= run.DEFAULT_REPEAT * run.DEFAULT_TIMEOUT_MIN
+
+def test_baseline_lists_known_cases_and_sane_threshold():
+    baseline = json.loads(run.BASELINE_PATH.read_text(encoding="utf-8"))
+    ids = {p.stem for p in CASES_DIR.glob("*.yaml")}
+    assert baseline["passing_cases"] and set(baseline["passing_cases"]) <= ids
+    assert 0 < baseline["min_pass_rate"] <= 1
+    # The calibrated floor must be reachable: it cannot exceed what the baseline itself scored.
+    assert baseline["min_pass_rate"] <= len(baseline["passing_cases"]) / len(ids)

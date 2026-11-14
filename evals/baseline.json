@@ -1,0 +1,11 @@
+{
+  "model": "custom:glm-5.3-Flash-0",
+  "calibrated_on": "2026-11-13",
+  "source_run": "https://github.com/chanity256/MODULAR-RAG-MCP-SERVER/actions/runs/43442301934",
+  "note": "Taken before the apiKeyHelper fix: ZHIPU_API_KEY was visible to agent sessions. Spec §3.3, SD3.6.",
+  "min_pass_rate": 0.4,
+  "passing_cases": [
+    "autocoder-fix-round-limit",
+    "autocoder-mdown-extension"
+  ]
+}
