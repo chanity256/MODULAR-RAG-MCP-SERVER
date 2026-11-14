@@ -16,7 +16,7 @@
          标记，免得它在 Implement 阶段误拦合法的测试改动。
 
 局限：只在本地 Droid 会话生效，agent 也能删掉标记；确定性兜底仍是 review 规则
-（弱化测试断言记 Important）与 agent evals 判据③。
+（弱化测试断言至少记 P1）与 agent evals 判据③。
 
 fail-open：stdin / shell 解析失败、未知子命令一律放行（exit 0），只往 stderr
 记警告。

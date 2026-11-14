@@ -30,7 +30,7 @@ def test_skill_frontmatter_name():
 
 def test_checklist_covers_spec_requirements():
     block = _checklist(REVIEW_MD)
-    for required in ("第 1 遍：bugs", "第 2 遍：security", "第 3 遍：合规", "最多 5 条 Nit",
+    for required in ("第 1 遍：bugs", "第 2 遍：security", "第 3 遍：合规", "最多 5 条 P3", "按 P0 → P3 排序",
                      "sirchmunk 上游源码", "删除或弱化已有测试断言", "frontend/out/"):
         assert required in block, required
 
