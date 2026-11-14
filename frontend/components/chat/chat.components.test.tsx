@@ -279,4 +279,23 @@ describe("ModeSelector", () => {
     render(<ModeSelector capabilities={{ ...caps, agentic_enabled: false }} value="hybrid" onChange={() => undefined} />);
     expect(screen.queryByRole("radio")).toBeNull();
   });
+
+  it("colors the selected button per mode and leaves unselected buttons neutral", () => {
+    const allCaps = { ...caps, allow_deep: true };
+    const tones: Array<[string, string[]]> = [
+      ["hybrid", ["bg-amber-100", "text-amber-800", "dark:bg-amber-500/20", "dark:text-amber-200"]],
+      ["agentic_fast", ["bg-emerald-100", "text-emerald-800", "dark:bg-emerald-500/20", "dark:text-emerald-200"]],
+      ["agentic_deep", ["bg-sky-100", "text-sky-800", "dark:bg-sky-500/20", "dark:text-sky-200"]],
+    ];
+    for (const [mode, toneClasses] of tones) {
+      const { unmount } = render(<ModeSelector capabilities={allCaps} value={mode as "hybrid"} onChange={() => undefined} />);
+      const radios = screen.getAllByRole("radio") as HTMLButtonElement[];
+      for (const radio of radios) {
+        const isToned = toneClasses.every((cls) => radio.className.includes(cls));
+        const isNeutral = radio.className.includes("text-slate-600");
+        expect(isToned !== isNeutral).toBe(true);
+      }
+      unmount();
+    }
+  });
 });

@@ -10,6 +10,18 @@ interface Props {
   disabled?: boolean;
 }
 
+/**
+ * Selected-state palette per retrieval mode (CHAT_MODE_COLORS_SPEC §3.1). Light mode pairs a pale
+ * background with a dark tone of the same hue; dark mode pairs a translucent background over the
+ * slate-800 container with a bright tone. Written as full literal class strings — Tailwind's JIT
+ * only picks up complete class names, not interpolated ones.
+ */
+const MODE_TONE: Record<RetrievalMode, string> = {
+  hybrid: "bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-200",
+  agentic_fast: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-200",
+  agentic_deep: "bg-sky-100 text-sky-800 dark:bg-sky-500/20 dark:text-sky-200",
+};
+
 export default function ModeSelector({ capabilities, value, onChange, disabled = false }: Props) {
   const options = buildModeOptions(capabilities);
   if (options.length < 2) {
@@ -36,7 +48,7 @@ export default function ModeSelector({ capabilities, value, onChange, disabled =
             onClick={() => onChange(option.mode)}
             className={`rounded-md px-2.5 py-1 text-xs transition-colors ${
               selected
-                ? "bg-white font-medium text-blue-700 shadow-sm dark:bg-slate-600 dark:text-blue-200"
+                ? `font-medium shadow-sm ${MODE_TONE[option.mode]}`
                 : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"
             } ${off ? "cursor-not-allowed opacity-50" : ""}`}
           >
