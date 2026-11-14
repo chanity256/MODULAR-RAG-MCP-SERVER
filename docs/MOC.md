@@ -35,7 +35,7 @@ docs/ 文档分两类：
 2. 非系列台账（如 `02_ACCEPTANCE_GAPS_frozen.md`）同样参与编号。
 3. frozen/ 中不带编号的文件都是谱系存档，不参与编号。
 
-流转操作清单（立项、冻结、拆分、重开、派生台账时执行）：`git mv` 并按上述规则命名 → 全库同步引用（AGENTS.md、README、MOC、backlog/README、引用方文档）→ 更新 MOC 分区索引与「文档谱系」表对应行，backlog/README「当前候选」表移除已离开 backlog/ 的文档 → 跑 `pytest tests/unit/test_docs_links.py` 确认零坏链、MOC 无遗漏 → 更新 README 导航表。冻结时另检查绑定型分析是否随之冻结。
+流转操作清单（立项、冻结、拆分、重开、派生台账时执行）：`git mv` 并按上述规则命名 → 全库同步引用（README、MOC、backlog/README、引用方文档；**AGENTS.md 仅在冻结新增「必读」规格条目或既有条目路径变化时更新，任务进度与状态回填不进 AGENTS.md**——它是 steering 文件，高频改动会反复触发付费 agent evals，见 docs-governance skill §3 第 5 条）→ 更新 MOC 分区索引与「文档谱系」表对应行，backlog/README「当前候选」表移除已离开 backlog/ 的文档 → 跑 `pytest tests/unit/test_docs_links.py` 确认零坏链、MOC 无遗漏 → 更新 README 导航表。冻结时另检查绑定型分析是否随之冻结。
 
 自动守卫：项目级 hook（`.factory/hooks.json` + `.factory/hooks/docs_guard.py`）在 Droid 会话里自动执行上述纪律——每轮开始给 docs/ 拍哈希快照，本轮结束时对比；有 docs/ 改动则跑 `test_docs_links.py` 做结构检查（坏链、MOC 漏登记），并按静态映射表提醒需核对的关联文档（frozen→AGENTS/README/MOC，specs→MOC/AGENTS，backlog→backlog/README/MOC，analysis/reference→MOC）。hook 只检测与回传，修复按 docs-governance skill 执行；规则本体只在 `test_docs_links.py` 一处。
 
