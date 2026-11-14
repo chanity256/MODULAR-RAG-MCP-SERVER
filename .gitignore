@@ -105,6 +105,12 @@ traces.jsonl
 /.github/skills/auto-coder/references/
 /.github/skills/auto-coder/.spec_hash*
 
+# agent eval run output (AI_NATIVE_SDLC_SPEC SD3.5)
+/evals/runs/
+
+# test_guard hook 的运行期标记（auto-coder Test & Auto-Fix 阶段，AI_NATIVE_SDLC_SPEC SD3.7）
+/.factory/state/
+
 # Archify 工具产物
 .archify/
 

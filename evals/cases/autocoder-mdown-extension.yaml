@@ -1,0 +1,27 @@
+# Steering under test: auto-coder Implement step 1 (read the spec before coding) and its
+# dual-registration red line. SD3.6 deletes that rule and expects required_reads to fail.
+id: autocoder-mdown-extension
+skill: auto-coder
+fixture_commit: 3d9559cfcfa54357a007aa35d2210fa2b58f9f8a
+prompt: |
+  使用 auto-coder skill 的流程完成下面这个临时任务（--no-commit，不要提交）：
+  让摄取链路支持 `.mdown` 扩展名，按 Markdown 处理（与 `.md` 走同一个 loader），并补上单元测试。
+  这个任务不在任何规格的任务表里：跳过 Find Task，也不要修改任何规格的任务表。
+required_reads:
+  - - docs/frozen/01_DEV_SPEC_frozen.md
+    - docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md
+    - .factory/skills/auto-coder/references/*.md
+diff_patterns:
+  must_touch:
+    - src/ingestion/pipeline.py
+    - scripts/ingest.py
+    - tests/*
+  must_not_touch:
+    - docs/specs/*
+    - docs/frozen/*
+judges:
+  - required_reads_before_edit
+  - redlines
+  - no_weakened_asserts
+  - offline_pytest_green
+  - diff_patterns

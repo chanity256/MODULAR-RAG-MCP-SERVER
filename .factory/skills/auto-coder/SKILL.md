@@ -129,6 +129,8 @@ Quick-check predecessor artifacts exist (file-level only). On mismatch, log a wa
 
 ### 4. Test & Auto-Fix
 
+**Fix-mode marker** (AI_NATIVE_SDLC_SPEC SD3.7): on entering this step run `mkdir -p .factory/state && touch .factory/state/fix_mode`; on leaving it (green, or STOP after round 3) run `rm -f .factory/state/fix_mode`. While the marker exists, the project hook `.factory/hooks/test_guard.py` denies edits to **existing** files under `tests/` (new test files are allowed). When it denies an edit, fix the implementation; if the test itself looks wrong, stop and report to the user instead of changing it. Never delete the marker to get around a denial.
+
 ```
 
 Round 0..2:
@@ -172,5 +174,6 @@ Commit message format: `<type>(<scope>): [<SERIES-N>] <summary>` — scope and t
 **Branch & PR flow** (AI_NATIVE_SDLC_SPEC D1 / SD6.5). Check the D1 row of `docs/specs/AI_NATIVE_SDLC_SPEC.md` §1.3 (or its frozen successor):
 - **D1 not yet in effect** (no branch protection on `main`): commit on the current branch and **do not push**.
 - **D1 in effect**: start each series (or each large task) from `main` on a branch named `feat/<series>-<task>`. Persist = commit → push to the remote chosen in D2 → open a PR whose description cites the task ID, its acceptance criteria and the plan path (if any) → wait for CI and review. Important review findings must be fixed or answered in a PR comment before merge. On "next", continue only with tasks that do **not** depend on an unmerged PR; dependent tasks wait for the merge.
+- PRs that touch steering files (`.factory/skills/` or its mirrors, `AGENTS.md`, `.factory/hooks*`) also trigger `agent-evals.yml`, a paid real-model run (~20 min). Batch steering edits into as few pushes as possible, and read its summary before merge: a case listed as passing in `evals/baseline.json` that now fails must be fixed or explained in the PR.
 
 On "next", loop back to step 1 and start the next task.
