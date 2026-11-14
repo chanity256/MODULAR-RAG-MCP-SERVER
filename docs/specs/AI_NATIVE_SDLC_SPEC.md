@@ -304,7 +304,8 @@ main ──▶ measure_process.py 读 git 历史 → docs/analysis/process-metri
 - 与分支保护的关系（SD2.1 结论第 3 条）：main 的 `required_approving_review_count` 为 0、`require_code_owner_reviews` 为 false，合并条件只有 required checks，bot approval 满足不了任何合并条件，review 保持建议性。
 - 推送方式：`gh` token 无 `workflow` scope，两个 workflow 经 SSH 推送，不走 install-code-review 安装器的 API 路径。
 - 公开仓库的 `@droid` 暴露面：`droid.yml` 的 `if` 只看评论是否含 `@droid`，但 `droid-action` 默认拒绝对仓库没有写权限的触发者（仅设置 `allowed_non_write_users` 时放行，本仓库未设置），陌生人的评论不会进入 Droid 会话、不花 Factory 额度。fork 来的 PR 拿不到 secrets，自动 review 不会在其上运行。`Factory-AI/droid-action@main` 未钉版本，上游变更会直接生效。
-- 验收计数：「连续 5 个 PR 拿到 review、至少一条 Important 被修复或书面说明」从本 PR 起算。
+- 验收计数：「连续 5 个 PR 拿到 review、至少一条 Important 被修复或书面说明」从本 PR 合并后的第一个 PR 起算。本 PR（#9）上两个 job 均为 success 但未发 review：droid-action 在 workflow 尚未存在于默认分支时主动跳过（日志 `Skipping action due to workflow validation: Workflow not found on default branch`），属预期的防篡改行为，因此本 PR 不计入。
+- `droid.yml` 也监听 PR 的 opened / edited：PR 标题或正文含 `@droid` 字样就会触发一次 Droid 执行，PR 描述中提及该触发词时用「tag 响应」等说法代替。
 
 ### 3.3 SD3 — 回归与 agent evals
 
@@ -646,7 +647,7 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 | SD1.8 | 文档同步（原 CI-4） | AGENTS.md 常用命令增补 CI 说明；`requirements.txt` 补齐或 README 注明以 `pyproject.toml` 为准（D3）；README badge 视需要 | [x] 2026-11-13：AGENTS.md 增补 CI 节、`requirements.txt` 补齐测试依赖；badge 待 CI 上线后再加 |
 | SD2.1 | 核实 review 指令读取位置与 fork 安装 | 两项结论回填 §3.2；任一不成立时 §3.2 写明替代方案 | [x] 2026-11-13：指令落点为 `.factory/skills/review-guidelines/SKILL.md`；fork 按文档可行，实装待推送（§3.2） |
 | SD2.2 | `REVIEW.md` | 含三遍扫、Important / Nit 界限、Nit 上限 5、排除路径；若 review 不读该文件，指令落点与其互链 | [x] 2026-11-13：`REVIEW.md` + `.factory/skills/review-guidelines/SKILL.md` 互链，checklist 块由 `test_review_guidelines.py` 锁定一致 |
-| SD2.3 | 接入自动 review | 连续 5 个 PR 自动拿到按 `REVIEW.md` 格式、按严重度排序的 review；至少一条 Important 被修复或书面说明 | [~] 2026-11-14 接入：`droid-review.yml` + `droid.yml`，GitHub App 已装、`FACTORY_API_KEY` 已在，分支保护不计 bot approval（§3.2 落地记录）；验收计数从本 PR 起 |
+| SD2.3 | 接入自动 review | 连续 5 个 PR 自动拿到按 `REVIEW.md` 格式、按严重度排序的 review；至少一条 Important 被修复或书面说明 | [~] 2026-11-14 接入：`droid-review.yml` + `droid.yml`，GitHub App 已装、`FACTORY_API_KEY` 已在，分支保护不计 bot approval（§3.2 落地记录）；接入 PR #9 上 droid-action 因 workflow 未在默认分支而按设计跳过，验收计数从其合并后的第一个 PR 起 |
 | SD3.1 | QA 计划清理（3a，随 SD6.1） | A 段标失效；N-02/N-04/N-06/O-07 无 Dashboard 步骤（改为 CLI / Web UI 等价操作或标失效） | [x] 2026-11-13：计划 v1.1；删除步骤改为 Web UI Data Browser（N-01/N-06 另有 `qa_multistep.py` 自动化），Clear All Data 改为 `qa_bootstrap.py clear`；G–O 其余 Dashboard 页面引用改为 Web UI，M-08/M-09 Trace 路径改为 `logs/traces/` 按日文件 |
 | SD3.2 | QA ↔ pytest 对照表（3a） | `QA_PYTEST_MAP.md` 覆盖 G、H、I、J、M、N、O 全部用例，每条标注对应 pytest 与能否离线 | [x] 2026-11-13：66 条逐条对照（93 个节点均可收集）；QA 计划 1.2 按对照结果订正与代码不符的步骤 / 键名 / 预期，I-03/I-04 标失效（§3.3 落地记录） |
 | SD3.3 | 补缺口测试（3a） | 「能离线且无对应 pytest」的用例全部有测试，复用现有 fake，随 `pytest tests` 全绿 | [x] 2026-11-13：15 条缺口全部补齐（`tests/e2e/test_qa_offline_gaps.py` 12 条 + `test_query_entry.py` 2 条 + `test_recursive_splitter_lib.py` 1 条）；N-05 为已知缺陷，strict xfail；离线计数 2506 passed / 11 skipped / 1 xfailed |
