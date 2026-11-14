@@ -25,3 +25,4 @@
 |------|-----------|
 | [OBSIDIAN_RAG_SPEC_backlog.md](OBSIDIAN_RAG_SPEC_backlog.md) | Obsidian Vault RAG 扩展规格（V 系列；M1/M2 Markdown 摄取已移交 INGESTION_ROBUSTNESS_SPEC 阶段 IR7，剩余 M3/M4 待排期） |
 | [sirchmunk-extension-followups_backlog.md](sirchmunk-extension-followups_backlog.md) | Sirchmunk SX 规格遗留事项台账：明确不做（evolver 等 6 项）、实验负结果存档（编译 GX 不通过、复用保持关闭）、已知缺陷与候选池（流式线程泄漏等 7 项） |
+| [chat-mode-selector-colors_backlog.md](chat-mode-selector-colors_backlog.md) | Chat 模式选择器三按钮按模式着色提案（黄/绿/蓝，选中态浅底深字保证明暗双模式文字对比度，纯 `ModeSelector.tsx` 样式改动） |
