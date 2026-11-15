@@ -277,6 +277,10 @@ python scripts/evaluate.py --retrieval-mode hybrid+agentic --agentic-trigger alw
 
 **安全边界与默认关闭**：第三路复用 PathGuard fail-closed 防护，且 `enabled: false` 为默认口径——G0 终裁结论是本仓库自指语料上裸 rg 6/6 严格优于 sidecar，故 agentic 路默认不参与检索；是否启用由真实语料场景决定。真实 sidecar 的相关测试永不自动运行，须显式 `RAG_AGENTIC_INTEGRATION=1` 门控（见第 8 节）。
 
+**知识簇复用与演化（SX4 / KE，默认关闭）**：sidecar 还支持知识簇复用（`SIRCHMUNK_ENABLE_CLUSTER_REUSE`，FAST 同题复用约 30 ms、0 token，改写命中取决于已存簇的语义近似度）与知识演化（`SIRCHMUNK_ENABLE_KNOWLEDGE_EVOLUTION`，经 sidecar venv 内 `evolve_launcher.py` 启动，仍为同一上游 ASGI 应用）。KE2 成对实验（675,979 token）结论：**演化未带来改写复用收益**（reword 复用命中 6/12 vs 关闭臂 6/12，Phase1 合并机制生效但未增加覆盖），两者默认均保持关闭；开启方式、实测边界与 Chat 副作用见 [USAGE_GUIDE 4.3](docs/reference/USAGE_GUIDE.md#43-配置环境变量)，完整裁决见 [KE 规格](docs/frozen/13_SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC_frozen.md)。
+
+**预编译与实验工具（SX3 / KE0–KE2）**：`scripts/sirchmunk/compile.sh` 可把 `README.md docs` 预编译成文档树与知识簇（SX3.2 实测本仓库自指语料无命中收益）；`corpus_snapshot.sh` 生成同 commit 逐字节可复现的不可变语料快照，`ke2_experiment.py` 为复用/演化成对实验 runner（门控运行，结果归档 `scripts/sirchmunk/ke2_results.{md,json}`），重启演化实验前先读 [KE 规格](docs/frozen/13_SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC_frozen.md)。
+
 ### 6. 启动 Web UI（主界面）
 
 ```bash
