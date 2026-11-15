@@ -55,6 +55,28 @@ class TestSirchmunkImport:
         _write(tmp_path, "scripts/.venv-sirchmunk/lib/site.py", "import sirchmunk\n")
         assert redlines.check_sirchmunk_imports(tmp_path) == []
 
+    def test_sidecar_launcher_whitelist_allows_exact_file(self, tmp_path):
+        """KE1 白名单：按文件路径精确匹配，启动器自身放行（sidecar venv 侧脚本）。"""
+        _write(tmp_path, "scripts/sirchmunk/evolve_launcher.py", "from sirchmunk.search import AgenticSearch\n")
+        assert redlines.check_sirchmunk_imports(tmp_path) == []
+
+    def test_sidecar_whitelist_does_not_cover_siblings(self, tmp_path):
+        """白名单不得放宽到目录：同目录其他 .py 仍被拦截。"""
+        _write(tmp_path, "scripts/sirchmunk/other.py", "import sirchmunk\n")
+        _write(tmp_path, "scripts/sirchmunk/evolve_launcher_impl.py", "import sirchmunk\n")
+        got = _rules(redlines.check_sirchmunk_imports(tmp_path))
+        assert got == [
+            ("no-sirchmunk-import", "scripts/sirchmunk/evolve_launcher_impl.py", 1),
+            ("no-sirchmunk-import", "scripts/sirchmunk/other.py", 1),
+        ]
+
+    def test_sidecar_whitelist_entries_are_scoped_and_cited(self):
+        """白名单条目必须限定在 scripts/sirchmunk/ 的 .py 且带 KE 规格引用。"""
+        assert redlines.SIRCHMUNK_IMPORT_EXEMPTIONS, "whitelist must be explicit, not implicit"
+        for path, ref in redlines.SIRCHMUNK_IMPORT_EXEMPTIONS.items():
+            assert path.startswith("scripts/sirchmunk/") and path.endswith(".py")
+            assert "SIRCHMUNK_KNOWLEDGE_EVOLUTION" in ref
+
 
 class TestLlmFallback:
     def test_literal_false_passes(self, tmp_path):

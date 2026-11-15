@@ -24,4 +24,19 @@ fi
 # sirchmunk serve 自行加载 SIRCHMUNK_WORK_PATH/.env；此处导出 env 文件
 # 以覆盖 host/token 等（set -a 使 export 自动应用于后续命令）。
 set -a; source "$ENV_FILE"; set +a
+
+# KE1：知识演化开关（SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC 方案 B）。
+# 开启分支：先跑 preflight 前置（演化依赖 embedding 模型），再改走 sidecar venv
+# 内的 evolve_launcher.py（同一 ASGI 应用，显式传 host/port/log_level）。
+# 关闭分支：保持原 `sirchmunk serve` 命令不变（回滚安全：改回 false 即恢复原入口）。
+if [ "${SIRCHMUNK_ENABLE_KNOWLEDGE_EVOLUTION:-false}" = "true" ]; then
+  echo "== knowledge evolution ENABLED (KE1): preflight 前置 → evolve_launcher.py =="
+  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+  # preflight 前置必须读取与本分支相同的 env 文件（KE1 门控实测：不导出时
+  # preflight 读默认 .env-sirchmunk，自定义 env 文件的复用/模型口径会被漏检）。
+  SIRCHMUNK_ENV_FILE="$ENV_FILE" bash "${SIRCHMUNK_PREFLIGHT_SCRIPT:-$SCRIPT_DIR/preflight.sh}"
+  exec "$VENV_DIR/bin/python" "$SCRIPT_DIR/evolve_launcher.py" \
+    --host "$HOST" --port "$PORT" --log-level "${SIRCHMUNK_LOG_LEVEL:-info}"
+fi
+
 exec "$VENV_DIR/bin/sirchmunk" serve --host "$HOST" --port "$PORT"
