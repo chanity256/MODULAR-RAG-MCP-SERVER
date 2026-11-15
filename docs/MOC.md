@@ -59,6 +59,7 @@ docs/ 文档分两类：
 | WebUI sidecar 补齐（WS） | 同上台账（#4 sidecar 托管编排、#1 Deep 进度日志） | webui-parity-followups 台账（第二次拆分移交；已晋升为 [frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)） | [09_WEBUI_SIDECAR_SPEC_frozen.md](frozen/09_WEBUI_SIDECAR_SPEC_frozen.md) | [sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md) #1（SX5.3 线程泄漏，门控默认关闭的依据） | 拆分移交 |
 | Streamlit 退役（SR） | [WEBUI_PARITY_AUDIT.md](analysis/WEBUI_PARITY_AUDIT.md)（退役门槛清单）；webui-parity-followups 台账（#3 接受项决议并入其 Out of Scope） | [STREAMLIT_RETIREMENT_SPEC.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)（单文件晋升，原台账原文见 git 历史） | [10_STREAMLIT_RETIREMENT_SPEC_frozen.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)（已收口冻结） | — | 单文件晋升 |
 | Chat 模式选择器着色（CMC） | 会话内用户截图（三按钮同质难辨认，无独立文件） | chat-mode-selector-colors_backlog.md（单文件晋升，原文见 git 历史） | [11_CHAT_MODE_COLORS_SPEC_frozen.md](frozen/11_CHAT_MODE_COLORS_SPEC_frozen.md)（已收口冻结） | — | 单文件晋升 |
+| Agent evals 读纪律（前缀待立项时定） | 会话内 evals 重校准诊断（2026-11-15，三次 run 数据见提案；非文件来源） | [evals-read-discipline_backlog.md](backlog/evals-read-discipline_backlog.md) | — | [evals/baseline.json](../evals/baseline.json)（随重校准如实更新为 1/5） | —（提案待立项） |
 ## specs/ — 开发规格（落点）
 
 **立项后新规格的存放处**（从 [backlog/](backlog/) 晋升）。任务全收口后冻结入 frozen/（SX 系列先例见 [frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md](frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md)）。
@@ -111,6 +112,7 @@ docs/ 文档分两类：
 |------|------|
 | [OBSIDIAN_RAG_SPEC_backlog.md](backlog/OBSIDIAN_RAG_SPEC_backlog.md) | Obsidian Vault RAG 扩展规格（V 系列；v0.2 起 M1/M2 Markdown 摄取已移交 IR 规格 IR7，本规格保留 M3 sentence-transformers / M4 Semantic Walk 待排期） |
 | [sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md) | Sirchmunk SX 规格遗留事项台账：明确不做（evolver 等 6 项）、实验负结果存档（编译 GX 不通过、复用保持关闭）、已知缺陷与候选池（流式线程泄漏等 7 项） |
+| [evals-read-discipline_backlog.md](backlog/evals-read-discipline_backlog.md) | Agent evals 读纪律改进提案：三次独立 run（PR #11 × 2 + main 重校准）实证 5 用例仅 1 个稳定通过、失败集中在 `required_reads_before_edit` 判据；`baseline.json` 已如实重校准为 1/5（`min_pass_rate` 0.2） |
 
 ## reference/ — 使用参考
 

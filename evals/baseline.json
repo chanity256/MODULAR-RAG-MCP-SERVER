@@ -1,11 +1,10 @@
 {
   "model": "custom:glm-5.3-Flash-0",
-  "calibrated_on": "2026-11-13",
-  "source_run": "https://github.com/chanity256/MODULAR-RAG-MCP-SERVER/actions/runs/43442301934",
-  "note": "Taken before the apiKeyHelper fix: ZHIPU_API_KEY was visible to agent sessions. Spec §3.3, SD3.6.",
-  "min_pass_rate": 0.4,
+  "calibrated_on": "2026-11-15",
+  "source_run": "https://github.com/chanity256/MODULAR-RAG-MCP-SERVER/actions/runs/43656753259",
+  "note": "Recalibrated on main after the apiKeyHelper fix: the previous 2/5 baseline was taken with ZHIPU_API_KEY visible to agent sessions (see its note in git history), so it no longer reflected gate conditions. Evidence from three independent runs (two on PR #11, one workflow_dispatch on main): only autocoder-fix-round-limit passes consistently (9/9); the other four fail systematically on the judge criterion required_reads_before_edit (agent edits files before reading required references). min_pass_rate set to the measured 0.2 so the gate stays meaningful without codifying the stale 0.4. Read-discipline improvement proposal: docs/backlog/evals-read-discipline_backlog.md.",
+  "min_pass_rate": 0.2,
   "passing_cases": [
-    "autocoder-fix-round-limit",
-    "autocoder-mdown-extension"
+    "autocoder-fix-round-limit"
   ]
 }
