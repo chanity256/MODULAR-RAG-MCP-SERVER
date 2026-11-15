@@ -92,6 +92,8 @@ Quick-check predecessor artifacts exist (file-level only). On mismatch, log a wa
    - Tech details: `03-tech-stack.md`
    - Testing conventions: `04-testing.md`
 
+   Read them before the first edit. The project hook `.factory/hooks/read_guard.py` (EVALS_READ_DISCIPLINE_SPEC) denies Edit / Create / ApplyPatch on `src/`, `scripts/`, `tests/` and `.agents/plans/` until one of these files or `docs/frozen/01_DEV_SPEC_frozen.md` has been opened with the Read tool (ingestion-chain paths also need `docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md`). When it denies an edit, Read the paths it lists and retry; Grep or `cat` output does not count.
+
 2. **Extract** from spec: inputs/outputs, design principles (Pluggable? Config-driven? Factory?), file list, acceptance criteria.
 
 3. **Test-plan precedence**: if the owning spec has its own test plan section (e.g. its §5 测试方案), it **overrides** the generic `04-testing.md` conventions. `04-testing.md` is a fallback for tasks without a spec-level plan.

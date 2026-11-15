@@ -8,6 +8,15 @@
           "timeout": 10
         }
       ]
+    },
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "python3 \"$FACTORY_PROJECT_DIR\"/.factory/hooks/read_guard.py reset",
+          "timeout": 10
+        }
+      ]
     }
   ],
   "UserPromptSubmit": [
@@ -28,6 +37,28 @@
         {
           "type": "command",
           "command": "python3 \"$FACTORY_PROJECT_DIR\"/.factory/hooks/test_guard.py pre",
+          "timeout": 10
+        }
+      ]
+    },
+    {
+      "matcher": "^(Edit|Create|ApplyPatch)$",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "python3 \"$FACTORY_PROJECT_DIR\"/.factory/hooks/read_guard.py pre",
+          "timeout": 10
+        }
+      ]
+    }
+  ],
+  "PostToolUse": [
+    {
+      "matcher": "^Read$",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "python3 \"$FACTORY_PROJECT_DIR\"/.factory/hooks/read_guard.py record",
           "timeout": 10
         }
       ]

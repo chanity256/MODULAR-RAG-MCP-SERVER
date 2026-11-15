@@ -16,7 +16,7 @@
 flowchart TD
     subgraph LOCAL["本地 Droid 会话（建议性 + 本地确定性门）"]
         SK["skills：auto-coder / qa-tester / docs-governance"]
-        HK["hooks：docs-guard（docs 漂移）/ test_guard（保护已有测试文件）"]
+        HK["hooks：docs-guard（docs 漂移）/ test_guard（保护已有测试文件）/ read_guard（先读规格再编辑）"]
         PL["复杂任务先出 plan：.agents/plans/"]
         LP["离线 pytest 全绿 + ≤3 轮修复"]
         SK --> HK

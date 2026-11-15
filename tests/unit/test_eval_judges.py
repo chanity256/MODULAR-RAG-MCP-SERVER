@@ -157,6 +157,21 @@ def test_required_reads_ignores_failed_reads_and_counts_create_as_edit():
     assert not check.judge_required_reads(calls, ["docs/a.md"], "/fx").passed
 
 
+def test_required_reads_skips_denied_edit_calls():
+    denied = ("Edit", {"file_path": "/fx/src/mod.py", "old_str": "a", "new_str": "b"},
+              "Error: read_guard: Read docs/a.md first", True)
+    calls = _calls(denied, ("Read", {"file_path": "/fx/docs/a.md"}), _edit())
+    result = check.judge_required_reads(calls, ["docs/a.md"], "/fx")
+    assert result.passed and "first edit at call #3" in result.detail
+
+
+def test_required_reads_cutoff_is_first_successful_edit():
+    failed = ("Create", {"file_path": "/fx/new.py", "content": ""}, "Error: denied", True)
+    calls = _calls(failed, _edit(), ("Read", {"file_path": "/fx/docs/a.md"}))
+    result = check.judge_required_reads(calls, ["docs/a.md"], "/fx")
+    assert not result.passed and "first edit at call #2" in result.detail
+
+
 def test_required_reads_without_any_edit_uses_whole_run():
     calls = _calls(("Read", {"file_path": "/fx/docs/a.md"}))
     result = check.judge_required_reads(calls, ["docs/a.md"], "/fx")

@@ -145,7 +145,7 @@ hook 在 evals 中的可用性已有证据（SD 规格 §3.3 SD3.7 落地记录�
 ```
 SessionStart ─────────▶ read_guard.py reset   （source=startup/clear 时清当前会话状态）
 
-Read 成功 ──PostToolUse─▶ read_guard.py record ──▶ .factory/state/reads-<session_id>.json
+Read 成功 ──PostToolUse─▶ read_guard.py record ──▶ .factory/state/reads-<session_id>.jsonl
                                                     （项目相对路径集合，realpath 归一）
 
 Edit / Create / ApplyPatch
@@ -153,13 +153,13 @@ Edit / Create / ApplyPatch
       ▼
 read_guard.py pre ── 取目标路径（ApplyPatch 含 Add / Update / Delete 全部）
       │              └─ 查 §3.2 映射表 → 求必读集合
-      │              └─ 与已读集合比对
+      │              └─ 与已读集合比对（record 记录 ∪ transcript 中成功的 Read，见 §3.3）
       ├─ 全部已读 / 未命中映射 / 任何解析故障 ─▶ 放行（exit 0）
       └─ 缺必读 ─▶ permissionDecision: deny
                     理由：「改 <目标> 前先 Read：<确切路径列表>（出处：AGENTS.md …）」
 ```
 
-- `.factory/hooks.json` 新增独立条目，不改动 `test_guard` / `docs_guard` 的既有条目：PreToolUse matcher `^(Edit|Create|ApplyPatch)$`，PostToolUse matcher `^Read$`，SessionStart 追加 `reset`。
+- `.factory/hooks.json` 新增独立条目，不改动 `test_guard` / `docs_guard` 的既有条目：PreToolUse matcher `^(Edit|Create|ApplyPatch)$`，PostToolUse matcher `^Read$`，SessionStart 追加 `reset`（ERD1 已登记）。
 - 与 `test_guard` 并存时任一 hook `deny` 即拒绝；两者判定互不依赖。
 
 ### 3.2 必读映射表
@@ -180,7 +180,10 @@ read_guard.py pre ── 取目标路径（ApplyPatch 含 Add / Update / Delete 
 
 ### 3.3 状态与 fail-open
 
-- 状态文件按 `session_id` 区分（载荷缺该字段时退回单一文件 `reads.json`），内容为已读路径列表；写入用临时文件 + rename，避免并发写坏。
+- 状态文件按 `session_id` 区分（载荷缺该字段时退回单一文件 `reads.jsonl`），每行一个已读路径。**实现偏差（ERD1）**：原定「临时文件 + rename」改为单次 `O_APPEND` 追加一行——ERD0 实测同一轮并行 Read 的 PostToolUse 间隔不到 1 ms，读改写再 rename 会互相覆盖丢记录，追加写没有这个问题。`session_id` 中的非常规字符替换为 `_`，不能借路径跳出 `.factory/state/`。
+- **已读来源取并集（ERD1 新增）**：Script 包装模式的交互会话里，嵌套的 Read 不触发 PostToolUse（只有外层 `Script` 调用触发，`tool_input` 是脚本源码），但嵌套的 Edit / Create 照常经过 PreToolUse——只靠 record 会让这类会话的映射路径永远被拒。会话 transcript（载荷的 `transcript_path`）照常记下嵌套调用的 `tool_use` / `tool_result`，所以 `pre` 把 record 结果与 transcript 中「有结果且 `is_error` 不为真」的 Read 合并判定。transcript 是 Droid 内部格式，读不到或解析不了时只用 record 的结果；exec 模式（evals）的 Read 是顶层调用，两路都有记录。本会话实测：hook 先拒绝了一次 Create，嵌套 Read `references/04-testing.md` 后重试放行。
+- 必读参考在项目里一个都不存在时跳过该条（避免在残缺 checkout 或别的项目里卡死）；`test_read_guard_hook.py` 断言本仓库映射表里的非 glob 必读文件都存在，规格改名时必须同步映射表。
+- SessionStart reset 除清当前会话记录外，顺带删除超过 7 天的旧会话记录，免得 `.factory/state/` 无限增长。
 - 路径归一：两边都取 realpath，对齐 macOS `/var` ↔ `/private/var` 与软链（同 `test_guard._protected`）。
 - 只认 Read 工具；Grep 命中、`cat` / `head` 不算，与判据①口径一致。ERD0 证实失败的 Read 不触发 PostToolUse，所以 record 被调用即视为读成功，不解析 `tool_response`。
 - fail-open：stdin / 状态文件解析失败、未知子命令、内部异常一律放行，只写 stderr（同 `test_guard` / `docs_guard`）。
@@ -231,13 +234,15 @@ read_guard.py pre ── 取目标路径（ApplyPatch 含 Add / Update / Delete 
 | 编号 | 任务 | 验收标准 | 状态 |
 |------|------|----------|------|
 | ERD0 | 前提补验：本机 exec 会话确认 PostToolUse 对 Read 触发并记录载荷字段；从三次重校准 run 的 CI artifact 汇总逐用例逐判据失败分布与失败 run 的首次编辑路径 | 有日志证据表明 PostToolUse 在 exec 模式触发，§3.3 的成功判定字段定稿；分布表与首次编辑路径回填 §1.3；§3.2 摄取测试模式按实际路径核对 | [x] 2026-11-15：PostToolUse 只对成功的 Read 触发（§3.3 定稿）；发现被拒的编辑调用会被判据①当作首次编辑，决议修正口径（并入 ERD1）；30 次会话分布表回填 §1.3（run 43602805353 下载超时未纳入）；补 `.agents/plans/` 映射；§3.6 按默认裁决 |
-| ERD1 | 实现 `.factory/hooks/read_guard.py`（record / pre / reset）+ 登记 `.factory/hooks.json` + §3.2 映射表；判据①跳过 `isError` 的编辑调用（`evals/check.py` + 单测）；AGENTS.md「关键纪律」与 auto-coder skill 各补一句规则说明并运行 `sync_skills.py` | `test_read_guard_hook.py` 覆盖 §4 所列场景且全绿；`test_eval_judges.py`、`test_test_guard_hook.py`、`test_skill_mirrors.py` 绿；全量离线 pytest（CI 禁网等价命令）与 `check_redlines.py` 绿 | 未开始 |
+| ERD1 | 实现 `.factory/hooks/read_guard.py`（record / pre / reset）+ 登记 `.factory/hooks.json` + §3.2 映射表；判据①跳过 `isError` 的编辑调用（`evals/check.py` + 单测）；AGENTS.md「关键纪律」与 auto-coder skill 各补一句规则说明并运行 `sync_skills.py` | `test_read_guard_hook.py` 覆盖 §4 所列场景且全绿；`test_eval_judges.py`、`test_test_guard_hook.py`、`test_skill_mirrors.py` 绿；全量离线 pytest（CI 禁网等价命令）与 `check_redlines.py` 绿 | [x] 2026-11-15（code complete）：hook + 登记 + 判据①口径修正 + AGENTS.md / auto-coder skill 规则说明（镜像已同步）；新增 Script 模式 transcript 补读（§3.3）；离线测试结果与本机 exec 冒烟见本节进度备注 |
 | ERD2 | evals 重跑验证（ERD1 PR 自动触发 + 必要时 `workflow_dispatch`，合计 ≥ 3 次 run） | 判据①失败次数相对 §1.2 基线显著下降；记录「hook 放行但判据①失败」的 run 数；通过用例数稳定 ≥ 3/5 时按实测更新 `baseline.json`（`passing_cases` 与 `min_pass_rate`） | 未开始 |
 | ERD3 | （门控：ERD2 两轮无改善）带实测数据评估换模型，走 D5 决策 | D5 决策记录更新；新模型校准基线写入 `baseline.json` 与 `evals/ci/factory-settings.json` | 未开始 |
 
 依赖顺序：ERD0 → ERD1 → ERD2 →（门控）ERD3。
 
 > 进度备注：交付后在各任务下回填状态与实测数据（run 链接、逐用例通过数、token）；全部收口后本规格按冻结清单移入 `docs/frozen/` 并更新 MOC.md。
+>
+> ERD1 验证（2026-11-15）：`test_read_guard_hook.py` 与 `test_test_guard_hook.py` 共 104 passed，`test_eval_judges.py` 42 passed；CI 禁网等价全量 pytest 2672 passed / 11 skipped / 1 xfailed，`check_redlines.py` 0 违规，`sync_skills.py --check` 一致。本机 exec 冒烟（临时项目只装 read_guard，`custom:glm-5.3-Flash-2` 单会话，任务「把 `src/mod.py` 的 x 改成 2」）：#2 Edit 被拒（理由列出 01 路径）→ #3 Read 01 → #4 Edit 成功；新判据①判通过（首次编辑为 #4），旧口径会截在被拒的 #2 判失败。
 
 ## 6. 验收清单
 
