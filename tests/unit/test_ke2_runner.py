@@ -61,9 +61,20 @@ class TestBuildArmEnv:
         assert kv["SIRCHMUNK_ENABLE_KNOWLEDGE_EVOLUTION"] == "false"
         assert kv["SIRCHMUNK_ENABLE_CLUSTER_REUSE"] == "true"
 
-    def test_appends_model_cache_when_missing(self, tmp_path):
+    def test_appends_model_cache_when_missing(self, tmp_path, monkeypatch):
+        """模型缓存目录存在时，缺省 env 追加 EMBEDDING_CACHE_DIR 指向它（离线确定性：目录由测试构造）。"""
+        repo = tmp_path / "repo"
+        cache_dir = repo / "data/db/sirchmunk/.cache/models"
+        cache_dir.mkdir(parents=True)
+        monkeypatch.setattr(ke2, "REPO_ROOT", repo)
         text = ke2.build_arm_env("SIRCHMUNK_API_TOKEN=tok\n", tmp_path / "w", False)
-        assert "EMBEDDING_CACHE_DIR=" in text
+        assert f"EMBEDDING_CACHE_DIR={cache_dir}" in text
+
+    def test_no_model_cache_leaves_env_line_absent(self, tmp_path, monkeypatch):
+        """缓存目录不存在（干净 clone / CI）时不追加该行，由上游走默认下载路径。"""
+        monkeypatch.setattr(ke2, "REPO_ROOT", tmp_path / "repo")  # 不创建 models 目录
+        text = ke2.build_arm_env("SIRCHMUNK_API_TOKEN=tok\n", tmp_path / "w", False)
+        assert "EMBEDDING_CACHE_DIR=" not in text
 
     def test_existing_evolution_line_is_overridden_not_duplicated(self, tmp_path):
         base = self.BASE + "SIRCHMUNK_ENABLE_KNOWLEDGE_EVOLUTION=true\n"
