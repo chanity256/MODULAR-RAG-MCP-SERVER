@@ -21,6 +21,7 @@ FIXTURE_FILES = (
     "golden_questions.json",
     "golden_questions_docs.json",
     "reuse_probe_questions.json",
+    "ke2_probe_questions.json",
 )
 
 
