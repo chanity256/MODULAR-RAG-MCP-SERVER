@@ -3,6 +3,8 @@
 > 状态：**已冻结**（SX 系列，SX0–SX5 全部收口于 2026-10-14；遗留事项见 [backlog/sirchmunk-extension-followups_backlog.md](../backlog/sirchmunk-extension-followups_backlog.md)）｜上游基线：`b314e11`｜决策依据：[sirchmunk-capability-completion_backlog_frozen.md](sirchmunk-capability-completion_backlog_frozen.md)
 >
 > 前置规格：[SIRCHMUNK_INTEGRATION_SPEC_frozen](03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md)（S 系列，已收口）。本规格只做**增量**，不改 S 系列任何契约；进程隔离红线不变：主 venv 永不 `import sirchmunk`，不改上游源码。
+>
+> 勘误（2026-11-15）：1.2 与 2.2 的「演化开启须改上游源码」不准确。准确口径是**现有 HTTP/CLI 默认不可达，但 sidecar venv 内的 SDK 启动器可以开启**，不违反主 venv 进程隔离红线；该方案已实施并收口为 [13_SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC_frozen.md](../frozen/13_SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC_frozen.md)（KE 系列，KE0–KE3 已交付；KE2 成对实验结论为演化未带来改写复用收益，KE4 上游 PR 未触发，默认保持关闭）。本注不重开 SX，也不改变 SX0–SX5 的历史范围与验收记录。
 
 ---
 
@@ -93,6 +95,11 @@ G0 三方对照的结论只在「无编译、无复用、冷启动」配置下�
      │ sidecar 停机期间执行（SX3）
    scripts/sirchmunk/compile.sh → sirchmunk compile CLI
 ```
+
+> **实现注记（2026-11-15，KE1/KE3）**：知识演化开启时 sidecar 入口为 sidecar venv 内的
+> `evolve_launcher.py`（复用 `sirchmunk serve` 的同一 ASGI 应用，见上图的 sidecar 进程层
+> 不变）；红线白名单仅精确放行该一个文件（`check_redlines.py` SIRCHMUNK_IMPORT_EXEMPTIONS）。
+> 主项目 HTTP 契约与进程隔离不变。见 13_SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC_frozen.md。
 
 ### 3.2 SX1：telemetry 解析
 

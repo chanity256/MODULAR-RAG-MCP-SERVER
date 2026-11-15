@@ -38,6 +38,18 @@ STDOUT_ALLOWLIST = {("src/mcp_server/server.py", "MCPServer.serve")}
 #: ``llm_fallback`` 豁免：(仓库相对路径, 行号) -> 规格引用。新增条目须经 code owner 审批。
 LLM_FALLBACK_EXEMPTIONS: dict[tuple[str, int], str] = {}
 
+#: ``no-sirchmunk-import`` sidecar 侧白名单：仓库相对路径 -> 规格引用。
+#: 仅运行于 sidecar 独立 venv、主 venv 测试永不 import 的脚本（与
+#: ``LLM_FALLBACK_EXEMPTIONS`` 同一审批口径）；按文件路径精确匹配，
+#: 不得放宽到整个目录（SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC KE1）。
+SIRCHMUNK_IMPORT_EXEMPTIONS: dict[str, str] = {
+    "scripts/sirchmunk/evolve_launcher.py": (
+        "SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC KE1：sidecar venv 内演化启动器，"
+        "由 start_sidecar.sh 演化开启分支调用；主 venv 永不 import 本文件，"
+        "不违反进程隔离红线（S 系列 3.1）。"
+    ),
+}
+
 
 @dataclass(frozen=True)
 class Violation:
@@ -95,6 +107,8 @@ def check_sirchmunk_imports(root: Path) -> list[Violation]:
         if tree is None:
             continue
         rel = path.relative_to(root).as_posix()
+        if rel in SIRCHMUNK_IMPORT_EXEMPTIONS:
+            continue  # sidecar 侧白名单：按文件路径精确匹配（见 SIRCHMUNK_IMPORT_EXEMPTIONS）
         for node in ast.walk(tree):
             hit: str | None = None
             if isinstance(node, ast.Import):
