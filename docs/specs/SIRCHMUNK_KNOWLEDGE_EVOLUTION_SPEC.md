@@ -1,6 +1,6 @@
 # Sirchmunk 知识演化与知识簇复用规格 (SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC)
 
-> 状态：**开发中**（KE 系列，KE0–KE4 未交付；复用与演化默认均保持关闭）｜上游基线：`b314e11`（KE0 负责将 editable 实际检出钉回并验证）｜决策依据：由 `sirchmunk-evolution-reuse_backlog.md` 于 2026-11-15 经用户明确指令单文件晋升，原提案见 git 历史
+> 状态：**开发中**（KE 系列，KE0 已交付 2026-11-15，KE1–KE4 未交付；复用与演化默认均保持关闭）｜上游基线：`b314e11`（KE0 已将 editable 实际检出钉回并验证）｜决策依据：由 `sirchmunk-evolution-reuse_backlog.md` 于 2026-11-15 经用户明确指令单文件晋升，原提案见 git 历史
 >
 > 起源：[sirchmunk-extension-followups_backlog.md](../backlog/sirchmunk-extension-followups_backlog.md) 第 1 类 #1「知识演化（evolver）」与第 2.2 节「知识簇复用」。2026-11-15 源码复核确认：evolver 不必改本机上游源码，在 sidecar venv 内用 SDK 启动器即可开启；[SX 规格](../frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md) 文件头已同步勘误。
 >
@@ -140,7 +140,9 @@ pytest tests/unit/test_docs_links.py tests/unit/test_spec_structure.py -q
 
 | 编号 | 任务 | 验收标准 | 状态 |
 |------|------|----------|------|
-| KE0 | 钉住 sidecar、语料与 fixture | 运行时 `sirchmunk.__file__` 指向预期检出，上游 `git rev-parse HEAD` 与 `setup_venv.sh` 的 `PINNED_COMMIT` 均等于 `b314e11`，tracked 工作树无修改，启动日志记录实际 commit；根 README、S 系列 4.8、USAGE_GUIDE 的当前安装口径一致；第 2.2 节源码事实在该 commit 复核通过。固定不可变语料快照，替换已因 Streamlit 退役失效的 P1/Q3，并核验全部 gold rubric；无法钉回时阻塞并上报，不静默换版 | [ ] |
+| KE0 | 钉住 sidecar、语料与 fixture | 运行时 `sirchmunk.__file__` 指向预期检出，上游 `git rev-parse HEAD` 与 `setup_venv.sh` 的 `PINNED_COMMIT` 均等于 `b314e11`，tracked 工作树无修改，启动日志记录实际 commit；根 README、S 系列 4.8、USAGE_GUIDE 的当前安装口径一致；第 2.2 节源码事实在该 commit 复核通过。固定不可变语料快照，替换已因 Streamlit 退役失效的 P1/Q3，并核验全部 gold rubric；无法钉回时阻塞并上报，不静默换版 | [x] |
+
+KE0 执行记录（2026-11-15）：本机检出已 `git checkout b314e11`（detached HEAD = `b314e11fcea87…`，tracked 工作树干净，仅既有未跟踪 `.archify/`；两 commit 间依赖文件无差异，editable 安装无需重装），`.venv-sirchmunk` 运行时 `sirchmunk.__file__` 指向该检出；`start_sidecar.sh` 启动时回显实际运行 commit（手动与 `--manage-sidecar` 共用该脚本）。§2.2 全部源码事实在 `b314e11` 复核一致（`enable_knowledge_evolution` 构造默认 `False`、`KnowledgeEvolver` 需演化 + embedding 双条件、`step()` fire-and-forget、DEEP agentic-loop `cluster=None` / direct-doc `"DQ"`、manifest 路径与共享 `.json.tmp`、常量 5 / 0.60 / 0.90 / 20 / 10 / 100 / 500、LLM 并发 5，`api/search.py` 两处构造与 `api/chat.py` 均不传演化参数且读取 `SIRCHMUNK_ENABLE_CLUSTER_REUSE` 缺省 `true`）。不可变语料快照机制落地为 `scripts/sirchmunk/corpus_snapshot.sh`（`git archive` tracked 树 + 排序 SHA256 清单，同 commit 逐字节可复现），KE2 语料以其物化结果为准；golden Q3 与探针 P1 seed/repeat/reword 已改写为 README Web UI 启动命令考点（distractor 不变），新增 `tests/unit/test_golden_rubrics.py` 锁全部 expected_sources 与 answer_should_contain；README / S 系列 4.8 / USAGE_GUIDE 三处安装口径复核一致。新 P1 seed 的基线稳定性未经门控复核，由 KE2 预热确认。
 | KE1 | evolver 启动器 + `start_sidecar.sh` 开关 | 关闭分支仍执行原命令且不加载启动器；开启分支复现 CLI 初始化并显式传 host / port / log level，签名或开关组合不兼容时 fail-fast，`env.example` 显式默认 `false`。门控同步与 SSE FAST 首次请求分别证明 evolver 非空，Chat 副作用有明确结论；手动 / 托管冷启动、preflight 前置、旧进程复用提示、失败降级、进程回收与回滚均通过。红线脚本按文件精确白名单，离线 AST / import-order / shell 分支测试齐全；`pytest tests` 与 `check_redlines.py` 全绿 | [ ] |
 | KE2 | 专用 runner + 门控成对实验 | 仅在 `RAG_AGENTIC_INTEGRATION=1` 下运行；每臂每轮独立临时 work path，隔离 knowledge / spec / evolve，正式语义组从相同预热快照启动，探针前目标演化完成并持久化，停机前 drain。按第 4 章第 3 问产出 `scripts/sirchmunk/` 下 md + json，归档非敏感版本 / 配置、语料与 fixture 版本、预热簇清单、manifest 与目标簇前后差异、逐请求完整答案与裁决、日志对齐、分类原因、token / 时延 / 并发 / 线程及成本上限；无有效目标演化或可审计探针时不得作正负裁决 | [ ] |
 | KE3 | 裁决与文档 | USAGE_GUIDE 4.3 更新实际开启方式、结论与限制；本规格决策依据补全或存档负面 / 证据不足 / 不可评估结果；来源台账、能力分析、MOC 与 README 保持一致。若采用方案 B，在 S 系列 3.1 与 SX 架构说明增加带日期的实现注记：入口可为 sidecar venv 内启动器，但仍运行同一上游 ASGI 应用，主项目 HTTP 契约及进程隔离不变 | [ ] |
