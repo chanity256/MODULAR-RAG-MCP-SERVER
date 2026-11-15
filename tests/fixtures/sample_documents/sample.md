@@ -1,9 +1,10 @@
-# Sample Document (占位)
+# Sample Document（说明文件，非 ingest 输入）
 
-这是一个最小样例文档占位文件，用于测试基座验证。
+这是一个说明文件——**ingest 只支持 `.pdf`，本文件不会被摄取**，仅用于占位说明。
 
-阶段 C3（PdfLoader）会补充真实的 `simple.pdf` 与 `with_images.pdf` 测试夹具；
-阶段 C14 会补充 `complex_technical_doc.pdf` 用于完整 Pipeline 集成测试。
+目录下的 `*.pdf` 是真实摄取验收（I5/G1 收口）用的样例文档；端到端测试
+（`tests/e2e/test_data_ingestion.py`）则使用 `tests/fixtures/pdf_minimal.py`
+的生成器在临时目录即时构造 PDF，不依赖仓库内的文件。
 
 ## 示例章节一
 

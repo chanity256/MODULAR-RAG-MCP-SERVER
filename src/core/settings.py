@@ -88,6 +88,7 @@ class EmbeddingConfig:
 class VisionLLMConfig:
     provider: str
     model: str
+    base_url: str | None = None  # G14：OpenAI 兼容端点（智谱/DashScope 兼容模式等）
     azure_endpoint: str | None = None
     api_key: str | None = None
     api_version: str | None = None
@@ -482,12 +483,13 @@ def _build_embedding(sec: dict[str, Any]) -> EmbeddingConfig:
 
 def _build_vision_llm(sec: dict[str, Any]) -> VisionLLMConfig:
     known = {
-        "provider", "model", "azure_endpoint", "api_key",
+        "provider", "model", "base_url", "azure_endpoint", "api_key",
         "api_version", "deployment_name", "max_image_size",
     }
     return VisionLLMConfig(
         provider=_require_field("vision_llm", sec, "provider"),
         model=_require_field("vision_llm", sec, "model"),
+        base_url=_opt(sec, "base_url"),
         azure_endpoint=_opt(sec, "azure_endpoint"),
         api_key=_opt(sec, "api_key"),
         api_version=_opt(sec, "api_version"),
