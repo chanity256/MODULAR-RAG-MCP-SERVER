@@ -25,4 +25,3 @@
 |------|-----------|
 | [OBSIDIAN_RAG_SPEC_backlog.md](OBSIDIAN_RAG_SPEC_backlog.md) | Obsidian Vault RAG 扩展规格（V 系列；M1/M2 Markdown 摄取已移交 INGESTION_ROBUSTNESS_SPEC 阶段 IR7，剩余 M3/M4 待排期） |
 | [sirchmunk-extension-followups_backlog.md](sirchmunk-extension-followups_backlog.md) | Sirchmunk SX 规格遗留事项台账：明确不做（evolver 等 6 项）、实验负结果存档（编译 GX 不通过、复用保持关闭）、已知缺陷与候选池（流式线程泄漏等 7 项） |
-| [evals-read-discipline_backlog.md](evals-read-discipline_backlog.md) | Agent evals 读纪律改进提案：三次独立 run 实证 5 用例仅 1 个稳定通过、失败集中在 `required_reads_before_edit` 判据；推荐方案为 PreToolUse hook 强制先读后改（前提：先验证 `droid exec` 加载项目级 hooks）→ 换模型（D5 决策），放宽判据已否决 |
