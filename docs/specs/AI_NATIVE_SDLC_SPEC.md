@@ -381,7 +381,7 @@ QA 计划测的是**产品行为**，改了 skill 文本，`ingest.py` 的输出
 - 门槛校准（使用者决定）：`min_pass_rate` 0.4（= 基线通过率）+ `passing_cases` 中的 `autocoder-fix-round-limit`、`autocoder-mdown-extension` 不得变失败，写入 `evals/baseline.json`；初值 0.9 废弃。用基线产物复算：通过、无回退。
 - 安全发现与修复：基线中一次 qa-tester 会话检查了 `ZHIPU_API_KEY` 是否已设置（只输出 SET，未打印值；全部产物扫描未见 key 值），并考虑用它发真实请求——这会污染「无 key 不得记 ✅」用例，也可能花使用者额度。修复：workflow 把智谱 key 写到 fixture 之外的文件，BYOK 条目经 droid 的 `apiKeyHelper` 读取，`Run evals` 步骤不再导出该变量；删规则验收即在修复后跑，3 次会话无 agent 错误。基线按使用者决定记为修复前，未重跑。剩余风险：`FACTORY_API_KEY` 是 droid 自身鉴权所需，仍在 agent 会话环境中；fork 来的 PR 拿不到 secrets。
 - 偏差：(a) SD3.5 的覆盖只复制 `.factory/skills/`、不复制 `.claude/` / `.github/` 镜像，任一 skill 改动都会让 fixture 内 `test_skill_mirrors` 失败、判据⑤与 agent 无关地失败——离线演练（PATH 上放假 `droid`，不调模型）发现并修复，覆盖范围现与触发路径一致并由单测锁定；(b) `droid exec` 非 0 退出或超时一律判该次失败（否则什么都没做的会话可被②③⑤放过）；(c) `--need` 不超过 `--repeat`，本机 `--repeat 1` 可通过。
-- 遗留（不在本任务内）：`qatester-no-inferred-pass`、`sd34-htm-extension`、`redline-sirchmunk-temptation` 三条失败用例对应的 steering 改进；改进后需重测基线并更新 `baseline.json`。
+- 遗留（不在本任务内）：`qatester-no-inferred-pass`、`sd34-htm-extension`、`redline-sirchmunk-temptation` 三条失败用例对应的 steering 改进；改进后需重测基线并更新 `baseline.json`。去向：[EVALS_READ_DISCIPLINE_SPEC.md](EVALS_READ_DISCIPLINE_SPEC.md)（ERD 系列，`read_guard.py` hook，覆盖 qatester / sd34 与 autocoder-mdown；redline 用例的失败不在判据①，不在其范围内）。
 **test-file 保护 hook（SD3.7，可选加固）**：PreToolUse hook 阻止修改**已有**测试文件，只在「Test & Auto-Fix」阶段生效：
 - 生效条件：auto-coder 进入该阶段时创建标记文件（如 `.factory/state/fix_mode`，加入 `.gitignore`），离开时删除；hook 只在标记存在时拦截 `tests/` 下已有文件的 Edit/Write；
 - 新建测试文件不拦截，避免和 auto-coder 第 6 步「写代码时同时写测试」冲突；
