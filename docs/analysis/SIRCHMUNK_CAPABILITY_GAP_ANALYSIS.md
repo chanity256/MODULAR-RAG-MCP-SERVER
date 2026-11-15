@@ -4,7 +4,7 @@
 >
 > 基线：sirchmunk 源码锁定在 commit `b314e11`（Merge pull request #184 from modelscope/feat/search_enhance）；v0.1/v0.2 的分析起点是 SIRCHMUNK_INTEGRATION_SPEC S0–S4 收口状态（commit `690a205`），v0.3 现状以 SX 系列冻结后的分支 `feat/sirchmunk-agentic-search` 为准。
 >
-> 勘误（2026-11-15）：第 3 节「知识演化」一行、第 4 节「演化不可达」及第 7 节「架构上不可达」均按同一口径修正：**现有 HTTP/CLI 默认不可达，但 sidecar venv 内的 SDK 启动器可以开启**，不碰主 venv 进程隔离红线；该方案已单文件晋升为 KE 开发规格，尚未交付。第 3 节复用一行的「DEEP 不存簇」仅指常规 agentic-loop 新检索路径，不覆盖 direct-document 等提前返回。正文保留 v0.3 历史判断，最新口径以本注和 [SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC.md](../specs/SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC.md) 第 1、2 章为准。
+> 勘误（2026-11-15，KE 收口后更新）：第 3 节「知识演化」一行、第 4 节「演化不可达」及第 7 节「架构上不可达」均按同一口径修正：**现有 HTTP/CLI 默认不可达，但 sidecar venv 内的 SDK 启动器可以开启**，不碰主 venv 进程隔离红线。该方案已实施收口：KE 系列全部交付，规格冻结为 [13_SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC_frozen.md](../frozen/13_SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC_frozen.md)；KE2 成对实验结论为**演化未带来改写复用收益**（reword 复用命中 6/12 vs 只开复用 6/12，提升门未达成；Phase1 合并机制确认生效但未增加复用覆盖），KE4 上游 PR 未触发，复用与演化默认均保持关闭。第 3 节复用一行的「DEEP 不存簇」仅指常规 agentic-loop 新检索路径，不覆盖 direct-document 等提前返回。正文保留 v0.3 历史判断，最新口径以本注和该冻结规格为准。
 >
 > 性质：与 [MICROSERVICES_ANALYSIS.md](MICROSERVICES_ANALYSIS.md) 同类，属架构/能力判断文档，不承诺交付。遗留缺陷与候选方向统一记在 [backlog/sirchmunk-extension-followups_backlog.md](../backlog/sirchmunk-extension-followups_backlog.md)；推进其中任何一项，走 [docs/backlog/](../backlog/) 提案流程。
 

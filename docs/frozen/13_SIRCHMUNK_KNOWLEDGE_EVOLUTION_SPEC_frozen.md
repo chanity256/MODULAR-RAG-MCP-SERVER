@@ -1,6 +1,12 @@
 # Sirchmunk 知识演化与知识簇复用规格 (SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC)
 
-> 状态：**开发中**（KE 系列，KE0–KE2 已交付 2026-11-15，KE3–KE4 未交付；复用与演化默认均保持关闭）｜上游基线：`b314e11`（KE0 已将 editable 实际检出钉回并验证）｜决策依据：由 `sirchmunk-evolution-reuse_backlog.md` 于 2026-11-15 经用户明确指令单文件晋升，原提案见 git 历史
+> **📌 冻结记录**
+>
+> - 冻结时间：2026-11-15
+> - 完成概要：KE0–KE3 全部交付——KE0 将 sidecar editable 检出钉回上游基线 `b314e11` 并落地不可变语料快照（`corpus_snapshot.sh`）与失效探针改写（Streamlit 退役的 P1/Q3）；KE1 交付 sidecar venv 内演化启动器 + `start_sidecar.sh` 开关（preflight 前置、fail-fast、精确红线白名单），并以真实 sidecar 双端点验证 evolver 非空与 Chat 副作用；KE2 完成专用 runner 与门控成对实验（675,979 token），结论为**演化未带来改写复用收益**（reword 复用命中 6/12 vs 只开复用 6/12，提升门未达成；Phase1 合并机制确认生效但未增加复用覆盖），KE4 上游 PR 门控未触发。复用与演化默认均保持关闭（USAGE_GUIDE 4.3）。
+> - 遗留：无新增台账条目；KE4 为未触发的门控任务（重启需新正面证据）；实验数据与 runner 见 `scripts/sirchmunk/ke2_experiment.py` 与 `ke2_results.{md,json}`。
+
+> 状态：**已冻结**（KE0–KE3 于 2026-11-15 全部交付收口；KE4 上游 PR 门控未触发；复用与演化默认均保持关闭）｜上游基线：`b314e11`（KE0 已将 editable 实际检出钉回并验证）｜决策依据：由 `sirchmunk-evolution-reuse_backlog.md` 于 2026-11-15 经用户明确指令单文件晋升，原提案见 git 历史
 >
 > 起源：[sirchmunk-extension-followups_backlog.md](../backlog/sirchmunk-extension-followups_backlog.md) 第 1 类 #1「知识演化（evolver）」与第 2.2 节「知识簇复用」。2026-11-15 源码复核确认：evolver 不必改本机上游源码，在 sidecar venv 内用 SDK 启动器即可开启；[SX 规格](../frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md) 文件头已同步勘误。
 >
@@ -151,5 +157,7 @@ KE1 执行记录（2026-11-15，离线交付物已完成，门控项待执行）
 | KE2 | 专用 runner + 门控成对实验 | 仅在 `RAG_AGENTIC_INTEGRATION=1` 下运行；每臂每轮独立临时 work path，隔离 knowledge / spec / evolve，正式语义组从相同预热快照启动，探针前目标演化完成并持久化，停机前 drain。按第 4 章第 3 问产出 `scripts/sirchmunk/` 下 md + json，归档非敏感版本 / 配置、语料与 fixture 版本、预热簇清单、manifest 与目标簇前后差异、逐请求完整答案与裁决、日志对齐、分类原因、token / 时延 / 并发 / 线程及成本上限；无有效目标演化或可审计探针时不得作正负裁决 | [x] |
 
 KE2 执行记录（2026-11-15，实验完成，**结论：演化未带来改写复用收益，提升门未达成**）：专用 runner `scripts/sirchmunk/ke2_experiment.py`（主 venv 运行、零 sirchmunk 导入、仅 `RAG_AGENTIC_INTEGRATION=1`；`corpus_snapshot.sh` 物化语料快照（commit `a98d388`）+ 排序 SHA256 清单入档；独立临时 work_path；预热（seed + 训练改写 + 6 条语义独立补足题）→ 快照 → 每组从同一快照副本恢复后跑正式探针；串行同步端点；drain 安静 20s 判定；token/请求数硬上限中止）。预设（2026-11-15 用户确认）：2 组 × 3 改写 × 2 重复；提升门 = B−A reword 复用命中差 ≥ 2 且 A 臂 reword = 0；上限 400 万 token / $8。**执行**：双臂各 36 请求（12 预热 + 24 正式），日志对齐 36/36，正式轮 48/48 有效；总成本 A 332,000 + B 343,979 = 675,979 token（上限内）。**目标机制生效**（B 臂）：预热存 7 个新簇，Phase1 合并触发一次（合并 5 簇），manifest 持久化，drain 干净。**结果**（`ke2_results.md`/`ke2_results.json`）：reword 复用命中 A 6/12 vs B 6/12，差值 0（bootstrap 95% CI [−5, 5]）；repeat 命中两臂均 4/4；**提升门未达成 → verdict = insufficient_evidence（无正面证据；两臂各角色无回归）**。**机制性发现**：A 臂（无演化）的改写命中 6/12 与 SX4.2 的 0/3 不同——本实验预热含与 seed 语义近似的训练改写，其所存簇在纯复用下即可被改写命中；即复用收益面窄的根因不是「簇未连接/未合并」，而是「近重复查询在预热阶段就会存下可用簇」，演化合并未增加额外覆盖。误复用：P1 distractor 两臂各 1/2 命中复用但答案仍含正确片段（ reused 簇内容较宽），P2 distractor 零误复用。runner 首跑缺陷（日志对齐二次判定丢失 status/rubric 字段致全轮误判 invalid）已修复并补回归测试，修复后以保留的原始 sidecar 日志离线重判，无新增 LLM 调用。KE4 门控条件（多轮正面结果）未满足 → 不提上游 PR。
-| KE3 | 裁决与文档 | USAGE_GUIDE 4.3 更新实际开启方式、结论与限制；本规格决策依据补全或存档负面 / 证据不足 / 不可评估结果；来源台账、能力分析、MOC 与 README 保持一致。若采用方案 B，在 S 系列 3.1 与 SX 架构说明增加带日期的实现注记：入口可为 sidecar venv 内启动器，但仍运行同一上游 ASGI 应用，主项目 HTTP 契约及进程隔离不变 | [ ] |
-| KE4（门控） | 上游 PR | 仅当 KE2 多轮正面、成本可接受且本项目出现实际使用流程：经 owner 审批后向上游提交环境变量开关 PR，附 KE2 成对数据、成本与限制；不以单次 >0/3 命中触发 | [ ] |
+| KE3 | 裁决与文档 | USAGE_GUIDE 4.3 更新实际开启方式、结论与限制；本规格决策依据补全或存档负面 / 证据不足 / 不可评估结果；来源台账、能力分析、MOC 与 README 保持一致。若采用方案 B，在 S 系列 3.1 与 SX 架构说明增加带日期的实现注记：入口可为 sidecar venv 内启动器，但仍运行同一上游 ASGI 应用，主项目 HTTP 契约及进程隔离不变 | [x] |
+| KE4（门控） | 上游 PR | 仅当 KE2 多轮正面、成本可接受且本项目出现实际使用流程：经 owner 审批后向上游提交环境变量开关 PR，附 KE2 成对数据、成本与限制；不以单次 >0/3 命中触发 | [-] 未触发（2026-11-15：KE2 提升门未达成，无正面证据，收口时不移交台账新条目，结论见上方 KE2 执行记录） |
+
+KE3 执行记录（2026-11-15）：USAGE_GUIDE 4.3 更新复用开启须知（KE2 数据：改写命中取决于预热存簇的语义近似度，与演化无关）并新增 `SIRCHMUNK_ENABLE_KNOWLEDGE_EVOLUTION` 行（实际开启方式 = 改 true + 复用开 + 重启 sidecar 自动 preflight 前置与启动器入口；KE2 结论与限制；Chat 副作用）。负面 / 证据不足结果存档于本规格 KE2 执行记录与 `scripts/sirchmunk/ke2_results.{md,json}`。来源台账（sirchmunk-extension-followups）第 1 类 #1 改记「已收口：负结果」、2.2 补 KE2 数据、拆分记录补 KE 收口；能力分析（SIRCHMUNK_CAPABILITY_GAP_ANALYSIS）勘误注更新为收口口径；MOC 与 README 导航同步。方案 B 实现注记已加入 S 系列 3.1 与 SX 架构说明（带日期）：入口可为 sidecar venv 内启动器，仍运行同一上游 ASGI 应用，主项目 HTTP 契约及进程隔离不变。

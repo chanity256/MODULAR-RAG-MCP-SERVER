@@ -127,6 +127,12 @@
 4. **超时可靠**：httpx 客户端超时与重试完全由本项目控制，不受上游 600s 默认值影响。
 5. **故障域分离**：sidecar 崩溃/未启动 → 工具返回友好 `isError`，主 server 与其余 tool 不受影响。
 
+> **实现注记（2026-11-15，KE1/KE3）**：知识演化开启时 sidecar 入口为 sidecar venv 内的
+> `evolve_launcher.py`（`start_sidecar.sh` 演化分支调用），它包装 `AgenticSearch.__init__`
+> 后启动的仍是上游同一 ASGI 应用（`sirchmunk.api.main:app`）；主项目 HTTP 契约、
+> 127.0.0.1 + Bearer 鉴权与进程隔离红线均不变。关闭演化开关时回退为原
+> `sirchmunk serve` 入口。见 13_SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC_frozen.md 第 3 章。
+
 ### 3.2 对接契约（POST /api/v1/search）
 
 - 请求（本项目发送）：`{"query": str, "paths": [abs_path, ...], "mode": "FAST"|"DEEP", "response_format": "context", "max_loops": int, "max_token_budget": int, "top_k_files": int, "include_patterns"/"exclude_patterns": [...]}`。
