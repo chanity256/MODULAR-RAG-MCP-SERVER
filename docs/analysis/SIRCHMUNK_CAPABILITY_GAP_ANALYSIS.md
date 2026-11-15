@@ -4,6 +4,8 @@
 >
 > 基线：sirchmunk 源码锁定在 commit `b314e11`（Merge pull request #184 from modelscope/feat/search_enhance）；v0.1/v0.2 的分析起点是 SIRCHMUNK_INTEGRATION_SPEC S0–S4 收口状态（commit `690a205`），v0.3 现状以 SX 系列冻结后的分支 `feat/sirchmunk-agentic-search` 为准。
 >
+> 勘误（2026-11-15）：第 3 节「知识演化」一行「开启必须改上游源码」不准确，sidecar venv 内的 SDK 启动器即可开启、不碰红线，见 [backlog/sirchmunk-evolution-reuse_backlog.md](../backlog/sirchmunk-evolution-reuse_backlog.md) 第 1 章。
+>
 > 性质：与 [MICROSERVICES_ANALYSIS.md](MICROSERVICES_ANALYSIS.md) 同类，属架构/能力判断文档，不承诺交付。遗留缺陷与候选方向统一记在 [backlog/sirchmunk-extension-followups_backlog.md](../backlog/sirchmunk-extension-followups_backlog.md)；推进其中任何一项，走 [docs/backlog/](../backlog/) 提案流程。
 
 ---

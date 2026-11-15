@@ -4,6 +4,8 @@
 >
 > 性质：第 1 类是决议记录（非候选）；第 2 类是实验负结果的存档（重开需新证据）；第 3 类中可行动的项是**候选方向池**，推进任何一项按 [README 约定](README.md)另立提案。
 >
+> 拆分记录（2026-11-15）：第 1 类 #1 知识演化与第 2.2 节知识簇复用移交至 [sirchmunk-evolution-reuse_backlog.md](sirchmunk-evolution-reuse_backlog.md)（草案）；原「evolver 开启必须改上游源码」经复核不准确，勘误见该提案第 1 章。
+>
 > 关联：[sirchmunk-capability-completion_backlog_frozen.md](../frozen/sirchmunk-capability-completion_backlog_frozen.md)（前序提案）、[SIRCHMUNK_CAPABILITY_GAP_ANALYSIS](../analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md)（能力对照）、[SIRCHMUNK_INTEGRATION_SPEC_frozen](../frozen/03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md)（S 系列前置规格）。
 
 <!-- Note: 为何冻结入 frozen、遗留为何建台账而非写回规格 — 见 .agents/notes/implemented/process/2026-10-14-sx-spec-freeze-followups-ledger.md -->
@@ -14,7 +16,7 @@
 
 | # | 事项 | 不做的确定原因 |
 |---|------|----------------|
-| 1 | **知识演化（evolver）** | 唯一"确认不能实现"项：源码实证（规格 4.2）`AgenticSearch(enable_knowledge_evolution=False)` 为上游默认，`api/search.py` 与 CLI 均不传 `True`——HTTP/CLI 均不可达，开启必须改上游源码，同时违反本项目与上游双方纪律 |
+| 1 | ~~**知识演化（evolver）**~~（已移交） | 经 `sirchmunk serve` 不可达成立，但「开启必须改上游源码」不成立：sidecar venv 内的 SDK 启动器即可开启，不碰红线。已移出本台账，见 [sirchmunk-evolution-reuse_backlog.md](sirchmunk-evolution-reuse_backlog.md) |
 | 2 | **`llm_fallback`** | 无文档时让 LLM 凭自身知识回答，与"引用必须可溯源"原则冲突；SX2 已恒发 `false` 显式锁定 |
 | 3 | **FILENAME_ONLY 模式** | 沿用冻结规格 2.2 决定，不对外暴露 |
 | 4 | **chat/knowledge/history/monitor/files 路由与 WebUI** | sirchmunk 自身产品层，Dashboard 已有对应职能，重复建设 |
@@ -32,11 +34,9 @@
 - 落地：USAGE_GUIDE 7.3「知识编译：当前不推荐」；编译产物已移出 work_path 恢复未编译状态。
 - 未解疑问：DEEP 的 DocQA 短路（0 token、证据为仓库根目录）次数随编译变化，触发条件未定位（见 3.5）。
 
-### 2.2 知识簇复用：默认保持关闭（SX4.2，收益面过窄）
+### 2.2 知识簇复用：功能已接入，但默认保持关闭（SX4.2，收益面过窄）
 
-- 实测只有 **FAST 原题逐字重问**命中（3/3，相似度 1.0、约 30 ms、0 token）；改写查询 0/3、干扰题 0/3（无误复用）；DEEP 不存簇，任何探针 0 命中。
-- 回归风险：复用开启下非命中查询命中数 FAST 13/30 → 8/30、DEEP 23/30 → 18/30（0 错误，但硬/软复用 0 次触发，差值归为 n=3 的 LLM 跑间方差 ±5/30）。
-- 适用场景已写入 USAGE_GUIDE 4.3：语料稳定 + FAST 高频原题重问才有收益；开启须知含"改写不命中、DEEP 只复用 FAST 簇、改文件须手动清 `.cache/knowledge/`"。
+- 已移交：实测数据、开启方式与适用场景移至 [sirchmunk-evolution-reuse_backlog.md](sirchmunk-evolution-reuse_backlog.md) 第 2.1 节，与知识演化合并评估（演化依赖复用）。结论不变：只有 FAST 原题逐字重问命中，默认保持关闭（USAGE_GUIDE 4.3）。
 
 ## 3. 已知缺陷与 gap（候选方向池）
 

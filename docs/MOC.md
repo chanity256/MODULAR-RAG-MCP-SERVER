@@ -49,7 +49,7 @@ docs/ 文档分两类：
 | Sirchmunk 整合（S） | 《整合可行性分析》（无独立文件，就地升级为规格 v0.2） | — | [03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md](frozen/03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md) | [SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md](analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md)（以 S0–S4 收口状态为分析起点） | 单文件晋升 |
 | 摄取健壮性（IR） | [FUTURE_OPTIMIZATION_ROADMAP.md](reference/FUTURE_OPTIMIZATION_ROADMAP.md) 6.2；v1.1 起源 6.8 | — | [04_INGESTION_ROBUSTNESS_SPEC_frozen.md](frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md) | — | 跳过提案 → 重开（v1.1 承接 OBSIDIAN M1/M2 为 IR7） |
 | Obsidian Vault RAG（V） | — | [OBSIDIAN_RAG_SPEC_backlog.md](backlog/OBSIDIAN_RAG_SPEC_backlog.md) | M1/M2 → [04_INGESTION_ROBUSTNESS_SPEC_frozen.md](frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md)（IR7） | M3/M4 留在提案中待排期 | 拆分移交 |
-| Sirchmunk 能力补齐（SX） | [SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md](analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md) v0.2 | [sirchmunk-capability-completion_backlog_frozen.md](frozen/sirchmunk-capability-completion_backlog_frozen.md) | [05_SIRCHMUNK_EXTENSION_SPEC_frozen.md](frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md) | [sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md)；起源分析更新至 v0.3 | 提案存档 → 派生台账 |
+| Sirchmunk 能力补齐（SX） | [SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md](analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md) v0.2 | [sirchmunk-capability-completion_backlog_frozen.md](frozen/sirchmunk-capability-completion_backlog_frozen.md) | [05_SIRCHMUNK_EXTENSION_SPEC_frozen.md](frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md) | [sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md)；起源分析更新至 v0.3；台账 1.1 / 2.2 拆出为 [sirchmunk-evolution-reuse_backlog.md](backlog/sirchmunk-evolution-reuse_backlog.md) | 提案存档 → 派生台账 → 拆分移交 |
 | WebUI + Chat（WC） | [FUTURE_OPTIMIZATION_ROADMAP.md](reference/FUTURE_OPTIMIZATION_ROADMAP.md) 原第 1–5 章（拆出为提案）；[SIRCHMUNK_WEBUI_CHAT_REUSE_ANALYSIS.md](analysis/SIRCHMUNK_WEBUI_CHAT_REUSE_ANALYSIS.md) | [dashboard-api-migration_backlog_frozen.md](frozen/dashboard-api-migration_backlog_frozen.md) | [06_WEBUI_CHAT_SPEC_frozen.md](frozen/06_WEBUI_CHAT_SPEC_frozen.md)（D1 推翻提案的 Vue 选型；§1.2 勘误起源分析） | [WEBUI_PARITY_AUDIT.md](analysis/WEBUI_PARITY_AUDIT.md)（WC10.1 交付物）→ webui-parity-followups 台账（已晋升为下方 SR 规格） | 提案存档（多来源合并） → 派生台账 |
 | 日志分层（LG） | 会话内 `logs/traces.jsonl` 体量审计（无独立文件） | — | [07_LOGGING_SPEC_frozen.md](frozen/07_LOGGING_SPEC_frozen.md) | 遗留见规格 2.2（未建台账） | 跳过提案 |
 | 存储扩容 | [STORAGE_SCALING_ANALYSIS.md](analysis/STORAGE_SCALING_ANALYSIS.md) | — | — | — | 止于分析（阶段 0 保持文件型存储不动） |
@@ -112,7 +112,8 @@ docs/ 文档分两类：
 | 文档 | 说明 |
 |------|------|
 | [OBSIDIAN_RAG_SPEC_backlog.md](backlog/OBSIDIAN_RAG_SPEC_backlog.md) | Obsidian Vault RAG 扩展规格（V 系列；v0.2 起 M1/M2 Markdown 摄取已移交 IR 规格 IR7，本规格保留 M3 sentence-transformers / M4 Semantic Walk 待排期） |
-| [sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md) | Sirchmunk SX 规格遗留事项台账：明确不做（evolver 等 6 项）、实验负结果存档（编译 GX 不通过、复用保持关闭）、已知缺陷与候选池（流式线程泄漏等 7 项） |
+| [sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md) | Sirchmunk SX 规格遗留事项台账：明确不做（llm_fallback 等 5 项；evolver 已移交）、实验负结果存档（编译 GX 不通过；复用已移交）、已知缺陷与候选池（流式线程泄漏等 7 项） |
+| [sirchmunk-evolution-reuse_backlog.md](backlog/sirchmunk-evolution-reuse_backlog.md) | Sirchmunk 知识演化与知识簇复用开启提案（草案，未排期；从 SX followups 台账拆出）：勘误「evolver 必须改上游」，提出 sidecar venv 内 SDK 启动器开启 evolver（零上游改动）、复用 + 演化对照实验判据，候选任务 KE0–KE4 |
 
 ## reference/ — 使用参考
 
