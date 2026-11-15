@@ -1,12 +1,18 @@
-<!-- 开发中规格：agent evals 读纪律改进（ERD 系列）。用项目级 PreToolUse hook 强制「先 Read 必读参考、再编辑」，把 evals 通过率从 1/5 提回有意义水平。基线：SD3.5–SD3.7 已交付（evals 判据 / 运行器 / CI gate / test_guard hook），baseline.json 已重校准为 1/5。与其他规格的关系：独立增量，建立在 AI_NATIVE_SDLC_SPEC 的 SD3b 交付物之上，不重开、不改写 SD 任务表；不改 src/ 业务行为。 -->
+<!-- 已冻结规格：agent evals 读纪律改进（ERD 系列，ERD0–ERD2 已收口，ERD3 门控未触发）。用项目级 PreToolUse hook 强制「先 Read 必读参考、再编辑」，把 evals 通过率从 1/5 提回有意义水平。基线：SD3.5–SD3.7 已交付（evals 判据 / 运行器 / CI gate / test_guard hook），baseline.json 已重校准为 1/5。与其他规格的关系：独立增量，建立在 AI_NATIVE_SDLC_SPEC 的 SD3b 交付物之上，不重开、不改写 SD 任务表；不改 src/ 业务行为。 -->
 
 # Agent evals 读纪律改进规格 (EVALS_READ_DISCIPLINE_SPEC)
+
+> **📌 冻结记录**
+>
+> - 冻结时间：2026-11-15
+> - 完成概要：ERD0–ERD2 共 3 项承诺任务全部收口（PostToolUse 前提补验与 30 次会话失败分布；`.factory/hooks/read_guard.py` 先读后改守卫 + 判据①跳过 `isError` 编辑调用 + AGENTS.md / auto-coder 规则说明；3 次付费 evals 判据①失败 0/27、通过用例 1/5 → 4/5，`evals/baseline.json` 更新为 4 条 + `min_pass_rate` 0.8）；ERD3 换模型门控条件不成立、未启动；验收清单 6 项全部勾选。
+> - 遗留：见 [backlog/evals-read-discipline-followups_backlog.md](../backlog/evals-read-discipline-followups_backlog.md)
 
 > 版本：0.1 — 由候选提案升级为可执行规格
 >
 > 起源与决策依据：由 `backlog/evals-read-discipline_backlog.md` 单文件晋升，原文见 git 历史（提交 `ec2d828`）；提案三问并入 §1.2。提案起源是会话内 evals 重校准诊断（2026-11-15，无独立文件）
 >
-> 基线：[AI_NATIVE_SDLC_SPEC.md](AI_NATIVE_SDLC_SPEC.md) SD3.5（`evals/check.py` / `evals/run.py` / 5 条用例）、SD3.6（`agent-evals.yml`）、SD3.7（`.factory/hooks/test_guard.py`）已交付；[evals/baseline.json](../../evals/baseline.json) 为 1/5（`min_pass_rate` 0.2，模型 `custom:glm-5.3-Flash-0`）
+> 基线：[AI_NATIVE_SDLC_SPEC.md](../specs/AI_NATIVE_SDLC_SPEC.md) SD3.5（`evals/check.py` / `evals/run.py` / 5 条用例）、SD3.6（`agent-evals.yml`）、SD3.7（`.factory/hooks/test_guard.py`）已交付；[evals/baseline.json](../../evals/baseline.json) 为 1/5（`min_pass_rate` 0.2，模型 `custom:glm-5.3-Flash-0`）
 >
 > 日期：2026-11-15
 >
