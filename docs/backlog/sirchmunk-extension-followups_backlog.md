@@ -4,7 +4,7 @@
 >
 > 性质：第 1 类是决议记录（非候选）；第 2 类是实验负结果的存档（重开需新证据）；第 3 类中可行动的项是**候选方向池**，推进任何一项按 [README 约定](README.md)另立提案。
 >
-> 拆分记录（2026-11-15）：第 1 类 #1 知识演化与第 2.2 节知识簇复用移交至 [sirchmunk-evolution-reuse_backlog.md](sirchmunk-evolution-reuse_backlog.md)（草案）；原「evolver 开启必须改上游源码」经复核不准确，勘误见该提案第 1 章。
+> 拆分记录（2026-11-15）：第 1 类 #1 知识演化与第 2.2 节知识簇复用经 sirchmunk-evolution-reuse 提案单文件晋升至 [SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC.md](../specs/SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC.md)（KE 系列，开发中）；原「evolver 开启必须改上游源码」经复核不准确，勘误与实施边界见该规格第 1 章。
 >
 > 关联：[sirchmunk-capability-completion_backlog_frozen.md](../frozen/sirchmunk-capability-completion_backlog_frozen.md)（前序提案）、[SIRCHMUNK_CAPABILITY_GAP_ANALYSIS](../analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md)（能力对照）、[SIRCHMUNK_INTEGRATION_SPEC_frozen](../frozen/03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md)（S 系列前置规格）。
 
@@ -16,7 +16,7 @@
 
 | # | 事项 | 不做的确定原因 |
 |---|------|----------------|
-| 1 | ~~**知识演化（evolver）**~~（已移交） | 经 `sirchmunk serve` 不可达成立，但「开启必须改上游源码」不成立：sidecar venv 内的 SDK 启动器即可开启，不碰红线。已移出本台账，见 [sirchmunk-evolution-reuse_backlog.md](sirchmunk-evolution-reuse_backlog.md) |
+| 1 | ~~**知识演化（evolver）**~~（已移交） | 经 `sirchmunk serve` 不可达成立，但「开启必须改上游源码」不成立：sidecar venv 内的 SDK 启动器即可开启，不碰红线。已移出本台账，见 [SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC.md](../specs/SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC.md) |
 | 2 | **`llm_fallback`** | 无文档时让 LLM 凭自身知识回答，与"引用必须可溯源"原则冲突；SX2 已恒发 `false` 显式锁定 |
 | 3 | **FILENAME_ONLY 模式** | 沿用冻结规格 2.2 决定，不对外暴露 |
 | 4 | **chat/knowledge/history/monitor/files 路由与 WebUI** | sirchmunk 自身产品层，Dashboard 已有对应职能，重复建设 |
@@ -36,7 +36,7 @@
 
 ### 2.2 知识簇复用：功能已接入，但默认保持关闭（SX4.2，收益面过窄）
 
-- 已移交：实测数据、开启方式与适用场景移至 [sirchmunk-evolution-reuse_backlog.md](sirchmunk-evolution-reuse_backlog.md) 第 2.1 节，与知识演化合并评估（演化依赖复用）。结论不变：只有 FAST 原题逐字重问命中，默认保持关闭（USAGE_GUIDE 4.3）。
+- 已移交：实测数据、开启方式与适用场景移至 [SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC.md](../specs/SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC.md) 第 2.1 节，与知识演化合并评估（演化依赖复用）。结论不变：只有 FAST 原题逐字重问命中，默认保持关闭（USAGE_GUIDE 4.3）。
 
 ## 3. 已知缺陷与 gap（候选方向池）
 

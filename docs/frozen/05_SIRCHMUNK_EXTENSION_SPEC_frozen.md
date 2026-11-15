@@ -3,6 +3,8 @@
 > 状态：**已冻结**（SX 系列，SX0–SX5 全部收口于 2026-10-14；遗留事项见 [backlog/sirchmunk-extension-followups_backlog.md](../backlog/sirchmunk-extension-followups_backlog.md)）｜上游基线：`b314e11`｜决策依据：[sirchmunk-capability-completion_backlog_frozen.md](sirchmunk-capability-completion_backlog_frozen.md)
 >
 > 前置规格：[SIRCHMUNK_INTEGRATION_SPEC_frozen](03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md)（S 系列，已收口）。本规格只做**增量**，不改 S 系列任何契约；进程隔离红线不变：主 venv 永不 `import sirchmunk`，不改上游源码。
+>
+> 勘误（2026-11-15）：1.2 与 2.2 的「演化开启须改上游源码」不准确。准确口径是**现有 HTTP/CLI 默认不可达，但 sidecar venv 内的 SDK 启动器可以开启**，不违反主 venv 进程隔离红线；该方案已单文件晋升为 [SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC.md](../specs/SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC.md)（KE 系列，开发中，尚未交付）。本注不重开 SX，也不改变 SX0–SX5 的历史范围与验收记录。
 
 ---
 

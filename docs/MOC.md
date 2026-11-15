@@ -49,7 +49,8 @@ docs/ 文档分两类：
 | Sirchmunk 整合（S） | 《整合可行性分析》（无独立文件，就地升级为规格 v0.2） | — | [03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md](frozen/03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md) | [SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md](analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md)（以 S0–S4 收口状态为分析起点） | 单文件晋升 |
 | 摄取健壮性（IR） | [FUTURE_OPTIMIZATION_ROADMAP.md](reference/FUTURE_OPTIMIZATION_ROADMAP.md) 6.2；v1.1 起源 6.8 | — | [04_INGESTION_ROBUSTNESS_SPEC_frozen.md](frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md) | — | 跳过提案 → 重开（v1.1 承接 OBSIDIAN M1/M2 为 IR7） |
 | Obsidian Vault RAG（V） | — | [OBSIDIAN_RAG_SPEC_backlog.md](backlog/OBSIDIAN_RAG_SPEC_backlog.md) | M1/M2 → [04_INGESTION_ROBUSTNESS_SPEC_frozen.md](frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md)（IR7） | M3/M4 留在提案中待排期 | 拆分移交 |
-| Sirchmunk 能力补齐（SX） | [SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md](analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md) v0.2 | [sirchmunk-capability-completion_backlog_frozen.md](frozen/sirchmunk-capability-completion_backlog_frozen.md) | [05_SIRCHMUNK_EXTENSION_SPEC_frozen.md](frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md) | [sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md)；起源分析更新至 v0.3；台账 1.1 / 2.2 拆出为 [sirchmunk-evolution-reuse_backlog.md](backlog/sirchmunk-evolution-reuse_backlog.md) | 提案存档 → 派生台账 → 拆分移交 |
+| Sirchmunk 能力补齐（SX） | [SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md](analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md) v0.2 | [sirchmunk-capability-completion_backlog_frozen.md](frozen/sirchmunk-capability-completion_backlog_frozen.md) | [05_SIRCHMUNK_EXTENSION_SPEC_frozen.md](frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md) | [sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md)；起源分析更新至 v0.3；台账 1.1 / 2.2 经提案单文件晋升为 [SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC.md](specs/SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC.md) | 提案存档 → 派生台账 → 拆分移交 |
+| Sirchmunk 知识演化与复用（KE） | [SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md](analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md) v0.3 + [sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md) 1.1 / 2.2 | sirchmunk-evolution-reuse_backlog.md（单文件晋升，原文见 git 历史） | [SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC.md](specs/SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC.md) | — | 拆分移交 → 单文件晋升 |
 | WebUI + Chat（WC） | [FUTURE_OPTIMIZATION_ROADMAP.md](reference/FUTURE_OPTIMIZATION_ROADMAP.md) 原第 1–5 章（拆出为提案）；[SIRCHMUNK_WEBUI_CHAT_REUSE_ANALYSIS.md](analysis/SIRCHMUNK_WEBUI_CHAT_REUSE_ANALYSIS.md) | [dashboard-api-migration_backlog_frozen.md](frozen/dashboard-api-migration_backlog_frozen.md) | [06_WEBUI_CHAT_SPEC_frozen.md](frozen/06_WEBUI_CHAT_SPEC_frozen.md)（D1 推翻提案的 Vue 选型；§1.2 勘误起源分析） | [WEBUI_PARITY_AUDIT.md](analysis/WEBUI_PARITY_AUDIT.md)（WC10.1 交付物）→ webui-parity-followups 台账（已晋升为下方 SR 规格） | 提案存档（多来源合并） → 派生台账 |
 | 日志分层（LG） | 会话内 `logs/traces.jsonl` 体量审计（无独立文件） | — | [07_LOGGING_SPEC_frozen.md](frozen/07_LOGGING_SPEC_frozen.md) | 遗留见规格 2.2（未建台账） | 跳过提案 |
 | 存储扩容 | [STORAGE_SCALING_ANALYSIS.md](analysis/STORAGE_SCALING_ANALYSIS.md) | — | — | — | 止于分析（阶段 0 保持文件型存储不动） |
@@ -68,6 +69,7 @@ docs/ 文档分两类：
 
 | 文档 | 说明 |
 |------|------|
+| [SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC.md](specs/SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC.md) | Sirchmunk 知识演化与知识簇复用规格（KE 系列，2026-11-15 由 sirchmunk-evolution-reuse 提案单文件晋升，开发中）：上游基线 `b314e11`，sidecar venv 内 SDK 启动器、精确红线白名单、手动 / 托管启动与回滚、同步 / SSE 双端点验证、独立 work path + 预热快照 + 后台 drain 的成对实验；KE0–KE4 未交付，复用与演化默认均关闭 |
 | [AI_NATIVE_SDLC_SPEC.md](specs/AI_NATIVE_SDLC_SPEC.md) | AI-Native SDLC 流程升级规格（SD 系列，v0.5 立项；SD1 CI 门（含 fork 上真实 run 与分支保护）、SD2 review 规则、SD6 skill 单一来源、SD3a QA 计划清理与 QA ↔ pytest 对照补测已交付，SD5 过程度量基线已出（[process-metrics.md](analysis/process-metrics.md)），SD7 规格结构校验已接入测试，SD4 定时闭环已交付（两个本机周度 automation active：followups 扫描起草草案 PR + QA 离线回归写回进度，SD4.4 阈值后置），SD3.4 evals 单次成本已测、预算已确认（D5 终裁为 BYOK `custom:glm-5.3-Flash-2`，SD3.5 evals 判据 / 运行器 / 5 条用例已交付（`evals/`），SD3.6 `agent-evals.yml` 已接入（CI 基线 2/5，门槛按基线校准），SD3.7 test-file 保护 hook 已交付（`.factory/hooks/test_guard.py`），D6 baseline PR 已合入；SD2.3 自动 review 已接入（2026-11-14，验收进行中））：前置决策 D1–D6 + baseline PR、CI 确定性门（干净环境 / 双 job / 禁网 / 红线脚本 / CODEOWNERS，承接 ci-pipeline 提案）、AI PR review、QA 对照与 agent evals（门控）、定时闭环（SD4.4 阈值后置）、过程度量、skill 单一来源 + plan + PR 化、规格结构校验（可选）；不改 `src/` 业务行为 |
 
 ## frozen/ — 已冻结文档
@@ -101,7 +103,7 @@ docs/ 文档分两类：
 | [process-metrics.md](analysis/process-metrics.md) | 过程度量（SD5，通用型常驻分析，1.0 基线）：立项→首任务、立项→冻结、修复轮数、QA 周转、revert/hotfix/fix 五项指标口径与基线，数据由 `scripts/measure_process.py` 离线从 git 历史算出；1.1 版起设目标值 |
 | [STORAGE_SCALING_ANALYSIS.md](analysis/STORAGE_SCALING_ANALYSIS.md) | 存储层扩容分析（2026-10-16）：各存储现状与扩容极限、瓶颈顺序（BM25 → 向量库 → 元数据库）、对 PostgreSQL/DuckDB 的判断（均非对症）、分阶段演进路线（阶段 0 保持文件型不动，动作落地前另走 backlog 提案） |
 | [MICROSERVICES_ANALYSIS.md](analysis/MICROSERVICES_ANALYSIS.md) | 微服务架构分析：当前模块化单体判断与演进方向 |
-| [SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md](analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md) | Sirchmunk 能力覆盖差距分析：已接入与未接入能力对照、对 G0 结论的影响（v0.3：按 SX0–SX5 收口结果更新现状——telemetry/参数透传/SSE 已接入，编译与复用已接入但实验裁决不推荐默认开，演化不可达；剩余缺口指向 followups 台账） |
+| [SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md](analysis/SIRCHMUNK_CAPABILITY_GAP_ANALYSIS.md) | Sirchmunk 能力覆盖差距分析：已接入与未接入能力对照、对 G0 结论的影响（v0.3：按 SX0–SX5 收口结果更新现状——telemetry/参数透传/SSE 已接入，编译与复用已接入但实验裁决不推荐默认开；2026-11-15 文件头勘误：演化经现有 HTTP/CLI 默认不可达，SDK 启动器已晋升为 KE 开发规格（尚未交付）；剩余缺口指向 followups 台账） |
 | [WEBUI_PARITY_AUDIT.md](analysis/WEBUI_PARITY_AUDIT.md) | WebUI 双轨功能等价核验（WC10.1）：Streamlit 七页 ↔ Next 页面 ↔ API 路由逐项矩阵、缺口清单与严重度、Streamlit 退役待决事项 |
 | [SIRCHMUNK_WEBUI_CHAT_REUSE_ANALYSIS.md](analysis/SIRCHMUNK_WEBUI_CHAT_REUSE_ANALYSIS.md) | Sirchmunk WebUI/Chat 复用分析：Chat 实现流程盘点、可复用资产清单（多轮三步法、消息协议、FastAPI 骨架、前端交互）、不抄清单（假流式等）、前端技术栈与传输通道两个待拍板决策 |
 
@@ -114,7 +116,6 @@ docs/ 文档分两类：
 | [OBSIDIAN_RAG_SPEC_backlog.md](backlog/OBSIDIAN_RAG_SPEC_backlog.md) | Obsidian Vault RAG 扩展规格（V 系列；v0.2 起 M1/M2 Markdown 摄取已移交 IR 规格 IR7，本规格保留 M3 sentence-transformers / M4 Semantic Walk 待排期） |
 | [sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md) | Sirchmunk SX 规格遗留事项台账：明确不做（llm_fallback 等 5 项；evolver 已移交）、实验负结果存档（编译 GX 不通过；复用已移交）、已知缺陷与候选池（流式线程泄漏等 7 项） |
 | [evals-read-discipline-followups_backlog.md](backlog/evals-read-discipline-followups_backlog.md) | Agent evals 读纪律（ERD）规格遗留事项台账：明确不做 5 项（放宽判据①、照抄用例 required_reads 等）；候选池 4 项（qatester 判据⑥模式过宽误报、规则文字与 hook 的效果未分离、redline 用例归 SD、fixture `.gitignore` 缺 `.factory/state/`） |
-| [sirchmunk-evolution-reuse_backlog.md](backlog/sirchmunk-evolution-reuse_backlog.md) | Sirchmunk 知识演化与知识簇复用开启提案（草案，未排期；从 SX followups 台账拆出）：勘误「evolver 必须改上游」，提出 sidecar venv 内 SDK 启动器开启 evolver（零上游改动）、复用 + 演化对照实验判据，候选任务 KE0–KE4 |
 
 ## reference/ — 使用参考
 
