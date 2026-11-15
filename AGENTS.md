@@ -85,4 +85,4 @@ PYTHONPATH=src python -m mcp_server.server
 
 - **先读后改守卫**：Droid 会话由项目级 hook `.factory/hooks/read_guard.py` 强制上文「开发文档参考」的读规格纪律：改 `src/` / `scripts/` / `tests/` / `.agents/plans/` 前须已用 Read 工具读过 01_DEV_SPEC（或 auto-coder 的 `references/`），改摄取链路另需 04_INGESTION_ROBUSTNESS_SPEC，改 `QA_TEST_PROGRESS.md` 前须读 `QA_TEST_PLAN.md`；缺读时编辑被拒并列出要读的路径，Grep / cat 不算读过。映射与依据见 `docs/frozen/12_EVALS_READ_DISCIPLINE_SPEC_frozen.md` §3.2。
 - **docs/ 自动守卫**：Droid 会话由项目级 hook（`.factory/hooks.json`）在每轮结束时检查 docs/ 改动：结构漂移（坏链、MOC 漏登记，规则见 `tests/unit/test_docs_links.py`）必须修，语义同步按映射表提醒；修复流程见 [docs/MOC.md](docs/MOC.md)「命名与流转规范」。
-- **规格与排期**：已收口规格（DEV_SPEC 的 A–I、SIRCHMUNK 的 S 系列、IR 的 IR0–IR7、WC 的 WC0–WC10、LG 的 LG0–LG7、SX 的 SX0–SX5、WP 的 WP0–WP2、WS 的 WS0–WS4、SR 的 SR0–SR6）任务表不在其中新增任务；全新功能走 `docs/backlog/` 提案 → 立项后在 `docs/specs/` 建独立规格或经明确指令重开既有规格（格式对齐 SIRCHMUNK/OBSIDIAN 先例，任务编号避免冲突）。
+- **规格与排期**：已收口规格（DEV_SPEC 的 A–I、SIRCHMUNK 的 S 系列、IR 的 IR0–IR7、WC 的 WC0–WC10、LG 的 LG0–LG7、SX 的 SX0–SX5、WP 的 WP0–WP2、WS 的 WS0–WS4、SR 的 SR0–SR6、CMC 的 CMC1–CMC2、ERD 的 ERD0–ERD2）任务表不在其中新增任务；全新功能走 `docs/backlog/` 提案 → 立项后在 `docs/specs/` 建独立规格或经明确指令重开既有规格（格式对齐 SIRCHMUNK/OBSIDIAN 先例，任务编号避免冲突）。
