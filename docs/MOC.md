@@ -112,7 +112,7 @@ docs/ 文档分两类：
 |------|------|
 | [OBSIDIAN_RAG_SPEC_backlog.md](backlog/OBSIDIAN_RAG_SPEC_backlog.md) | Obsidian Vault RAG 扩展规格（V 系列；v0.2 起 M1/M2 Markdown 摄取已移交 IR 规格 IR7，本规格保留 M3 sentence-transformers / M4 Semantic Walk 待排期） |
 | [sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md) | Sirchmunk SX 规格遗留事项台账：明确不做（evolver 等 6 项）、实验负结果存档（编译 GX 不通过、复用保持关闭）、已知缺陷与候选池（流式线程泄漏等 7 项） |
-| [evals-read-discipline_backlog.md](backlog/evals-read-discipline_backlog.md) | Agent evals 读纪律改进提案：三次独立 run（PR #11 × 2 + main 重校准）实证 5 用例仅 1 个稳定通过、失败集中在 `required_reads_before_edit` 判据；`baseline.json` 已如实重校准为 1/5（`min_pass_rate` 0.2） |
+| [evals-read-discipline_backlog.md](backlog/evals-read-discipline_backlog.md) | Agent evals 读纪律改进提案：三次独立 run（PR #11 × 2 + main 重校准）实证 5 用例仅 1 个稳定通过、配有 `required_reads_before_edit` 判据的失败用例都败在该判据；推荐方案为 PreToolUse hook 强制先读后改；`baseline.json` 已如实重校准为 1/5（`min_pass_rate` 0.2） |
 
 ## reference/ — 使用参考
 
