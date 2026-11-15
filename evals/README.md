@@ -29,9 +29,10 @@ drift guard fails inside the fixture. The baseline is a
 tree snapshot taken after that overlay (throwaway index, no commit), so the overlay is not
 counted as an agent change. The main `.venv` is symlinked in.
 
-The overlaid hooks run inside eval sessions. `read_guard.py` (EVALS_READ_DISCIPLINE_SPEC)
-denies edits to mapped paths until the matching spec has been Read, so judge 1 now mostly
-measures whether that hook and its read map cover the case. Its per-session read records go
+The overlaid hooks run inside eval sessions. `read_guard.py` (`docs/frozen/12_EVALS_READ_DISCIPLINE_SPEC_frozen.md`)
+denies edits to mapped paths until the matching spec has been Read. In the ERD2 runs it never
+had to deny: agents read the specs first on their own, following the AGENTS.md rule, so judge 1
+still measures proactive reading and the hook is a backstop. Its per-session read records go
 to `.factory/state/`, which the fixture's `.gitignore` does not exclude; no judge looks there.
 
 ## Judges
