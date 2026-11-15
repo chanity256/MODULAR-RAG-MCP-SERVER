@@ -17,8 +17,10 @@ embedding:
 
 # Vision LLM 配置（图片描述）
 vision_llm:
-  provider: azure            # azure | dashscope
-  model: gpt-4o
+  provider: openai           # azure | openai（OpenAI 兼容端点，G14）
+  model: glm-5.3-flash       # 智谱 GLM（已实测识图能力可用）
+  base_url: https://open.bigmodel.cn/api/paas/v4
+  api_key: ${ZAI_API_KEY}    # 从环境变量解析，不落盘
 
 # 向量存储配置
 vector_store:

@@ -243,3 +243,117 @@ def test_config_driven_chunk_size_changes_chunk_count(tmp_path):
     n_small = len(small.split_document(doc))
     n_large = len(large.split_document(doc))
     assert n_small > n_large >= 1
+
+
+# ---------------------------------------------------------------------------
+# G15：占位符原子保护（占位符先提取、后切分、再回填）
+# ---------------------------------------------------------------------------
+
+
+def test_placeholder_only_chunk_merged_into_previous(fake_chunker):
+    """纯占位符 chunk（无正文）附着到前邻文本段。"""
+    a = _img("h1_0_0")
+    doc = _make_document(f"正文段落\x1e{image_placeholder(a.id)}", images=[a])
+    chunks = fake_chunker().split_document(doc)
+    assert len(chunks) == 1
+    assert "正文段落" in chunks[0].text
+    assert chunks[0].metadata["image_refs"] == [a.id]
+    assert chunks[0].metadata["images"] == [a.to_dict()]
+
+
+def test_leading_placeholder_only_chunk_merged_into_next(fake_chunker):
+    """文档开头的占位符顺延附着到后邻文本段（无前邻时的回退路径）。"""
+    a = _img("h1_0_0")
+    doc = _make_document(f"{image_placeholder(a.id)}\x1e正文段落", images=[a])
+    chunks = fake_chunker().split_document(doc)
+    assert len(chunks) == 1
+    assert "正文段落" in chunks[0].text
+    assert chunks[0].metadata["image_refs"] == [a.id]
+
+
+def test_consecutive_placeholders_with_blank_run(fake_chunker):
+    """连续占位符（中间纯空白/空段）一起附着到后邻文本段。"""
+    a, b = _img("h1_0_0"), _img("h1_0_1")
+    doc = _make_document(
+        f"{image_placeholder(a.id)}\x1e\x1e{image_placeholder(b.id)}\x1e正文段落",
+        images=[a, b],
+    )
+    chunks = fake_chunker().split_document(doc)
+    assert len(chunks) == 1
+    assert chunks[0].metadata["image_refs"] == [a.id, b.id]
+    assert "正文段落" in chunks[0].text
+
+
+def test_placeholder_only_document_keeps_single_chunk(fake_chunker):
+    """全文档只有占位符：不丢内容，保留为独立 chunk。"""
+    a = _img("h1_0_0")
+    doc = _make_document(image_placeholder(a.id), images=[a])
+    chunks = fake_chunker().split_document(doc)
+    assert len(chunks) == 1
+    assert chunks[0].metadata["image_refs"] == [a.id]
+    assert image_placeholder(a.id) in chunks[0].text
+
+
+def test_trailing_placeholder_after_split_text_run(fake_chunker):
+    """前邻文本段切分出多段时，占位符附着最后一段（图随文走）。"""
+    a = _img("h1_0_0")
+    doc = _make_document(f"第一段\x1e第二段\x1e{image_placeholder(a.id)}", images=[a])
+    chunks = fake_chunker().split_document(doc)
+    assert len(chunks) == 2
+    assert chunks[0].text == "第一段"
+    assert "image_refs" not in chunks[0].metadata
+    assert chunks[1].text == "第二段" + image_placeholder(a.id)
+    assert chunks[1].metadata["image_refs"] == [a.id]
+
+
+def test_clean_chunks_untouched_by_placeholder_protection(fake_chunker):
+    """占位符完整且带正文时行为与保护逻辑引入前一致。"""
+    a, b = _img("h1_0_0"), _img("h1_1_2")
+    doc = _make_document(
+        f"首段 {image_placeholder(a.id)}\x1e次段 {image_placeholder(b.id)}\x1e末段",
+        images=[a, b],
+    )
+    chunks = fake_chunker().split_document(doc)
+    assert len(chunks) == 3
+    assert [c.metadata.get("image_refs") for c in chunks] == [[a.id], [b.id], None]
+
+
+def test_real_splitter_small_chunk_size_keeps_placeholder_intact(tmp_path):
+    """真实 RecursiveSplitter + 占位符大于 chunk_size：不切断、归属唯一 chunk。
+
+    修复前该场景占位符被字符级兜底切分切碎，image_refs 静默丢失
+    （e2e 测试恰好被碎片化掩盖）；G15 后从构造上杜绝。
+    """
+    import libs.splitter  # noqa: F401  # 触发真实 provider 注册
+
+    a = _img("h" * 40 + "_0_0")  # 占位符 ~60 字符，大于 chunk_size=30
+    ph = image_placeholder(a.id)
+    doc = _make_document("关于模块化检索架构的说明文字。\n\n" + ph + "\n\n结尾段落。", images=[a])
+    chunker = DocumentChunker(_settings(tmp_path, "\nsplitter:\n  chunk_size: 30\n  chunk_overlap: 0\n"))
+    chunks = chunker.split_document(doc)
+    assert chunks, "expected at least one chunk"
+    assert ph in "".join(c.text for c in chunks), "placeholder text must be preserved verbatim"
+    owners = [c for c in chunks if c.metadata.get("image_refs")]
+    assert len(owners) == 1, "placeholder must land in exactly one chunk"
+    assert owners[0].metadata["image_refs"] == [a.id]
+    assert ph in owners[0].text
+
+
+def test_real_splitter_multiple_placeholders_each_in_one_chunk(tmp_path):
+    """真实切分器 + 多占位符：每个占位符完整且各自归属唯一 chunk。"""
+    import libs.splitter  # noqa: F401
+
+    a, b = _img("h" * 40 + "_0_0"), _img("h" * 40 + "_0_1")
+    ph_a, ph_b = image_placeholder(a.id), image_placeholder(b.id)
+    filler = "关于模块化检索架构的说明文字。"
+    doc = _make_document(
+        filler + "\n\n" + ph_a + "\n\n" + filler + "\n\n" + ph_b + "\n\n" + filler,
+        images=[a, b],
+    )
+    chunker = DocumentChunker(_settings(tmp_path, "\nsplitter:\n  chunk_size: 30\n  chunk_overlap: 0\n"))
+    chunks = chunker.split_document(doc)
+    joined = "".join(c.text for c in chunks)
+    assert ph_a in joined and ph_b in joined, "both placeholders must survive verbatim"
+    owners_a = [c for c in chunks if c.metadata.get("image_refs") == [a.id]]
+    owners_b = [c for c in chunks if c.metadata.get("image_refs") == [b.id]]
+    assert len(owners_a) == 1 and len(owners_b) == 1
