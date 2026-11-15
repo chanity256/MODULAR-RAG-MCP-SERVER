@@ -2,7 +2,7 @@
 
 > 起源：[12_EVALS_READ_DISCIPLINE_SPEC_frozen.md](../frozen/12_EVALS_READ_DISCIPLINE_SPEC_frozen.md)（ERD0–ERD2 收口、ERD3 门控未触发）冻结时，规格执行与 ERD2 三次付费 evals 中沉淀的遗留事项，分两类：**明确不做**（决议记录，非候选）、**已知缺陷与待验证问题**（候选方向池）。
 >
-> 性质：推进第 2 类任何一项按 [README 约定](README.md)另立提案；改 evals 用例或 steering 文件都会触发付费 evals，提案里写明预计花费。
+> 性质：推进第 2 类任何一项按 [README 约定](README.md)另立提案；改 steering 文件（skill 三处 / `AGENTS.md` / `.factory/hooks*`）的 PR 自动触发付费 evals，改 `evals/cases/` 不自动触发、需 `workflow_dispatch` 手动跑相关用例验证，提案里写明预计花费。
 >
 > 关联：[AI_NATIVE_SDLC_SPEC.md](../specs/AI_NATIVE_SDLC_SPEC.md) SD3.5–SD3.7（evals 判据、运行器、CI gate、test_guard hook）、[evals/baseline.json](../../evals/baseline.json)（ERD2 后为 4/5）。
 
