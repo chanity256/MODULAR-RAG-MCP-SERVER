@@ -61,7 +61,7 @@ docs/ 文档分两类：
 | Streamlit 退役（SR） | [WEBUI_PARITY_AUDIT.md](analysis/WEBUI_PARITY_AUDIT.md)（退役门槛清单）；webui-parity-followups 台账（#3 接受项决议并入其 Out of Scope） | [STREAMLIT_RETIREMENT_SPEC.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)（单文件晋升，原台账原文见 git 历史） | [10_STREAMLIT_RETIREMENT_SPEC_frozen.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)（已收口冻结） | — | 单文件晋升 |
 | Chat 模式选择器着色（CMC） | 会话内用户截图（三按钮同质难辨认，无独立文件） | chat-mode-selector-colors_backlog.md（单文件晋升，原文见 git 历史） | [11_CHAT_MODE_COLORS_SPEC_frozen.md](frozen/11_CHAT_MODE_COLORS_SPEC_frozen.md)（已收口冻结） | — | 单文件晋升 |
 | Agent evals 读纪律（ERD） | 会话内 evals 重校准诊断（2026-11-15，三次 run 数据见规格 §1.2；非文件来源） | evals-read-discipline_backlog.md（单文件晋升，原文见 git 历史） | [12_EVALS_READ_DISCIPLINE_SPEC_frozen.md](frozen/12_EVALS_READ_DISCIPLINE_SPEC_frozen.md)（已收口冻结） | [evals/baseline.json](../evals/baseline.json)（随重校准如实更新为 1/5；ERD2 后更新为 4/5）；[evals-read-discipline-followups_backlog.md](backlog/evals-read-discipline-followups_backlog.md)（遗留台账） | 单文件晋升 → 派生台账 |
-| Agentic 检索覆盖上传目录（AR） | 会话内配置边界核查（2026-11-18，非文件来源）；依据 [03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md](frozen/03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md) S1.3 | [agentic-upload-roots_backlog.md](backlog/agentic-upload-roots_backlog.md) | — | — | （提案阶段，未流转） |
+| Agentic 检索覆盖上传目录（AR） | 会话内配置边界核查（2026-11-18，非文件来源）；依据 [03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md](frozen/03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md) S1.3 | agentic-upload-roots_backlog.md（单文件晋升，原文见 git 历史） | [AGENTIC_UPLOAD_ROOTS_SPEC.md](specs/AGENTIC_UPLOAD_ROOTS_SPEC.md)（开发中） | — | 单文件晋升 |
 ## specs/ — 开发规格（落点）
 
 **立项后新规格的存放处**（从 [backlog/](backlog/) 晋升）。任务全收口后冻结入 frozen/（SX 系列先例见 [frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md](frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md)）。
@@ -70,6 +70,7 @@ docs/ 文档分两类：
 
 | 文档 | 说明 |
 |------|------|
+| [AGENTIC_UPLOAD_ROOTS_SPEC.md](specs/AGENTIC_UPLOAD_ROOTS_SPEC.md) | Agentic 检索覆盖 Web UI 上传目录规格（AR 系列，2026-11-18 立项，AR0 已完成，AR1–AR4 未开始）：`allowed_roots` 追加 `./data/uploads`（方案 A，默认加入 + 外发提示）；进程入口预建 `data/` 下的白名单根（D1-a，PathGuard 契约不变）；删除文档时同步删除不再被引用的上传源文件；由 agentic-upload-roots 提案单文件晋升 |
 | [AI_NATIVE_SDLC_SPEC.md](specs/AI_NATIVE_SDLC_SPEC.md) | AI-Native SDLC 流程升级规格（SD 系列，v0.5 立项；SD1 CI 门（含 fork 上真实 run 与分支保护）、SD2 review 规则、SD6 skill 单一来源、SD3a QA 计划清理与 QA ↔ pytest 对照补测已交付，SD5 过程度量基线已出（[process-metrics.md](analysis/process-metrics.md)），SD7 规格结构校验已接入测试，SD4 定时闭环已交付（两个本机周度 automation active：followups 扫描起草草案 PR + QA 离线回归写回进度，SD4.4 阈值后置），SD3.4 evals 单次成本已测、预算已确认（D5 终裁为 BYOK `custom:glm-5.3-Flash-2`，SD3.5 evals 判据 / 运行器 / 5 条用例已交付（`evals/`），SD3.6 `agent-evals.yml` 已接入（CI 基线 2/5，门槛按基线校准），SD3.7 test-file 保护 hook 已交付（`.factory/hooks/test_guard.py`），D6 baseline PR 已合入；SD2.3 自动 review 已接入（2026-11-14，验收进行中））：前置决策 D1–D6 + baseline PR、CI 确定性门（干净环境 / 双 job / 禁网 / 红线脚本 / CODEOWNERS，承接 ci-pipeline 提案）、AI PR review、QA 对照与 agent evals（门控）、定时闭环（SD4.4 阈值后置）、过程度量、skill 单一来源 + plan + PR 化、规格结构校验（可选）；不改 `src/` 业务行为 |
 
 ## frozen/ — 已冻结文档
@@ -116,7 +117,6 @@ docs/ 文档分两类：
 |------|------|
 | [OBSIDIAN_RAG_SPEC_backlog.md](backlog/OBSIDIAN_RAG_SPEC_backlog.md) | Obsidian Vault RAG 扩展规格（V 系列；v0.2 起 M1/M2 Markdown 摄取已移交 IR 规格 IR7，本规格保留 M3 sentence-transformers / M4 Semantic Walk 待排期） |
 | [sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md) | Sirchmunk SX 规格遗留事项台账：明确不做（llm_fallback 等 5 项；evolver 已移交）、实验负结果存档（编译 GX 不通过；复用已移交）、已知缺陷与候选池（流式线程泄漏等 7 项） |
-| [agentic-upload-roots_backlog.md](backlog/agentic-upload-roots_backlog.md) | Agentic 检索覆盖 Web UI 上传目录提案（AR 系列，草案未立项）：`allowed_roots` 只含 `./data/documents`，上传到 `data/uploads/` 的文件 agentic 模式搜不到；推荐追加上传目录为白名单根，并连带处理根目录不存在致整体失败、删除后源文件残留两个问题，待决策 D1（入口建目录 / 可选根）与隐私默认值 |
 | [evals-read-discipline-followups_backlog.md](backlog/evals-read-discipline-followups_backlog.md) | Agent evals 读纪律（ERD）规格遗留事项台账：明确不做 5 项（放宽判据①、照抄用例 required_reads 等）；候选池 4 项（qatester 判据⑥模式过宽误报、规则文字与 hook 的效果未分离、redline 用例归 SD、fixture `.gitignore` 缺 `.factory/state/`） |
 
 ## reference/ — 使用参考
