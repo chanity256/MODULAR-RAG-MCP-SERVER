@@ -20,8 +20,9 @@
   统计），之后串行测量，反映连接复用后的真实往返。
 - 凭据只从环境变量 ``CLOUDFLARE_ACCOUNT_ID`` / ``MODE_ROUTER_API_TOKEN`` 读取，
   不写入报告与 JSON 输出。
-- MR0.2 期间请求构造与 criteria 文案在本脚本内（门控通过前不改 ``src/``）；
-  MR2 起移入 ``libs/mode_router/routing_question.py``。
+- 请求构造与 criteria 文案自 MR2 起与运行时共用单一来源
+  ``libs/mode_router/routing_question.py``（MR0.2 期间曾在本脚本内，v1 文案
+  变体已弃用，基线数字记录在规格 MR0.2 行）。
 
 可测试性：解析 / 请求构造 / 指标 / 渲染为可导入纯函数，``main(argv, *,
 client=..., env=..., out=...)`` 支持注入 ``httpx.MockTransport`` 客户端。
@@ -56,59 +57,11 @@ MODELS: tuple[str, ...] = ("clef", "clef-flash")
 QUESTION_KEY = "retrieval_mode"
 INVALID = "invalid"
 
-# 每个版本的 zh 为 en 的直译，两者只差语言，便于单独比较语言对决策的影响。
-CRITERIA: dict[str, dict[str, Any]] = {
-    "en": {
-        "instructions": "Which retrieval mode should answer this question?",
-        "criteria": {
-            "hybrid": "Answerable from the already-ingested knowledge base with keyword and semantic search; fastest",
-            "agentic_fast": "Needs one exploratory scan of allowed local directories beyond the ingested corpus",
-            "agentic_deep": "Needs multi-step investigation across many files; slowest and most expensive",
-        },
-    },
-    "zh": {
-        "instructions": "应由哪种检索模式回答这个问题？",
-        "criteria": {
-            "hybrid": "可用关键词与语义检索从已摄取的知识库中回答；最快",
-            "agentic_fast": "需要对允许访问的本地目录做一次探索式扫描，范围超出已摄取的语料",
-            "agentic_deep": "需要跨多个文件的多步调查；最慢、成本最高",
-        },
-    },
-    # v2 按问题形态描述三档（MR0.2 首轮基线显示 v1 只讲「是否已摄取」，决策模型无从判断，大量偏向 hybrid）。
-    "en-v2": {
-        "instructions": "Which retrieval mode should answer this question?",
-        "criteria": {
-            "hybrid": (
-                "Explain a concept or fact that one or a few passages answer, including a simple comparison"
-                " covered in one place, e.g. what is X, why does X, how does X differ from Y; fastest"
-            ),
-            "agentic_fast": (
-                "Needs a literal scan of local files: which file or section mentions a term, list every"
-                " occurrence, quote original text or links from a named file, list a file's headings, or"
-                " look in newly uploaded files that are not indexed yet"
-            ),
-            "agentic_deep": (
-                "Needs reading and combining many files: compare things described in different documents,"
-                " aggregate across all records, or build a survey, plan or argument from several chapters;"
-                " slowest and most expensive"
-            ),
-        },
-    },
-    "zh-v2": {
-        "instructions": "应由哪种检索模式回答这个问题？",
-        "criteria": {
-            "hybrid": "解释一个概念或事实，一两段内容即可回答，包括同一处讲到的简单对比，例如 X 是什么、为什么、X 和 Y 有何区别；最快",
-            "agentic_fast": (
-                "需要逐字扫描本地文件：哪个文件或章节提到某个词、列出所有出现位置、从指定文件原样摘录原文或链接、"
-                "列出某文件的标题，或查找新上传、尚未索引的文件"
-            ),
-            "agentic_deep": (
-                "需要阅读并综合多个文件：对比分散在不同文档里的对象、汇总全部记录，"
-                "或基于多个章节写综述、计划或论证；最慢、成本最高"
-            ),
-        },
-    },
-}
+# MR2 起问题文案与运行时共用单一来源（MODE_ROUTER_SPEC §3.4）：zh / en 为
+# MR0.2 选定的 v2 文案（按问题形态描述三档）。v1 历史变体不进运行时库，
+# 其基线数字记录在规格 MR0.2 行。
+sys.path.insert(0, str(REPO_ROOT / "src"))
+from libs.mode_router.routing_question import WORDINGS as CRITERIA  # noqa: E402
 
 CONFIDENCE_BUCKETS: tuple[tuple[float, float], ...] = (
     (0.0, 0.5),
