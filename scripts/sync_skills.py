@@ -8,8 +8,9 @@
 - 生成物与缓存（``auto-coder/references/``、``.spec_hash*``、``__pycache__``）：由各副本自己的
   ``sync_spec.py`` 运行时生成，已被 ``.gitignore`` 忽略。
 
-只同步 ``SYNCED_SKILLS``；``review-guidelines`` 只存在于 ``.factory/``（Droid 自动 review 的读取位置），
-``.github/skills/`` 独有的 5 个 skill 不在范围内（规格 §2.2）。
+只同步 ``SYNCED_SKILLS``；``review-guidelines`` 只存在于 ``.factory/``（Droid 自动 review 的读取位置）。
+``.github/skills/`` 独有的 interview-prep / package / setup 三个 skill 不在范围内（规格 §2.2）；
+project-learner / project-review 已迁入单一来源（2026-11-16）。
 
 用法::
 
@@ -30,7 +31,15 @@ _ROOT = Path(__file__).resolve().parents[1]
 
 SOURCE = ".factory/skills"
 MIRRORS = (".claude/skills", ".github/skills")
-SYNCED_SKILLS = ("auto-coder", "docs-governance", "qa-tester", "resume-writer", "skill-creator")
+SYNCED_SKILLS = (
+    "auto-coder",
+    "docs-governance",
+    "qa-tester",
+    "resume-writer",
+    "skill-creator",
+    "project-learner",
+    "project-review",
+)
 
 SKIP_DIR_NAMES = {"__pycache__"}
 SKIP_FILE_NAMES = {".DS_Store"}
@@ -40,10 +49,18 @@ SOURCE_ONLY_PREFIXES = ("auto-coder/references/",)
 SOURCE_ONLY_PATTERNS = (
     re.compile(r"^auto-coder/\.spec_hash"),
     re.compile(r"^qa-tester/QA_[^/]*\.md$"),
+    # 单一学习状态文件：三份 skill 读写同一份，镜像里只留指向来源的路径。
+    re.compile(r"^project-learner/references/LEARNING_PROGRESS\.md$"),
+    re.compile(r"^project-review/review_progress\.md$"),
 )
 
 #: 改写 ``.factory/skills``（带或不带结尾斜杠），但指向单一状态文件的路径保持原样。
-_REWRITE = re.compile(r"\.factory/skills(?![\w.-])(?!/qa-tester/QA_)")
+_REWRITE = re.compile(
+    r"\.factory/skills(?![\w.-])"
+    r"(?!/qa-tester/QA_)"
+    r"(?!/project-learner/references/LEARNING_PROGRESS)"
+    r"(?!/project-review/review_progress)"
+)
 
 
 @dataclass(frozen=True)

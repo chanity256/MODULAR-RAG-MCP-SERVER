@@ -1,6 +1,6 @@
 ---
 name: project-review
-description: "针对 Modular RAG MCP Server 项目的老师式复习 Agent。按章节带领用户系统复习项目知识点，每道题互动问答、给出参考答案，复习结束后记录掌握进度，每次开始时回顾上次进度并建议继续或复习。Use when user says '复习项目', '帮我复习', '带我复习', '开始复习', '项目复习', 'review project', 'study review', '学习复习', '复盘', or wants to systematically review and study the project."
+description: "针对 Modular RAG MCP Server 项目的老师式复习 Agent。按章节带领用户系统复习项目知识点（14 章 138 题，覆盖 RAG 管线、Web UI/Chat、Sirchmunk Sidecar、日志、摄取健壮性、CI/Evals 全部收口规格），每道题互动问答、给出参考答案，复习结束后记录掌握进度，每次开始时回顾上次进度并建议继续或复习。Use when user says '复习项目', '帮我复习', '带我复习', '开始复习', '项目复习', 'review project', 'study review', '学习复习', '复盘', or wants to systematically review and study the project."
 ---
 
 # Project Review — 项目复习老师
@@ -18,13 +18,13 @@ description: "针对 Modular RAG MCP Server 项目的老师式复习 Agent。按
 
 ## Phase 0：准备（对话前静默执行）
 
-读取 `references/question_bank.md`，加载 9 章共 71 道题目及参考答案要点。
+读取 `references/question_bank.md`，加载 14 章共 138 道题目及参考答案要点。
 
 ---
 
 ## Phase 1：开场 — 回顾上次进度
 
-**检查是否存在进度文件** `review_progress.md`（位于项目根目录下 `.github/skills/project-review/`）。
+**检查是否存在进度文件** `.factory/skills/project-review/review_progress.md`（单一状态文件，三份镜像读写同一份，路径不改写）。
 
 ### 情况 A：存在进度文件
 
@@ -51,13 +51,18 @@ description: "针对 Modular RAG MCP Server 项目的老师式复习 Agent。按
 > | 第 2 章 | 数据摄取流水线 | 18 题 | {N}⭐ 或 — | {已完成X题/未开始} |
 > | 第 3 章 | 检索查询流水线 | 11 题 | {N}⭐ 或 — | {已完成X题/未开始} |
 > | 第 4 章 | MCP 服务设计 | 7 题 | {N}⭐ 或 — | {已完成X题/未开始} |
-> | 第 5 章 | 可插拔架构设计 | 6 题 | {N}⭐ 或 — | {已完成X题/未开始} |
-> | 第 6 章 | 可观测性与 Dashboard | 6 题 | {N}⭐ 或 — | {已完成X题/未开始} |
+> | 第 5 章 | 可插拔架构设计 | 8 题 | {N}⭐ 或 — | {已完成X题/未开始} |
+> | 第 6 章 | 可观测性与 Web UI | 6 题 | {N}⭐ 或 — | {已完成X题/未开始} |
 > | 第 7 章 | 评估体系 | 5 题 | {N}⭐ 或 — | {已完成X题/未开始} |
 > | 第 8 章 | 测试体系与工程质量 | 5 题 | {N}⭐ 或 — | {已完成X题/未开始} |
 > | 第 9 章 | 存储与持久化架构 | 5 题 | {N}⭐ 或 — | {已完成X题/未开始} |
+> | 第 10 章 | Web UI 与多轮 Chat | 17 题 | {N}⭐ 或 — | {已完成X题/未开始} |
+> | 第 11 章 | Sirchmunk Sidecar 与 Agentic Search | 19 题 | {N}⭐ 或 — | {已完成X题/未开始} |
+> | 第 12 章 | 日志分层与 Trace 持久化 | 8 题 | {N}⭐ 或 — | {已完成X题/未开始} |
+> | 第 13 章 | 摄取健壮性与 Markdown | 11 题 | {N}⭐ 或 — | {已完成X题/未开始} |
+> | 第 14 章 | 工程化：CI、Evals 与流程纪律 | 10 题 | {N}⭐ 或 — | {已完成X题/未开始} |
 >
-> 📊 **当前进度**：已完成 {X/71} 道题，学到第 {N} 章第 {题号} 题
+> 📊 **当前进度**：已完成 {X/138} 道题，学到第 {N} 章第 {题号} 题
 >
 > 📝 **上次评语**：{上次建议内容}
 >
@@ -84,7 +89,7 @@ description: "针对 Modular RAG MCP Server 项目的老师式复习 Agent。按
 
 > 👋 你好！欢迎来到 **Modular RAG MCP Server 项目复习课堂**！
 >
-> 本课程共 **9 章 71 道题**，覆盖项目全部核心知识点：
+> 本课程共 **14 章 138 道题**，覆盖项目全部核心知识点：
 >
 > | 章节 | 主题 | 题数 | 难度分布 |
 > |------|------|------|---------|
@@ -92,13 +97,18 @@ description: "针对 Modular RAG MCP Server 项目的老师式复习 Agent。按
 > | 第 2 章 | 数据摄取流水线 | 18 题 | ⭐×3 ⭐⭐×9 ⭐⭐⭐×6 |
 > | 第 3 章 | 检索查询流水线 | 11 题 | ⭐×2 ⭐⭐×5 ⭐⭐⭐×4 |
 > | 第 4 章 | MCP 服务设计 | 7 题 | ⭐×2 ⭐⭐×3 ⭐⭐⭐×2 |
-> | 第 5 章 | 可插拔架构设计 | 6 题 | ⭐×2 ⭐⭐×3 ⭐⭐⭐×1 |
-> | 第 6 章 | 可观测性与 Dashboard | 6 题 | ⭐×2 ⭐⭐×2 ⭐⭐⭐×2 |
+> | 第 5 章 | 可插拔架构设计 | 8 题 | ⭐×2 ⭐⭐×5 ⭐⭐⭐×1 |
+> | 第 6 章 | 可观测性与 Web UI | 6 题 | ⭐×2 ⭐⭐×2 ⭐⭐⭐×2 |
 > | 第 7 章 | 评估体系 | 5 题 | ⭐×2 ⭐⭐×2 ⭐⭐⭐×1 |
 > | 第 8 章 | 测试体系与工程质量 | 5 题 | ⭐×1 ⭐⭐×3 ⭐⭐⭐×1 |
 > | 第 9 章 | 存储与持久化架构 | 5 题 | ⭐×1 ⭐⭐×2 ⭐⭐⭐×2 |
+> | 第 10 章 | Web UI 与多轮 Chat | 17 题 | ⭐×4 ⭐⭐×10 ⭐⭐⭐×3 |
+> | 第 11 章 | Sirchmunk Sidecar 与 Agentic Search | 19 题 | ⭐×3 ⭐⭐×11 ⭐⭐⭐×5 |
+> | 第 12 章 | 日志分层与 Trace 持久化 | 8 题 | ⭐×1 ⭐⭐×6 ⭐⭐⭐×1 |
+> | 第 13 章 | 摄取健壮性与 Markdown | 11 题 | ⭐×1 ⭐⭐×7 ⭐⭐⭐×3 |
+> | 第 14 章 | 工程化：CI、Evals 与流程纪律 | 10 题 | ⭐×2 ⭐⭐×7 ⭐⭐⭐×1 |
 >
-> 📍 **当前进度**：0/71 道题（尚未开始）
+> 📍 **当前进度**：0/138 道题（尚未开始）
 >
 > ---
 >
@@ -188,7 +198,7 @@ description: "针对 Modular RAG MCP Server 项目的老师式复习 Agent。按
 
 每当**用户说"先停一下"、"保存进度"、"暂停"、"下次继续"，或完成一章**时，更新进度文件。
 
-**进度文件路径**：`.github/skills/project-review/review_progress.md`
+**进度文件路径**：`.factory/skills/project-review/review_progress.md`
 
 **文件格式**：
 
@@ -200,7 +210,7 @@ description: "针对 Modular RAG MCP Server 项目的老师式复习 Agent。按
 ## 总体进度
 
 - 当前章节：第 {X} 章
-- 当前题目：{题号}（{X/71} 道已完成）
+- 当前题目：{题号}（{X/138} 道已完成）
 - 累计复习时长：约 {N} 道题
 
 ## 各章节掌握情况
@@ -211,11 +221,16 @@ description: "针对 Modular RAG MCP Server 项目的老师式复习 Agent。按
 | 第2章 | 数据摄取流水线 | {N}⭐ | {m/18} | |
 | 第3章 | 检索查询流水线 | {N}⭐ | {m/11} | |
 | 第4章 | MCP 服务设计 | {N}⭐ | {m/7} | |
-| 第5章 | 可插拔架构设计 | {N}⭐ | {m/6} | |
-| 第6章 | 可观测性与 Dashboard | {N}⭐ | {m/6} | |
+| 第5章 | 可插拔架构设计 | {N}⭐ | {m/8} | |
+| 第6章 | 可观测性与 Web UI | {N}⭐ | {m/6} | |
 | 第7章 | 评估体系 | {N}⭐ | {m/5} | |
 | 第8章 | 测试体系与工程质量 | {N}⭐ | {m/5} | |
 | 第9章 | 存储与持久化架构 | {N}⭐ | {m/5} | |
+| 第10章 | Web UI 与多轮 Chat | {N}⭐ | {m/17} | |
+| 第11章 | Sirchmunk Sidecar 与 Agentic Search | {N}⭐ | {m/19} | |
+| 第12章 | 日志分层与 Trace 持久化 | {N}⭐ | {m/8} | |
+| 第13章 | 摄取健壮性与 Markdown | {N}⭐ | {m/11} | |
+| 第14章 | 工程化：CI、Evals 与流程纪律 | {N}⭐ | {m/10} | |
 
 ## 上次老师评语
 

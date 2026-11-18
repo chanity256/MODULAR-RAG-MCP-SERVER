@@ -156,7 +156,7 @@
 - **不自动合入机器产出**：evals 与 automation 的产出一律先经人 triage，不自动进 specs/、不改 specs 任务表。
 - **不回改已冻结规格**：SD7 对编号 01–09 与无编号谱系存档豁免。
 - **不修改 sirchmunk 上游源码**：CI 无法检查，转为 `REVIEW.md` 检查项。
-- **不纳入 `.github/skills/` 独有的 5 个 skill**（interview-prep、package、project-learner、project-review、setup）到 SD6 同步范围，单独说明。
+- **不纳入 `.github/skills/` 独有的 skill**（interview-prep、package、setup）到 SD6 同步范围，单独说明。原排除清单中的 project-learner / project-review 已于 2026-11-16 迁入单一来源（题库对齐 frozen 规格修订，进度状态文件同 QA 模式 source-only），同步范围见 §3.2。
 - **不在本规格内决定 lock 文件**：D3 只定安装命令。
 - **`src/` 业务行为零变化**：本规格只动流程、脚本、workflow、skill 与文档；SD1.1 / SD1.5 若暴露测试依赖本地状态或真实网络，修的是测试，不改业务语义。
 
@@ -486,7 +486,7 @@ SD6.4–SD6.5、SD5 埋点、SD3b 的 evals 都要改 skill，而镜像已经漂
 
 - **来源目录 = `.factory/skills/`**：auto-coder 以 `.factory` 版为准（唯一支持增量规格前缀的版本）；qa-tester 以 `.github` 版为底（脚本 `REPO_ROOT = parents[4]` 才正确，`.factory` / `.claude` 两份的 `parents[3]` 会把 `qa_bootstrap.py clear` 指向错误目录），正文第 8 行改为「Dashboard UI 类型已随 Streamlit 退役」；resume-writer 以 `.github` 版为底（去 CRLF，保留「亮点 11」）；skill-creator 三份只差路径。QA 计划 / 进度 `git mv` 到 `.factory/skills/qa-tester/`。
 - **镜像风格 = 按副本改写路径**：`scripts/sync_skills.py` 把来源文本中的 `.factory/skills` 改写为镜像自身目录，每份镜像自包含；唯一例外是 `qa-tester/QA_*.md`——单一状态文件只在来源目录保留一份，镜像中指向它们的路径不改写，三份 skill 读写同一份 QA 进度。
-- **同步范围**：auto-coder、docs-governance、qa-tester、resume-writer、skill-creator；review-guidelines 只在 `.factory/`（§3.2），`.github/skills/` 独有的 5 个 skill 不动（§2.2）。镜像中多出的文件（同步范围内）视为漂移并由脚本删除。
+- **同步范围**：auto-coder、docs-governance、qa-tester、resume-writer、skill-creator；2026-11-16 起 project-learner、project-review 迁入（`.github/skills/` 独有清单余 interview-prep、package、setup，不在范围）；review-guidelines 只在 `.factory/`（§3.2）。镜像中多出的文件（同步范围内）视为漂移并由脚本删除。单一状态文件沿用 QA 模式：`project-learner/references/LEARNING_PROGRESS.md` 与 `project-review/review_progress.md` 只在来源目录保留一份，镜像中路径不改写。
 - **生成物不入库**：`auto-coder/references/` 与 `.spec_hash*` 是 `sync_spec.py` 的运行产物，三份镜像均 `git rm --cached` 并在 `.gitignore` 只忽略这两项（此前 `.factory/skills/auto-coder/` 被整体忽略，SKILL.md 与脚本无版本控制）。
 - **drift guard**：`tests/unit/test_skill_mirrors.py`（7 条）对真实仓库断言零漂移，并在 `tmp_path` 覆盖改写规则、来源独有内容排除、missing / differs / stale 三类漂移与范围外文件保留；随 `pytest tests` 进 CI，无需另加 workflow 步骤。本地演练：手改 `.claude/skills/qa-tester/SKILL.md` 一行，该测试失败并提示改来源后运行同步脚本。`scripts/sync_skills.py` 加入 CODEOWNERS。
 - **SD6.3**：docs-governance 复制进 `.factory/skills/docs-governance/`，随同步脚本分发到另两份镜像。
@@ -665,8 +665,8 @@ AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance �
 | SD3.6 | `agent-evals.yml` + 基线校准（3b） | 改一处 skill 文本触发 evals；故意删掉 auto-coder「先读规格」规则后判据①失败；门槛按基线校准后回填 §3.3 | [x] 2026-11-14：PR #7 的 skill 改动触发 CI 基线（15 次会话，2/5 通过）；删规则 PR #8 判据① 3/3 失败（基线 1/3）；门槛 0.4 + 2 条不得回退（`evals/baseline.json`）；智谱 key 改经 `apiKeyHelper` 读取（§3.3 SD3.6 落地记录） |
 | SD3.7 | test-file 保护 hook（3b，可选） | 标记文件存在时拦截 `tests/` 下已有文件的 Edit/Write，新建测试文件不拦截 | [x] 2026-11-14：`.factory/hooks/test_guard.py` 拦截 Edit / Create / ApplyPatch 与 Execute 启发式写入，SessionStart 清残留标记；单测 55 条；本机真实 `droid exec` 会话中 Edit 与 `sed -i` 被拒、新建测试文件成功（§3.3 SD3.7 落地记录） |
 | SD4.1 | 核实 Automations 运行位置（门控入口） | 本机 / 云端结论回填 §3.4，并据此确定 automation ① 的日志输入方式 | [x] 2026-11-13：终裁本机执行（桌面 App 常驻），① 保留日志输入、外发限脱敏摘要，② 复用 `.venv`（§3.4 落地记录） |
-| SD4.2 | automation ① followups 扫描 | 连续两周无人干预，backlog 出现至少一条机器起草、经人 triage 的提案草案 PR | [~] automation 已建并 active（2026-11-13，id `0b05417b`）；「连续两周」验收观察窗口为 2026-11-16 / 11-23 两次运行 |
-| SD4.3 | automation ② QA 回归 | 每周运行可离线回归段，失败项写回 QA 进度文件并标 🔧 | [~] automation 已建并 active（2026-11-13，id `bc210885`）；禁网回归 + 失败写回路径待 2026-11-16 首 run 验证 |
+| SD4.2 | automation ① followups 扫描 | 连续两周无人干预，backlog 出现至少一条机器起草、经人 triage 的提案草案 PR | [~] automation 已建并 active（2026-11-13，id `0b05417b`）；「连续两周」验收观察窗口为 2026-11-16 / 11-23 两次运行；第 1 周（2026-11-16）已运行成功：台账 × 日志互证无可推进项，未开 PR（正常结果），结论存 automation memory/weekly-log.md，剩 11-23 第 2 周 |
+| SD4.3 | automation ② QA 回归 | 每周运行可离线回归段，失败项写回 QA 进度文件并标 🔧 | [~] automation 已建并 active（2026-11-13，id `bc210885`）；2026-11-16 首 run 验证禁网回归路径：2811 passed / 21 skipped / 1 xfailed（+202 passed 来自 ERD1 / SD2.3 / KE0–KE3 合入，+10 skipped 来自新增 `test_golden_rubrics.py`，均逐项归因）、红线 0 violations，全绿不开 PR；「失败写回」路径因全绿未被触发（按设计），待首个失败 run 验证；计数存 automation memory/weekly-counts.md |
 | SD4.4 | `bands.yaml` 阈值（后置） | SD1 运行满约 4 周后，基于 Actions 记录与 junit 设定阈值，超阈值才触发 ①/② | [ ] 后置：CI 4 周数据最早 2026-12-11 齐备；收口时未满足则移派生台账 |
 | SD5.1 | `measure_process.py` + 单测 | 对当前仓库输出 5 项「✅ 能」指标基线，覆盖 SR、WS、WP、WC、LG 五个系列；`test_measure_process.py` 通过 | [x] 2026-11-13：5 项 = 立项→首任务、立项→冻结、修复轮数（SD5.2 埋点后可算）、QA 周转、revert/hotfix/fix；8 个规格中除 IR（提交无方括号前缀）外均有首任务样本；`test_measure_process.py` 8 条（§3.5 落地记录） |
 | SD5.2 | `Fix-Rounds` trailer 埋点（随 SD6） | auto-coder SKILL.md 含 trailer 规则；此后 auto-coder 提交带 `Fix-Rounds: N` | [x] 2026-11-14：`fork/main` 上 18 个提交带 `Fix-Rounds: N`（如 `456009b`、`8f5ed4c`、`eb40b1a` 为 1，`01761e0` 为 0）；`measure_process.py --json` 修复轮数已有样本 n=18（0 轮 13、1 轮 5） |
