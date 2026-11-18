@@ -26,3 +26,4 @@
 | [OBSIDIAN_RAG_SPEC_backlog.md](OBSIDIAN_RAG_SPEC_backlog.md) | Obsidian Vault RAG 扩展规格（V 系列；M1/M2 Markdown 摄取已移交 INGESTION_ROBUSTNESS_SPEC 阶段 IR7，剩余 M3/M4 待排期） |
 | [sirchmunk-extension-followups_backlog.md](sirchmunk-extension-followups_backlog.md) | Sirchmunk SX 规格遗留事项台账：明确不做（llm_fallback 等 5 项；evolver 随 KE 系列收口，负结果已记回本台账）、实验负结果存档（编译 GX 不通过；复用经 KE2 补充数据后维持关闭）、已知缺陷与候选池（流式线程泄漏等 7 项） |
 | [evals-read-discipline-followups_backlog.md](evals-read-discipline-followups_backlog.md) | Agent evals 读纪律（ERD）规格遗留事项台账：明确不做 5 项；候选池 4 项（qatester 判据⑥误报、规则文字与 hook 效果未分离等） |
+| [agentic-upload-roots_backlog.md](agentic-upload-roots_backlog.md) | Agentic 检索覆盖 Web UI 上传目录提案（AR 系列，草案未立项）：`allowed_roots` 追加 `./data/uploads`（推荐方案 A），连带处理根目录不存在致整体失败、删除后源文件残留仍被命中两个问题；含隐私注记 |

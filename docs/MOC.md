@@ -61,6 +61,7 @@ docs/ 文档分两类：
 | Streamlit 退役（SR） | [WEBUI_PARITY_AUDIT.md](analysis/WEBUI_PARITY_AUDIT.md)（退役门槛清单）；webui-parity-followups 台账（#3 接受项决议并入其 Out of Scope） | [STREAMLIT_RETIREMENT_SPEC.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)（单文件晋升，原台账原文见 git 历史） | [10_STREAMLIT_RETIREMENT_SPEC_frozen.md](frozen/10_STREAMLIT_RETIREMENT_SPEC_frozen.md)（已收口冻结） | — | 单文件晋升 |
 | Chat 模式选择器着色（CMC） | 会话内用户截图（三按钮同质难辨认，无独立文件） | chat-mode-selector-colors_backlog.md（单文件晋升，原文见 git 历史） | [11_CHAT_MODE_COLORS_SPEC_frozen.md](frozen/11_CHAT_MODE_COLORS_SPEC_frozen.md)（已收口冻结） | — | 单文件晋升 |
 | Agent evals 读纪律（ERD） | 会话内 evals 重校准诊断（2026-11-15，三次 run 数据见规格 §1.2；非文件来源） | evals-read-discipline_backlog.md（单文件晋升，原文见 git 历史） | [12_EVALS_READ_DISCIPLINE_SPEC_frozen.md](frozen/12_EVALS_READ_DISCIPLINE_SPEC_frozen.md)（已收口冻结） | [evals/baseline.json](../evals/baseline.json)（随重校准如实更新为 1/5；ERD2 后更新为 4/5）；[evals-read-discipline-followups_backlog.md](backlog/evals-read-discipline-followups_backlog.md)（遗留台账） | 单文件晋升 → 派生台账 |
+| Agentic 检索覆盖上传目录（AR） | 会话内配置边界核查（2026-11-18，非文件来源）；依据 [03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md](frozen/03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md) S1.3 | [agentic-upload-roots_backlog.md](backlog/agentic-upload-roots_backlog.md) | — | — | （提案阶段，未流转） |
 ## specs/ — 开发规格（落点）
 
 **立项后新规格的存放处**（从 [backlog/](backlog/) 晋升）。任务全收口后冻结入 frozen/（SX 系列先例见 [frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md](frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md)）。
@@ -115,6 +116,7 @@ docs/ 文档分两类：
 |------|------|
 | [OBSIDIAN_RAG_SPEC_backlog.md](backlog/OBSIDIAN_RAG_SPEC_backlog.md) | Obsidian Vault RAG 扩展规格（V 系列；v0.2 起 M1/M2 Markdown 摄取已移交 IR 规格 IR7，本规格保留 M3 sentence-transformers / M4 Semantic Walk 待排期） |
 | [sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md) | Sirchmunk SX 规格遗留事项台账：明确不做（llm_fallback 等 5 项；evolver 已移交）、实验负结果存档（编译 GX 不通过；复用已移交）、已知缺陷与候选池（流式线程泄漏等 7 项） |
+| [agentic-upload-roots_backlog.md](backlog/agentic-upload-roots_backlog.md) | Agentic 检索覆盖 Web UI 上传目录提案（AR 系列，草案未立项）：`allowed_roots` 只含 `./data/documents`，上传到 `data/uploads/` 的文件 agentic 模式搜不到；推荐追加上传目录为白名单根，并连带处理根目录不存在致整体失败、删除后源文件残留两个问题，待决策 D1（入口建目录 / 可选根）与隐私默认值 |
 | [evals-read-discipline-followups_backlog.md](backlog/evals-read-discipline-followups_backlog.md) | Agent evals 读纪律（ERD）规格遗留事项台账：明确不做 5 项（放宽判据①、照抄用例 required_reads 等）；候选池 4 项（qatester 判据⑥模式过宽误报、规则文字与 hook 的效果未分离、redline 用例归 SD、fixture `.gitignore` 缺 `.factory/state/`） |
 
 ## reference/ — 使用参考
