@@ -56,7 +56,7 @@ MODELS: tuple[str, ...] = ("clef", "clef-flash")
 QUESTION_KEY = "retrieval_mode"
 INVALID = "invalid"
 
-# zh 为 en 的直译，两者只差语言，便于单独比较语言对决策的影响。
+# 每个版本的 zh 为 en 的直译，两者只差语言，便于单独比较语言对决策的影响。
 CRITERIA: dict[str, dict[str, Any]] = {
     "en": {
         "instructions": "Which retrieval mode should answer this question?",
@@ -72,6 +72,40 @@ CRITERIA: dict[str, dict[str, Any]] = {
             "hybrid": "可用关键词与语义检索从已摄取的知识库中回答；最快",
             "agentic_fast": "需要对允许访问的本地目录做一次探索式扫描，范围超出已摄取的语料",
             "agentic_deep": "需要跨多个文件的多步调查；最慢、成本最高",
+        },
+    },
+    # v2 按问题形态描述三档（MR0.2 首轮基线显示 v1 只讲「是否已摄取」，决策模型无从判断，大量偏向 hybrid）。
+    "en-v2": {
+        "instructions": "Which retrieval mode should answer this question?",
+        "criteria": {
+            "hybrid": (
+                "Explain a concept or fact that one or a few passages answer, including a simple comparison"
+                " covered in one place, e.g. what is X, why does X, how does X differ from Y; fastest"
+            ),
+            "agentic_fast": (
+                "Needs a literal scan of local files: which file or section mentions a term, list every"
+                " occurrence, quote original text or links from a named file, list a file's headings, or"
+                " look in newly uploaded files that are not indexed yet"
+            ),
+            "agentic_deep": (
+                "Needs reading and combining many files: compare things described in different documents,"
+                " aggregate across all records, or build a survey, plan or argument from several chapters;"
+                " slowest and most expensive"
+            ),
+        },
+    },
+    "zh-v2": {
+        "instructions": "应由哪种检索模式回答这个问题？",
+        "criteria": {
+            "hybrid": "解释一个概念或事实，一两段内容即可回答，包括同一处讲到的简单对比，例如 X 是什么、为什么、X 和 Y 有何区别；最快",
+            "agentic_fast": (
+                "需要逐字扫描本地文件：哪个文件或章节提到某个词、列出所有出现位置、从指定文件原样摘录原文或链接、"
+                "列出某文件的标题，或查找新上传、尚未索引的文件"
+            ),
+            "agentic_deep": (
+                "需要阅读并综合多个文件：对比分散在不同文档里的对象、汇总全部记录，"
+                "或基于多个章节写综述、计划或论证；最慢、成本最高"
+            ),
         },
     },
 }
@@ -483,7 +517,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="MR0.2 mode router decision-quality baseline (real Clef calls).")
     parser.add_argument("--labeled-set", type=Path, default=DEFAULT_LABELED_SET)
     parser.add_argument("--models", default=",".join(MODELS), help="comma-separated: clef,clef-flash")
-    parser.add_argument("--criteria", default="zh,en", help="criteria wording languages: zh,en")
+    parser.add_argument("--criteria", default="zh,en", help="criteria variants: " + ",".join(CRITERIA))
     parser.add_argument("--min-confidence-grid", default=",".join(str(g) for g in DEFAULT_MIN_CONFIDENCE_GRID))
     parser.add_argument("--fallback", default="hybrid", choices=MODES)
     parser.add_argument("--limit", type=int, default=None, help="only the first N items (pipeline check)")

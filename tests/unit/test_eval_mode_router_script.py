@@ -105,7 +105,8 @@ def test_build_request_uses_all_three_candidates(entry) -> None:
     question = body["questions"]["retrieval_mode"]
     assert question["type"] == "choice"
     assert set(question["criteria"]) == set(entry.MODES)
-    assert set(entry.CRITERIA["zh"]["criteria"]) == set(entry.CRITERIA["en"]["criteria"])
+    for variant in entry.CRITERIA.values():
+        assert set(variant["criteria"]) == set(entry.MODES)
 
 
 def test_parse_decision_wrapped_and_unwrapped(entry) -> None:
