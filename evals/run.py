@@ -42,7 +42,10 @@ BASELINE_PATH = REPO_ROOT / "evals" / "baseline.json"
 DEFAULT_MODEL = "custom:glm-5.3-Flash-2"
 DEFAULT_REPEAT = 3
 DEFAULT_NEED = 2
-DEFAULT_TIMEOUT_MIN = 15
+# 15 min was 2.4x the SD3.4 measured session (379.6 s); after the ERD read_guard baseline the
+# heaviest case (autocoder-fix-round-limit, PR #18 run 44219502218) completes naturally in ~700 s,
+# so 15 min left <200 s of margin and timeouts scored as false regressions. 20 min restores ~1.7x.
+DEFAULT_TIMEOUT_MIN = 20
 DEFAULT_MIN_PASS_RATE = 0.9
 
 # Mirrors are overlaid too: a source-only overlay trips test_skill_mirrors in the fixture.

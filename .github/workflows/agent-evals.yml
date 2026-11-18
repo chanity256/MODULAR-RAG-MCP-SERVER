@@ -75,8 +75,8 @@ jobs:
     needs: gate
     if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
-    # 3 次会话 × 15 分钟上限 + 每次约 1.5 分钟离线 pytest 判据 + 安装
-    timeout-minutes: 60
+    # 3 次会话 × 20 分钟上限（run.py DEFAULT_TIMEOUT_MIN，守卫测试锁 >=3×）+ 每次约 1.5 分钟离线 pytest 判据 + 安装
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
