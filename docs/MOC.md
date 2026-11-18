@@ -64,6 +64,7 @@ docs/ 文档分两类：
 | Chat 模式选择器着色（CMC） | 会话内用户截图（三按钮同质难辨认，无独立文件） | chat-mode-selector-colors_backlog.md（单文件晋升，原文见 git 历史） | [11_CHAT_MODE_COLORS_SPEC_frozen.md](frozen/11_CHAT_MODE_COLORS_SPEC_frozen.md)（已收口冻结） | — | 单文件晋升 |
 | Agent evals 读纪律（ERD） | 会话内 evals 重校准诊断（2026-11-15，三次 run 数据见规格 §1.2；非文件来源） | evals-read-discipline_backlog.md（单文件晋升，原文见 git 历史） | [12_EVALS_READ_DISCIPLINE_SPEC_frozen.md](frozen/12_EVALS_READ_DISCIPLINE_SPEC_frozen.md)（已收口冻结） | [evals/baseline.json](../evals/baseline.json)（随重校准如实更新为 1/5；ERD2 后更新为 4/5）；[evals-read-discipline-followups_backlog.md](backlog/evals-read-discipline-followups_backlog.md)（遗留台账） | 单文件晋升 → 派生台账 |
 | Agentic 检索覆盖上传目录（AR） | 会话内配置边界核查（2026-11-18，非文件来源）；依据 [03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md](frozen/03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md) S1.3 | agentic-upload-roots_backlog.md（单文件晋升，原文见 git 历史） | [14_AGENTIC_UPLOAD_ROOTS_SPEC_frozen.md](frozen/14_AGENTIC_UPLOAD_ROOTS_SPEC_frozen.md)（已收口冻结，AR0–AR4；AR4 真实 sidecar 冒烟通过） | [agentic-roots-followups_backlog.md](backlog/agentic-roots-followups_backlog.md)（CWD 解析根治、collection 隔离两项候选） | 单文件晋升 → 派生台账 |
+| 检索 Trace 挖掘 | 会话讨论（2026-11-18，源于 [MODE_ROUTER_SPEC.md](specs/MODE_ROUTER_SPEC.md) MR0.2 标注集扩充需求；非文件来源） | [retrieval-trace-mining_backlog.md](backlog/retrieval-trace-mining_backlog.md)（草案，未立项；已核实 trace 与会话库的数据现状与六个待研究问题） | — | — | — |
 ## specs/ — 开发规格（落点）
 
 **立项后新规格的存放处**（从 [backlog/](backlog/) 晋升）。任务全收口后冻结入 frozen/（SX 系列先例见 [frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md](frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md)）。
@@ -123,6 +124,7 @@ docs/ 文档分两类：
 | [sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md) | Sirchmunk SX 规格遗留事项台账：明确不做（llm_fallback 等 5 项；evolver 已移交）、实验负结果存档（编译 GX 不通过；复用已移交）、已知缺陷与候选池（流式线程泄漏等 7 项） |
 | [evals-read-discipline-followups_backlog.md](backlog/evals-read-discipline-followups_backlog.md) | Agent evals 读纪律（ERD）规格遗留事项台账：明确不做 5 项（放宽判据①、照抄用例 required_reads 等）；候选池 4 项（qatester 判据⑥模式过宽误报、规则文字与 hook 的效果未分离、redline 用例归 SD、fixture `.gitignore` 缺 `.factory/state/`） |
 | [agentic-roots-followups_backlog.md](backlog/agentic-roots-followups_backlog.md) | Agentic 检索覆盖上传目录（AR）规格遗留事项台账：明确不做 3 项（PathGuard 契约 / 上传目录迁移 / sidecar 配置）；候选池 2 项（相对 allowed_roots 按项目根解析、agentic 按 collection 隔离，均低优先级） |
+| [retrieval-trace-mining_backlog.md](backlog/retrieval-trace-mining_backlog.md) | 检索 Trace 挖掘管线提案（草案，未立项）：从 `logs/traces/` 与 `chat_sessions.db` 提取「问题 → 回答 → 所选检索模式」作 MODE_ROUTER 标注集扩充 / 持续校准数据源；已核实 trace 与会话库各自的数据现状，六个待研究问题（手选 vs 默认区分、弱标注口径、跨库 join、隐私、模式命名映射、时机依赖 MR0.2 门槛） |
 
 ## reference/ — 使用参考
 
