@@ -20,6 +20,7 @@
 - `docs/frozen/11_CHAT_MODE_COLORS_SPEC_frozen.md` — CMC 系列 Chat 模式选择器按模式着色（已收口冻结：`frontend/components/chat/ModeSelector.tsx` 选中态 Hybrid 黄 / Agentic (fast) 绿 / Agentic (deep) 蓝，light 浅底深字、dark 半透明底亮字（对比度 ≥ WCAG AA）；不动 aria 语义、文案与 `lib/chat/modes.ts`；改动 Chat 模式选择器前先读）。
 - `docs/frozen/12_EVALS_READ_DISCIPLINE_SPEC_frozen.md` — ERD 系列 agent evals 读纪律（已收口冻结：`.factory/hooks/read_guard.py` 先读后改守卫的必读映射表 §3.2 与出处、Script 模式经 transcript 补读、fail-open；`evals/check.py` 判据①跳过 `isError` 编辑调用的口径；改动 read_guard 映射、判据①或 evals 用例的 `required_reads` 前先读，遗留事项见 `docs/backlog/evals-read-discipline-followups_backlog.md`）。
 - `docs/frozen/13_SIRCHMUNK_KNOWLEDGE_EVOLUTION_SPEC_frozen.md` — KE 系列 Sirchmunk 知识演化与复用（已收口冻结，2026-11-15：KE0–KE3 交付；KE2 成对实验结论为**演化未带来改写复用收益**、复用与演化默认保持关闭，KE4 上游 PR 门控未触发；sidecar 演化启动器 `evolve_launcher.py`、`start_sidecar.sh` 开关、`corpus_snapshot.sh` 语料快照与 `check_redlines.py` 精确白名单的权威来源；改动这些文件或重启演化实验前先读）。
+- `docs/frozen/14_AGENTIC_UPLOAD_ROOTS_SPEC_frozen.md` — AR 系列 Agentic 检索覆盖上传目录（已收口冻结，2026-11-18：AR0–AR4 交付；`agentic_search.allowed_roots` 默认含 `./data/uploads` 与入口预建 `ensure_local_roots`（D1-a，PathGuard fail-closed 契约不变）、删除文档联动清理上传源文件（`source_file_removed` 只增不改）的权威来源；改动 `config/settings.yaml` agentic 节、`src/libs/agentic_search/`、`data_service` 删除链路或 `DELETE /documents` 前先读，遗留事项见 `docs/backlog/agentic-roots-followups_backlog.md`）。
 
 **[docs/MOC.md](docs/MOC.md) 是 docs/ 目录的索引文档（MOC, Map of Content）**：在 docs/ 下增删文档后，必须同步更新 MOC.md 的对应条目；根目录 README 的「开发文档」导航表同步维护。
 
