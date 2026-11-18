@@ -103,6 +103,8 @@ agentic_search:
   # 精度/成本自权衡。
   allowed_roots:                 # PathGuard 白名单（enabled 时必须非空）
     - ./data/documents
+    - ./data/uploads             # Web UI 上传目录（AR1）：agentic 检索覆盖上传文件；
+                                 # 注意命中文件内容会经 sidecar 发给外部 LLM（隐私见规格 §8）
   denied_substrings:             # 白名单内仍强制排除（fail-closed）
     - .env
     - .git

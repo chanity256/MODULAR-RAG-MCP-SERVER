@@ -70,7 +70,7 @@ docs/ 文档分两类：
 
 | 文档 | 说明 |
 |------|------|
-| [AGENTIC_UPLOAD_ROOTS_SPEC.md](specs/AGENTIC_UPLOAD_ROOTS_SPEC.md) | Agentic 检索覆盖 Web UI 上传目录规格（AR 系列，2026-11-18 立项，AR0 已完成，AR1–AR4 未开始）：`allowed_roots` 追加 `./data/uploads`（方案 A，默认加入 + 外发提示）；进程入口预建 `data/` 下的白名单根（D1-a，PathGuard 契约不变）；删除文档时同步删除不再被引用的上传源文件；由 agentic-upload-roots 提案单文件晋升 |
+| [AGENTIC_UPLOAD_ROOTS_SPEC.md](specs/AGENTIC_UPLOAD_ROOTS_SPEC.md) | Agentic 检索覆盖 Web UI 上传目录规格（AR 系列，2026-11-18 立项，AR0–AR1 已完成，AR2–AR4 未开始）：`allowed_roots` 追加 `./data/uploads`（方案 A，默认加入 + 外发提示）；进程入口预建 `data/` 下的白名单根（D1-a，PathGuard 契约不变，实现为 `ensure_local_roots`）；删除文档时同步删除不再被引用的上传源文件（AR2 待做）；由 agentic-upload-roots 提案单文件晋升 |
 | [AI_NATIVE_SDLC_SPEC.md](specs/AI_NATIVE_SDLC_SPEC.md) | AI-Native SDLC 流程升级规格（SD 系列，v0.5 立项；SD1 CI 门（含 fork 上真实 run 与分支保护）、SD2 review 规则、SD6 skill 单一来源、SD3a QA 计划清理与 QA ↔ pytest 对照补测已交付，SD5 过程度量基线已出（[process-metrics.md](analysis/process-metrics.md)），SD7 规格结构校验已接入测试，SD4 定时闭环已交付（两个本机周度 automation active：followups 扫描起草草案 PR + QA 离线回归写回进度，SD4.4 阈值后置），SD3.4 evals 单次成本已测、预算已确认（D5 终裁为 BYOK `custom:glm-5.3-Flash-2`，SD3.5 evals 判据 / 运行器 / 5 条用例已交付（`evals/`），SD3.6 `agent-evals.yml` 已接入（CI 基线 2/5，门槛按基线校准），SD3.7 test-file 保护 hook 已交付（`.factory/hooks/test_guard.py`），D6 baseline PR 已合入；SD2.3 自动 review 已接入（2026-11-14，验收进行中））：前置决策 D1–D6 + baseline PR、CI 确定性门（干净环境 / 双 job / 禁网 / 红线脚本 / CODEOWNERS，承接 ci-pipeline 提案）、AI PR review、QA 对照与 agent evals（门控）、定时闭环（SD4.4 阈值后置）、过程度量、skill 单一来源 + plan + PR 化、规格结构校验（可选）；不改 `src/` 业务行为 |
 
 ## frozen/ — 已冻结文档

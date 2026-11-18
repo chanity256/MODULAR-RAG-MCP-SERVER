@@ -29,6 +29,7 @@ from libs.agentic_search.converter import (
 )
 from libs.agentic_search.fake_backend import FakeAgenticSearch
 from libs.agentic_search.http_backend import SirchmunkHttpBackend
+from libs.agentic_search.local_roots import ensure_local_roots
 from libs.agentic_search.path_guard import PathGuard, PathGuardError
 
 __all__ = [
@@ -47,6 +48,7 @@ __all__ = [
     "SirchmunkHttpBackend",
     "PathGuard",
     "PathGuardError",
+    "ensure_local_roots",
     "AgenticRouteAdapter",
     "build_agentic_retriever",
     "parse_search_context",
