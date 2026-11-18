@@ -143,18 +143,18 @@ Web UI 删除：DELETE /documents/{id}
 | AR1 | 白名单追加 `./data/uploads` + `ensure_local_roots` 入口预建 | §4 中 `ensure_local_roots`、PathGuard 双根、入口三组离线测试通过；既有 PathGuard 用例不变；`create_app` 仍零 IO | 已完成（2026-11-18）：`src/libs/agentic_search/local_roots.py`（`ensure_local_roots`，`enabled=false` / 白名单外 / `denied_substrings` 命中一律跳过，OSError 记 warning 不抛）+ 三入口接入（`start_api.py` / `mcp_server.server` / `query.py --agentic`）+ `settings.yaml` 追加；相关离线测试 140 例全绿（新增 `tests/unit/test_agentic_local_roots.py` 12 例），红线 0 违规，Fix-Rounds: 1 |
 | AR2 | 删除文档时同步删除上传源文件 | §4 删除一致性三个场景通过；既有删除用例不变；响应新增 `source_file_removed` | 已完成（2026-11-18）：`DeleteResult.source_file_removed` + `DocumentManager.source_referenced`（兼容 legacy `source` 键）+ `DataService` 删除联动（三重门禁：有实际删除 / 无其他 collection 引用 / 路径在上传目录内；引用检查异常与 unlink 失败均保守保留文件并如实返回 False）；`DeleteDocumentResponse` 只增不改；全量 unit+integration 2803 passed，红线 0 违规；既有精确断言用例经用户确认补新字段；Fix-Rounds: 1 |
 | AR3 | 文档同步与隐私提示 | USAGE_GUIDE agentic 配置节与第 10 章、README 5.1 的 `allowed_roots` 示例含 `./data/uploads`，并写明外发提示与「须从仓库根启动」；`test_docs_links.py` 通过 | 已完成（2026-11-18）：USAGE_GUIDE §4.4 新增白名单说明四条（隐私外发 / 入口预建 / 从仓库根启动 / 删除联动）、§10.1 注意新增三条、§10.5 DELETE 路由描述补联动清理；README 5.1 示例含双根并补「白名单与隐私」段；`test_docs_links.py` / `test_spec_structure.py` 16 例通过；Fix-Rounds: 0 |
-| AR4 | 门控真实冒烟 | `RAG_AGENTIC_INTEGRATION=1` 下经 Web UI 上传一份含唯一标记词的文档，Hybrid 与 Agentic (fast) 均给出带出处的回答；删除后 Agentic (fast) 不再命中；结果记入本表 | 未开始 |
+| AR4 | 门控真实冒烟 | `RAG_AGENTIC_INTEGRATION=1` 下经 Web UI 上传一份含唯一标记词的文档，Hybrid 与 Agentic (fast) 均给出带出处的回答；删除后 Agentic (fast) 不再命中；结果记入本表 | 已完成（2026-11-18，真实 sidecar + 真实 LLM，经 Web UI 同款 API 链路执行）：标记文档 `ar4_marker_doc.md`（标记词 AR4-MARKER-9Q3K）上传 201 → 摄取成功（1 chunk）；Agentic (fast) 命中 `data/uploads/ar4_marker_doc.md`（agentic_answer 正确描述标记用途，2449 token / 2 次 LLM 调用 / 7.5s）；Hybrid (normal) 首条 citation 即该文件（score 0.0328 / 765ms）；`DELETE /documents/{id}` 返回四存储计数 + `source_file_removed: true` 且源文件已从磁盘消失；删除后 fast 不再引用该文件（sidecar 明确回答 SHOULD_ANSWER=false）、normal 无该文件 citation。环境排障备注：主项目 embedding 端点 open.bigmodel.cn 被 Clash TUN fake-IP 劫持致 TLS 失败，经临时 /etc/hosts 指向真实 IP 后恢复（属用户本机网络环境问题，与本项目代码无关） |
 
 > 进度备注：交付后在各任务下回填状态与关键实测数据；全部收口后本规格移入 `docs/frozen/` 并更新 MOC.md。
 
 ## 6. 验收清单
 
-- [ ] 未上传过任何文件的干净环境中，MCP `agentic_search` 与 Chat agentic 模式可用，不报根目录不存在
-- [ ] 经 Web UI 上传并摄取的文档，Hybrid 与 Agentic (fast) 均能给出带出处的回答
-- [ ] Web UI 删除该文档后，agentic 检索不再命中它；被其他 collection 引用的同名源文件保留
-- [ ] 显式传白名单外的 `paths` 仍返回 `-32602`
-- [ ] `pytest tests -q`、CI 等价禁网命令、`python scripts/check_redlines.py` 全绿
-- [ ] 回写完成（§7）
+- [x] 未上传过任何文件的干净环境中，MCP `agentic_search` 与 Chat agentic 模式可用，不报根目录不存在（离线入口测试 + 真实启动验证）
+- [x] 经 Web UI 上传并摄取的文档，Hybrid 与 Agentic (fast) 均能给出带出处的回答（AR4 实测）
+- [x] Web UI 删除该文档后，agentic 检索不再命中它；被其他 collection 引用的同名源文件保留（AR4 实测 + 离线单测）
+- [x] 显式传白名单外的 `paths` 仍返回 `-32602`（既有 PathGuard 用例不变）
+- [x] `pytest tests -q`、CI 等价禁网命令、`python scripts/check_redlines.py` 全绿（AR2 收尾时全量 2803 passed / 11 skipped；红线 0 违规）
+- [x] 回写完成（§7：USAGE_GUIDE §4.4/§10、README 5.1、MOC、README 导航）
 
 ## 7. 实现合入后的回写清单
 
