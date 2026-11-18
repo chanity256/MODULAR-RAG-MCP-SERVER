@@ -243,9 +243,11 @@ agentic_search:
   base_url: http://127.0.0.1:8584
   api_token: ${SIRCHMUNK_API_TOKEN}   # 与 sidecar 使用同一 token
   mode: FAST                          # DEEP 单次可达数十秒，需同时设置 allow_deep: true
-  allowed_roots: [./data/documents]   # enabled 时必须非空
+  allowed_roots: [./data/documents, ./data/uploads]   # enabled 时必须非空；uploads 为 Web UI 上传目录（AR1）
   denied_substrings: [.env, .git, data/db]
 ```
+
+**白名单与隐私（AR 系列）**：`./data/uploads`（Web UI 上传目录）默认在白名单内——agentic 检索可覆盖上传文件，命中内容会经 sidecar 发给外部 LLM，不需要就从 `allowed_roots` 移除；进程入口会自动预建 `data/` 下的白名单根，白名单按启动进程 CWD 解析（须从仓库根启动）；Web UI 删除文档时，上传目录内的源文件在无其他 collection 引用时会一并删除（响应 `source_file_removed`）。详见 [USAGE_GUIDE 4.4](docs/reference/USAGE_GUIDE.md)。
 
 **工具参数**：`query`（必填）、`mode`（FAST / DEEP）、`paths`（可选，缺省为 `allowed_roots`）、`top_k`。返回带出处的答案与证据片段；证据不含页码（`page` 恒为空）。
 

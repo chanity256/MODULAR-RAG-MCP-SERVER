@@ -142,7 +142,7 @@ Web UI 删除：DELETE /documents/{id}
 | AR0 | 立项与决策终裁 | D1 / D2 终裁记入 §1.3；MOC、backlog/README、README 导航同步；`test_docs_links.py` 与 `test_spec_structure.py` 通过 | 已完成（2026-11-18） |
 | AR1 | 白名单追加 `./data/uploads` + `ensure_local_roots` 入口预建 | §4 中 `ensure_local_roots`、PathGuard 双根、入口三组离线测试通过；既有 PathGuard 用例不变；`create_app` 仍零 IO | 已完成（2026-11-18）：`src/libs/agentic_search/local_roots.py`（`ensure_local_roots`，`enabled=false` / 白名单外 / `denied_substrings` 命中一律跳过，OSError 记 warning 不抛）+ 三入口接入（`start_api.py` / `mcp_server.server` / `query.py --agentic`）+ `settings.yaml` 追加；相关离线测试 140 例全绿（新增 `tests/unit/test_agentic_local_roots.py` 12 例），红线 0 违规，Fix-Rounds: 1 |
 | AR2 | 删除文档时同步删除上传源文件 | §4 删除一致性三个场景通过；既有删除用例不变；响应新增 `source_file_removed` | 已完成（2026-11-18）：`DeleteResult.source_file_removed` + `DocumentManager.source_referenced`（兼容 legacy `source` 键）+ `DataService` 删除联动（三重门禁：有实际删除 / 无其他 collection 引用 / 路径在上传目录内；引用检查异常与 unlink 失败均保守保留文件并如实返回 False）；`DeleteDocumentResponse` 只增不改；全量 unit+integration 2803 passed，红线 0 违规；既有精确断言用例经用户确认补新字段；Fix-Rounds: 1 |
-| AR3 | 文档同步与隐私提示 | USAGE_GUIDE agentic 配置节与第 10 章、README 5.1 的 `allowed_roots` 示例含 `./data/uploads`，并写明外发提示与「须从仓库根启动」；`test_docs_links.py` 通过 | 未开始 |
+| AR3 | 文档同步与隐私提示 | USAGE_GUIDE agentic 配置节与第 10 章、README 5.1 的 `allowed_roots` 示例含 `./data/uploads`，并写明外发提示与「须从仓库根启动」；`test_docs_links.py` 通过 | 已完成（2026-11-18）：USAGE_GUIDE §4.4 新增白名单说明四条（隐私外发 / 入口预建 / 从仓库根启动 / 删除联动）、§10.1 注意新增三条、§10.5 DELETE 路由描述补联动清理；README 5.1 示例含双根并补「白名单与隐私」段；`test_docs_links.py` / `test_spec_structure.py` 16 例通过；Fix-Rounds: 0 |
 | AR4 | 门控真实冒烟 | `RAG_AGENTIC_INTEGRATION=1` 下经 Web UI 上传一份含唯一标记词的文档，Hybrid 与 Agentic (fast) 均给出带出处的回答；删除后 Agentic (fast) 不再命中；结果记入本表 | 未开始 |
 
 > 进度备注：交付后在各任务下回填状态与关键实测数据；全部收口后本规格移入 `docs/frozen/` 并更新 MOC.md。
