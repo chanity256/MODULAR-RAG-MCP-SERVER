@@ -98,6 +98,10 @@ class DeleteResult:
     bm25_deleted: int = 0
     images_deleted: int = 0
     integrity_removed: bool = False
+    # AR2（AGENTIC_UPLOAD_ROOTS_SPEC）：源文件落在上传目录内、且无其他
+    # collection 引用时，由服务层联动删除后置 True；DocumentManager 自身
+    # 不做文件系统副作用，恒为 False。
+    source_file_removed: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -107,6 +111,7 @@ class DeleteResult:
             "bm25_deleted": self.bm25_deleted,
             "images_deleted": self.images_deleted,
             "integrity_removed": self.integrity_removed,
+            "source_file_removed": self.source_file_removed,
         }
 
 
@@ -384,6 +389,22 @@ class DocumentManager:
             bm25_deleted=bm25_deleted,
             images_deleted=images_deleted,
         )
+
+    def source_referenced(self, source_path: str) -> bool:
+        """Chroma 中是否仍有任一 collection 的 chunk 携带该 ``source_path``。
+
+        AR2（AGENTIC_UPLOAD_ROOTS_SPEC）：删除联动用——四存储删除完成后，
+        同 ``source_path`` 在其他 collection 已无记录时上传源文件才可删。
+        兼容旧 metadata 只带 ``source`` 键的记录（与 ``list_documents``
+        的 fallback 语义一致）。
+        """
+        store = self._get_store()
+        for key in ("source_path", "source"):
+            for record in store.get_by_metadata({key: source_path}):
+                metadata = record.get("metadata") or {}
+                if (metadata.get("source_path") or metadata.get("source")) == source_path:
+                    return True
+        return False
 
     def _hash_used_elsewhere(self, doc_hash: str, source_path: str, collection: str) -> bool:
         """Chroma 中是否有其他 ``(source_path, collection)`` 的 chunk 携带该哈希。"""

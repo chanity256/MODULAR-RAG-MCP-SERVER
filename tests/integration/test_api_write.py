@@ -300,6 +300,7 @@ class TestDeleteDocument:
             f"/api/v1/documents/{quote('docs/a.md', safe='')}", params={"collection": "docs"}, headers=AUTH
         )
         assert response.status_code == 200
+        # AR2（AGENTIC_UPLOAD_ROOTS_SPEC）：响应新增 source_file_removed（只增不改）。
         assert response.json() == {
             "source_path": "docs/a.md",
             "collection": "docs",
@@ -307,6 +308,7 @@ class TestDeleteDocument:
             "bm25_deleted": 4,
             "images_deleted": 1,
             "integrity_removed": True,
+            "source_file_removed": False,
         }
         assert env.data.calls == [("docs/a.md", "docs")]
 
