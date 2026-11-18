@@ -1,0 +1,30 @@
+{"id": "x_h01", "query": "KV Cache 为什么能加速推理？", "expected": "hybrid", "lang": "zh", "note": "单一概念"}
+{"id": "x_h02", "query": "剪枝有哪几种做法？", "expected": "hybrid", "lang": "zh", "note": "列举型事实（v2 易误判类）"}
+{"id": "x_h03", "query": "LangGraph 相比 LangChain 好在哪？", "expected": "hybrid", "lang": "zh", "note": "同一处讲到的简单对比"}
+{"id": "x_h04", "query": "Agent 评测和传统软件测试有什么不一样？", "expected": "hybrid", "lang": "zh", "note": "05_Agent 3.1"}
+{"id": "x_h05", "query": "MCP Server 的工具设计要遵循哪些原则？", "expected": "hybrid", "lang": "zh", "note": "列举型事实，05_Agent 4.4"}
+{"id": "x_h06", "query": "模型二值化是什么意思？", "expected": "hybrid", "lang": "zh", "note": "单一概念"}
+{"id": "x_h07", "query": "嵌入向量的维度一般怎么选？", "expected": "hybrid", "lang": "zh", "note": "单节问答"}
+{"id": "x_h08", "query": "OpenClaw 是什么？", "expected": "hybrid", "lang": "zh", "note": "单一概念"}
+{"id": "x_h09", "query": "What are the pros and cons of quantization?", "expected": "hybrid", "lang": "en", "note": "单节问答"}
+{"id": "x_h10", "query": "What does a reranker do in a RAG pipeline?", "expected": "hybrid", "lang": "en", "note": "单一概念"}
+{"id": "x_f01", "query": "Gemini 3 我记得笔记里写过，大概在什么位置？", "expected": "agentic_fast", "lang": "zh", "note": "定位，无“文件/搜索”字样"}
+{"id": "x_f02", "query": "ForgePilot 在我的资料里出现过几次？", "expected": "agentic_fast", "lang": "zh", "note": "字面计数"}
+{"id": "x_f03", "query": "面试实战那份记录一共收了多少家公司？", "expected": "agentic_fast", "lang": "zh", "note": "单文件枚举计数"}
+{"id": "x_f04", "query": "PI-Agent 那篇最后附的几个链接给我一下", "expected": "agentic_fast", "lang": "zh", "note": "指定文件取原文"}
+{"id": "x_f05", "query": "我昨天传上来的那份文档讲的是什么？", "expected": "agentic_fast", "lang": "zh", "note": "新上传未入库"}
+{"id": "x_f06", "query": "“压力测试”这几个字都出现在什么地方？", "expected": "agentic_fast", "lang": "zh", "note": "字面定位"}
+{"id": "x_f07", "query": "Claude Code 那篇笔记的目录结构是怎样的？", "expected": "agentic_fast", "lang": "zh", "note": "单文件结构"}
+{"id": "x_f08", "query": "RLCD 这个缩写在资料里第一次出现是在哪？", "expected": "agentic_fast", "lang": "zh", "note": "字面定位"}
+{"id": "x_f09", "query": "Where in my notes did I write down the Hermes repo URL?", "expected": "agentic_fast", "lang": "en", "note": "字面定位"}
+{"id": "x_f10", "query": "How many times does \"vLLM\" show up across my notes?", "expected": "agentic_fast", "lang": "en", "note": "字面计数"}
+{"id": "x_d01", "query": "OpenClaw、Hermes 和 PI-Agent 记用户偏好的方式，哪种更适合长期运行的个人助手？", "expected": "agentic_deep", "lang": "zh", "note": "多文件判断，无“对比”字样"}
+{"id": "x_d02", "query": "按我这些面试记录，下次面 Agent 岗最该准备哪三块？", "expected": "agentic_deep", "lang": "zh", "note": "全量记录归纳"}
+{"id": "x_d03", "query": "想做一个能写进简历的 Agent 项目，照我笔记里的内容应该怎么从零设计？", "expected": "agentic_deep", "lang": "zh", "note": "多章节综合"}
+{"id": "x_d04", "query": "我的笔记里关于 Harness 的说法前后一致吗？", "expected": "agentic_deep", "lang": "zh", "note": "跨文件一致性"}
+{"id": "x_d05", "query": "学完这些笔记，RAG 和 Agent 两条线哪条更值得先投入？说说理由", "expected": "agentic_deep", "lang": "zh", "note": "全库论证"}
+{"id": "x_d06", "query": "面试官问 Agent 记忆时，我该怎么结合几个开源框架来回答？", "expected": "agentic_deep", "lang": "zh", "note": "多框架整合"}
+{"id": "x_d07", "query": "DeepSeek Harness 的做法放进 Claude Code 里会遇到什么问题？", "expected": "agentic_deep", "lang": "zh", "note": "两文件推理"}
+{"id": "x_d08", "query": "后端工程师转大模型应用，从我这些笔记看最大的知识缺口在哪？", "expected": "agentic_deep", "lang": "zh", "note": "全库归纳"}
+{"id": "x_d09", "query": "Based on my interview records, where did I lose points most often?", "expected": "agentic_deep", "lang": "en", "note": "全量记录归纳"}
+{"id": "x_d10", "query": "If I only had two weeks before an LLM application interview, what should I study from these notes and in what order?", "expected": "agentic_deep", "lang": "en", "note": "全库规划"}

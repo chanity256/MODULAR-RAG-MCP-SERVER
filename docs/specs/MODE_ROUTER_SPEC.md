@@ -2,7 +2,9 @@
 
 # 检索模式路由器规格 (MODE_ROUTER_SPEC)
 
-> 版本：0.2 — 由 backlog 提案立项为可执行规格；MR0.2 决策质量门控通过前不进入编码（MR1 起）
+> 版本：0.3 — 由 backlog 提案立项为可执行规格；MR0.2 决策质量门控已通过（2026-11-18），MR1 起可进入编码
+>
+> v0.3（2026-11-18）更新依据：MR0.2 基线与留出集复核完成，D2 / D8 终裁回填 §1.3；默认 `model: clef-flash`、`min_confidence: null`；§3.6 请求示例改为选定的 zh-v2 文案
 >
 > v0.2（2026-11-18）更新依据：用户决定首期接入 Cloudflare 的 Clef 决策模型，TypeSafe 的 Jev 与本地微调模型后续接入（D6，MR6 / MR7）。Clef 与 Jev 共用 System One API（typed questions → 带概率与 confidence 的结构化答案），与 v0.1 假设的 chat completions 接口不同，据此改写 3.1–3.5 的后端设计与配置契约，追加 3.6（D7、D8），并修正 v0.1 中「本地小模型、零 token 费用」的表述与 §8 外发边界
 >
@@ -78,13 +80,13 @@
 | 编号 | 决策 | 终裁 |
 |------|------|------|
 | D1 | MCP `query_knowledge_hub` 是否新增 `retrieval` / `auto` 参数（原提案 G7 后半与 MR5） | **不做**（2026-11-18，用户拍板）。MCP 调用方是外部 LLM，它已经通过选择 `query_knowledge_hub` 或 `agentic_search` 工具来选检索方式；让 hybrid 工具转派 agentic 会改变 MCP 工具契约与描述。后续有需求另立提案 |
-| D2 | MR0.2 决策质量门槛 | **本规格只固定度量口径，数值门槛在 MR0.2 基线跑出后与用户共同拍板**（2026-11-18，用户拍板）。门槛终裁前 MR1 不开工；终裁结果回填本表与 MR0.2 行。v0.2 补：`min_confidence` 阈值（D8）与默认 `model` 和门槛一同拍板；Jev（MR6）与本地模型（MR7）沿用同一口径与同一标注集 |
+| D2 | MR0.2 决策质量门槛 | **本规格只固定度量口径，数值门槛在 MR0.2 基线跑出后与用户共同拍板**（2026-11-18，用户拍板）。门槛终裁前 MR1 不开工；终裁结果回填本表与 MR0.2 行。v0.2 补：`min_confidence` 阈值（D8）与默认 `model` 和门槛一同拍板；Jev（MR6）与本地模型（MR7）沿用同一口径与同一标注集。**终裁（2026-11-18，用户拍板）**：门槛 = 默认配置在留出集（`holdout_set.jsonl`）上命中率 ≥ 90%、deep 误选率 ≤ 10%、非法输出率 0；默认 `model: clef-flash`、criteria 用 zh-v2。实测 93.3% / 5% / 0，通过。门槛在看到结果后设定，后续模型（MR6 / MR7）与文案改动按同一门槛复核，标注集与留出集同时跑 |
 | D3 | sidecar 已配置但未启动时 auto 如何处理 | **不做存活探测**（2026-11-18，用户拍板）。候选集只看配置与 `allow_deep`；路由选中 agentic 模式但 sidecar 不可用时，行为与人工选中该模式完全一致（默认 error 帧，`chat.fallback_to_chat_only: true` 时降级纯聊天），规格与 USAGE_GUIDE 写明 |
 | D4 | 候选集来源 | **由装配层计算后注入引擎**（规格设计决策，依据 1.4 勘误 1）：候选 = 已注册检索器 ∩ 门控可用（`allow_deep=false` 时剔除 `agentic_deep`），与 `compute_capabilities` 同一口径；引擎不直接取 `self._retrievers` 的 keys |
 | D5 | 决策时机与输入 | **在 `_run` 中查询改写之后决策，输入改写后的 `search_query`**（规格设计决策，依据 1.4 勘误 3）：多轮追问（如「那第二点呢」）用改写后的独立问题判断复杂度；决策期间下发 `status` 帧，`run_turn` 的同步校验不引入网络调用 |
 | D6 | 决策模型接入顺序 | **首期接入 Cloudflare Clef（Workers AI 托管），TypeSafe Jev 与本地微调模型后续接入**（2026-11-18，用户拍板）。MR0.2 的基线与 MR2 的实现只针对 Clef；Jev 为 MR6，本地微调模型为 MR7，均在用户提供凭据或端点后排期。本规格冻结时若二者仍未到位，移入派生台账，不阻塞冻结 |
 | D7 | 决策后端接口 | **以 System One API 为主契约**（规格设计决策，依据 3.6）：一次请求只问一个 `choice` 问题，`criteria` 由当前候选动态生成；Clef 与 Jev 只在端点、鉴权、响应外层包装上不同，共用一份请求构造与答案解析。chat completions 形态（`openai_compatible`）只服务 MR7 的本地模型；若本地模型也提供 System One 接口，则直接复用 System One 后端 |
-| D8 | 低置信度处理 | **`choice` 答案的 `confidence` 低于 `mode_router.min_confidence` 时回退 `fallback_retrieval`，`fallback_reason = low_confidence`**（规格设计决策）。默认 `null`（不启用）；阈值依据 MR0.2 的置信度分桶命中率，与 D2 一同拍板。`openai_compatible` 后端没有 confidence，该配置必须为 `null` |
+| D8 | 低置信度处理 | **`choice` 答案的 `confidence` 低于 `mode_router.min_confidence` 时回退 `fallback_retrieval`，`fallback_reason = low_confidence`**（规格设计决策）。默认 `null`（不启用）；阈值依据 MR0.2 的置信度分桶命中率，与 D2 一同拍板。`openai_compatible` 后端没有 confidence，该配置必须为 `null`。**终裁（2026-11-18，用户拍板）**：默认 `null`。留出集上 0.3 使 clef-flash zh-v2 命中率由 93.3% 降到 86.7%，置信度不足以作为回退依据；配置项保留，换模型或文案后可按同口径重测 |
 
 ### 1.4 对提案的勘误
 
@@ -186,12 +188,12 @@ ChatEngine._run（生成器）
 mode_router:
   enabled: false                 # true 才提供 auto 模式；false 时零加载
   backend: cloudflare_workers_ai # cloudflare_workers_ai（Clef，MR2）| typesafe（Jev，MR6）| openai_compatible（本地微调，MR7）
-  model: clef                    # Workers AI：clef | clef-flash（默认值在 MR0.2 后定）；TypeSafe：固定版本号，不用会漂移的 jev-latest；本地：部署名
+  model: clef-flash              # Workers AI：clef | clef-flash（D2 终裁默认 clef-flash）；TypeSafe：固定版本号，不用会漂移的 jev-latest；本地：部署名
   account_id: ${CLOUDFLARE_ACCOUNT_ID}  # 仅 cloudflare_workers_ai；从环境变量解析
   base_url: null                 # 可选覆盖（AI Gateway 或本地端点）；cloudflare_workers_ai 缺省按 account_id 拼接，typesafe 缺省 https://api.typesafe.ai/v1
   api_token: ${MODE_ROUTER_API_TOKEN}   # Workers AI API token / TypeSafe API key；从环境变量解析，不落盘
-  timeout_s: 3                   # 决策发生在每轮检索之前，超时即回退
-  min_confidence: null           # D8：低于该值回退；null 不启用，阈值在 MR0.2 后拍板
+  timeout_s: 3                   # 决策发生在每轮检索之前，超时即回退；MR0.2 实测 clef-flash 最大约 1.0 s
+  min_confidence: null           # D8：低于该值回退；null 不启用（D8 终裁默认 null）
   fallback_retrieval: hybrid     # 决策失败 / 超时 / 输出非法 / 低置信度时的兜底模式
 ```
 
@@ -225,7 +227,7 @@ ollama create mode-router -f ./Modelfile && ollama serve                # base_u
 | 文件 | 职责 | 任务 |
 |------|------|------|
 | `scripts/eval_mode_router.py` | 决策质量评估脚本：读标注集、调真实决策服务、输出命中率 / 混淆矩阵 / 置信度分桶 / 延迟分位 / 非法输出率；真实运行，不进 `pytest tests`。MR0.2 时请求构造与问题文案写在脚本内（门控通过前不改 `src/`）；MR2 把文案移入 `routing_question.py`，脚本改为调用 `libs/mode_router`，此后脚本与运行时共用一份；MR6 / MR7 复用 | MR0.2 / MR2 |
-| `tests/fixtures/mode_router/labeled_set.jsonl` | 独立标注集（问题 → 期望模式），与 `golden_test_set.json` 分离 | MR0.2 |
+| `tests/fixtures/mode_router/labeled_set.jsonl`、`holdout_set.jsonl` | 独立标注集与留出集（问题 → 期望模式），与 `golden_test_set.json` 分离；留出集用于 D2 门槛复核 | MR0.2 |
 | `src/libs/mode_router/__init__.py`、`base_mode_router.py`、`routing_question.py`、`system_one_router.py`、`mode_router_factory.py` | 3.2 所述组件（首期 `cloudflare_workers_ai` 后端） | MR2 |
 | `src/libs/mode_router/openai_compatible_router.py` | 本地微调模型后端 | MR7 |
 | `tests/unit/test_mode_router.py` | 组件离线单测 | MR2 |
@@ -264,20 +266,20 @@ ollama create mode-router -f ./Modelfile && ollama serve                # base_u
 | `typesafe` | TypeSafe Jev（early access） | `https://api.typesafe.ai/v1/systemone` | `Authorization: Bearer <TypeSafe API key>` | System One 答案，无外层包装 | MR6 |
 | `openai_compatible` | 本地微调模型（vLLM / Ollama） | `{base_url}/chat/completions` | 可选 Bearer | chat completions 文本，需解析 | MR7 |
 
-请求体（Clef 与 Jev 相同；`criteria` 只含当前候选，描述文案在 MR0.2 中调优，MR2 起固定在 `routing_question.py`）：
+请求体（Clef 与 Jev 相同；`criteria` 只含当前候选；下例为 MR0.2 选定的 zh-v2 文案，MR2 起固定在 `routing_question.py`，原 v1 文案只讲「是否已摄取」，基线命中率 46.7–63.3%，已弃用）：
 
 ```json
 {
-  "model": "clef",
+  "model": "clef-flash",
   "state": "<改写后的 search_query>",
   "questions": {
     "retrieval_mode": {
       "type": "choice",
-      "instructions": "Which retrieval mode should answer this question?",
+      "instructions": "应由哪种检索模式回答这个问题？",
       "criteria": {
-        "hybrid": "Answerable from the already-ingested knowledge base with keyword and semantic search; fastest",
-        "agentic_fast": "Needs one exploratory scan of allowed local directories beyond the ingested corpus",
-        "agentic_deep": "Needs multi-step investigation across many files; slowest and most expensive"
+        "hybrid": "解释一个概念或事实，一两段内容即可回答，包括同一处讲到的简单对比，例如 X 是什么、为什么、X 和 Y 有何区别；最快",
+        "agentic_fast": "需要逐字扫描本地文件：哪个文件或章节提到某个词、列出所有出现位置、从指定文件原样摘录原文或链接、列出某文件的标题，或查找新上传、尚未索引的文件",
+        "agentic_deep": "需要阅读并综合多个文件：对比分散在不同文档里的对象、汇总全部记录，或基于多个章节写综述、计划或论证；最慢、成本最高"
       }
     }
   }
@@ -290,11 +292,11 @@ ollama create mode-router -f ./Modelfile && ollama serve                # base_u
 
 - Clef 遵循 System One API，Cloudflare 称从 Jev 切换只需换端点与模型名。MR6 依赖这一点，但以实测为准。
 - 计费只算输入 token：Clef $0.24 / M，Clef-flash $0.038 / M。一次路由请求只含问题与三条描述，量级为数百 token。
-- 厂商在自己的基准环境中公布的延迟：中位数 Clef 209 ms、Clef-flash 39 ms、Jev 524 ms。本机到服务端的网络往返另计；MR0.2 在本机实测 p50 / p95 后再确认 `timeout_s`。
+- 厂商在自己的基准环境中公布的延迟：中位数 Clef 209 ms、Clef-flash 39 ms、Jev 524 ms。本机到服务端的网络往返另计；MR0.2 本机复用连接实测 clef-flash p95 约 0.44–0.52 s、最大约 1.0 s，`timeout_s` 默认 3 保持不变。
 - Clef 模型页标注 Zero data retention；TypeSafe 服务当前部署在美国西海岸。
 - 模型页没有写明 Clef 的 REST 响应是否也带 Workers AI 通用的 `result` 外层包装（通用 REST 文档是带的）。解析同时接受有包装与无包装两种形态。2026-11-18 首次真实调用已确认 Clef 带包装（见 MR0.2 行）。
 - `choice` 没有内置「都不合适」选项。三档模式已覆盖全部情况，不加 other 项。
-- 用户问题多为中文，criteria 用中文还是英文由 MR0.2 对比后决定。
+- 用户问题多为中文。MR0.2 实测中英文 criteria 表现相当（留出集 clef-flash 均为 93.3%），选用中文 zh-v2。
 
 
 ## 4. 测试方案
@@ -323,8 +325,9 @@ ollama create mode-router -f ./Modelfile && ollama serve                # base_u
 | 编号 | 任务 | 验收标准 | 状态 |
 |------|------|----------|------|
 | MR0.1 | 立项与决策终裁 | D1–D3 终裁、D4/D5 设计决策与 1.4 勘误记入 §1；MOC、backlog/README、README 导航同步；`test_docs_links.py` 与 `test_spec_structure.py` 通过 | 已完成（2026-11-18） |
-| MR0.2 | 决策质量预研（立项门，Clef） | 前置：用户提供 Cloudflare Account ID 与 Workers AI API token；标注集由用户提供，或由 agent 起草、用户逐条确认（每档模式均有覆盖，与 golden set 分离）。`scripts/eval_mode_router.py` 对 `clef` 与 `clef-flash` 各跑一遍，输出总体命中率、三档混淆矩阵、deep 误选率（期望非 deep 却选 deep）、hybrid 误降率（期望非 hybrid 却选 hybrid）、非法输出率、置信度分桶命中率及不同 `min_confidence` 下的覆盖率与命中率、本机实测决策延迟 p50 / p95、平均输入 token；对比中英文 criteria 文案；确认 Workers AI 响应包装形态。数值门槛、默认 `model` 与 `min_confidence` 按 D2 / D8 与用户拍板并回填 §1.3；未达标即本规格搁置，不改 `src/` | 进行中（2026-11-18 凭据就绪，首次真实调用通过：响应带 Workers AI `{result, success, errors, messages}` 包装，`usage.output_tokens` 为 0，单次请求约 200 输入 token；本机冷连接延迟 clef 2.4–2.7 s、clef-flash 1.0–1.1 s（每次新建连接，含 TLS 握手），明显高于厂商公布值，正式基线复用连接测 p50 / p95。2026-11-18 交付 `scripts/eval_mode_router.py`（离线单测 `tests/unit/test_eval_mode_router_script.py`）与标注集草案 `tests/fixtures/mode_router/labeled_set.jsonl`（60 条，每档 20 条，中文 16 / 英文 4，取材于 `data/documents/` 下的学习笔记语料）；zh criteria 为 en 直译，只比较语言差异；3 条小样本真实运行链路通过，复用连接后延迟 clef 约 0.7–0.9 s、clef-flash 约 0.4–0.5 s（p50）。用户确认标注后跑全量基线（60 条 × 2 模型 × 4 版文案，无非法输出）：v1 文案（§3.6 原文，只讲「是否已摄取」）命中率 clef zh 63.3% / en 60.0%、clef-flash zh 61.7% / en 46.7%，fast 与 deep 大量误判为 hybrid（hybrid 误降率 55–78%），置信度未校准，任何 `min_confidence` 回退都降低整体命中率；v2 文案（按问题形态描述三档，脚本内 `zh-v2` / `en-v2`）命中率 clef zh 95.0% / en 98.3%、clef-flash zh 96.7% / en 96.7%，fast / deep 全中，误判只剩「X 有哪些」类 hybrid 问题被选 deep（deep 误选率 2.5–7.5%）且置信度均 < 0.5，`min_confidence` 0.3–0.4 回退 hybrid 后整体命中率 98.3–100%；v2 输入约 272–286 token；复用连接延迟 p50 / p95 clef 约 0.69–0.71 s / 1.6–1.7 s，clef-flash 约 0.35–0.36 s / 0.44–0.49 s（clef 每轮首次请求约 6 s）。注意：v2 文案依据本标注集的标注口径编写，命中率偏乐观，门槛终裁前宜另备留出集复核；门槛、默认 `model`、文案版本与 `min_confidence` 待与用户拍板（D2 / D8）） |
-| MR1 | 配置节 + 常量与协议 | §4 配置组用例通过；`RETRIEVAL_MODES` / `CHAT_RETRIEVAL_MODES` 内容不变；`config/settings.yaml` 示例 `enabled: false` | 未开始（MR0.2 门控） |
+| MR0.2 | 决策质量预研（立项门，Clef） | 前置：用户提供 Cloudflare Account ID 与 Workers AI API token；标注集由用户提供，或由 agent 起草、用户逐条确认（每档模式均有覆盖，与 golden set 分离）。`scripts/eval_mode_router.py` 对 `clef` 与 `clef-flash` 各跑一遍，输出总体命中率、三档混淆矩阵、deep 误选率（期望非 deep 却选 deep）、hybrid 误降率（期望非 hybrid 却选 hybrid）、非法输出率、置信度分桶命中率及不同 `min_confidence` 下的覆盖率与命中率、本机实测决策延迟 p50 / p95、平均输入 token；对比中英文 criteria 文案；确认 Workers AI 响应包装形态。数值门槛、默认 `model` 与 `min_confidence` 按 D2 / D8 与用户拍板并回填 §1.3；未达标即本规格搁置，不改 `src/` | 已完成（2026-11-18，门控通过）。响应带 Workers AI `{result, success, errors, messages}` 包装，`usage.output_tokens` 为 0。交付 `scripts/eval_mode_router.py`（离线单测 `tests/unit/test_eval_mode_router_script.py`）、标注集 `tests/fixtures/mode_router/labeled_set.jsonl`（60 条，每档 20，中 16 / 英 4，取材于 `data/documents/` 下的学习笔记，用户确认）与留出集 `holdout_set.jsonl`（30 条，每档 10，不含「文件 / 搜 / 原文 / 对比 / 综合」等提示词，用户确认，跑前未见结果）。全部运行无非法输出。**v1 文案**（只讲「是否已摄取」）标注集命中率 46.7–63.3%，fast / deep 大量误判为 hybrid（hybrid 误降率 55–78%）。**v2 文案**（按问题形态描述三档，见 §3.6）标注集 95.0–98.3%；留出集 clef 96.7%（zh / en），clef-flash 93.3%（zh / en），deep 误选率 0–5%。`min_confidence` 0.3 在标注集上把命中率提到 98.3–100%，在留出集上却降到 83.3–90.0%（被丢弃的低置信度决策中正确的 agentic 选择多于错选），两集合计 clef-flash zh-v2 不设阈值 95.6%、0.3 为 94.4%，故不启用。复用连接延迟（p50 / p95）clef-flash 约 0.35–0.38 s / 0.44–0.52 s、全部运行最大约 1.0 s；clef 约 0.63–0.80 s / 1.5–1.7 s、偶发 5 s 与每轮首次约 6 s。v2 输入约 270–286 token。终裁见 D2 / D8 |
+
+| MR1 | 配置节 + 常量与协议 | §4 配置组用例通过；`RETRIEVAL_MODES` / `CHAT_RETRIEVAL_MODES` 内容不变；`config/settings.yaml` 示例 `enabled: false` | 未开始（MR0.2 门控已通过） |
 | MR2 | `libs/mode_router/` 组件 + 工厂 | §4 组件组用例通过；红线脚本 0 违规；主 venv 未新增依赖 | 未开始 |
 | MR3 | ChatEngine auto 分支 + 装配注入 | §4 引擎组与装配组用例通过；既有 Chat 单测与 WS 集成测试不改即通过 | 未开始 |
 | MR4 | API schema、capabilities 与 Chat 前端 | §4 装配组 capabilities 断言与前端 vitest 通过；`npm run typecheck && npm run lint && npm test` 全绿；Auto 选中态对比度 ≥ WCAG AA（light / dark 实测记入本表） | 未开始 |
@@ -361,12 +364,12 @@ ollama create mode-router -f ./Modelfile && ollama serve                # base_u
 
 | # | 风险 / 开放问题 | 处置 |
 |---|----------------|------|
-| R1 | 微调模型决策质量不达标（错选 deep 造成高成本、错选 hybrid 造成低质量） | MR0.2 立项门；门槛按 D2 与用户拍板；不达标即搁置，不改代码 |
+| R1 | 微调模型决策质量不达标（错选 deep 造成高成本、错选 hybrid 造成低质量） | MR0.2 立项门；门槛按 D2 与用户拍板；不达标即搁置，不改代码。2026-11-18 已通过（见 D2） |
 | R2 | 决策延迟叠加每轮回答 | `timeout_s` 硬顶（默认 3，上限 10）+ 回退；`elapsed_ms` 入 trace；托管服务另有跨境网络往返，MR0.2 在本机实测 p95 后确认 `timeout_s`，必要时改用 `clef-flash` |
 | R3 | `auto` 语义扩散到其他链路 | 1.2 列出全部六处模式枚举；Out of Scope 明确 CLI、评估、Playground、MCP 不感知 |
 | R4 | Auto 配色与 CMC 三色冲突或对比度不足 | MR4 验收含 light / dark 实测对比度；三档既有配色不动 |
 | R5 | 决策端点成为新故障域 | 进程外托管 + 回退 + trace 可观测；默认关闭 |
 | R6 | 路由选中 agentic 但 sidecar 未启动 | D3：与人工选中一致，不做探测；USAGE_GUIDE 写明，用户可开 `chat.fallback_to_chat_only` 或不启用路由器 |
 | R7 | 厂商服务变动：Jev 处于 early access，模型别名（如 `jev-latest`）会随版本漂移，价格与 API 也可能变 | 配置要求固定版本号；阈值按具体版本标定，换版本后重跑同口径基线 |
-| R8 | 决策模型对中文问题与英文 criteria 的表现未知 | MR0.2 对比中英文 criteria 文案，择优固定到 `routing_question.py` |
+| R8 | 决策模型对中文问题与英文 criteria 的表现未知 | MR0.2 已对比：中英文相当，选用 zh-v2；影响更大的是文案内容（v1 → v2 命中率约 +35 个百分点） |
 | R9 | 首期依赖外部托管服务，问题文本出本机 | §8 写明；默认关闭；MR7 提供纯本地选项 |

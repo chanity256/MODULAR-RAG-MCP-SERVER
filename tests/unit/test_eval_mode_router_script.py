@@ -80,6 +80,15 @@ def test_repo_labeled_set_is_valid_and_balanced(entry) -> None:
     assert zh > len(items) / 2
 
 
+def test_repo_holdout_set_is_valid_and_disjoint(entry) -> None:
+    holdout = entry.load_labeled_set(entry.DEFAULT_LABELED_SET.with_name("holdout_set.jsonl"))
+    counts = {mode: sum(i.expected == mode for i in holdout) for mode in entry.MODES}
+    assert all(n >= 10 for n in counts.values()), counts
+    labeled = entry.load_labeled_set(entry.DEFAULT_LABELED_SET)
+    assert not {i.query for i in holdout} & {i.query for i in labeled}
+    assert not {i.id for i in holdout} & {i.id for i in labeled}
+
+
 @pytest.mark.parametrize(
     "row, message",
     [
