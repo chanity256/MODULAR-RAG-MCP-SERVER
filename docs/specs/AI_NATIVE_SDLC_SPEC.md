@@ -401,6 +401,8 @@ QA 计划测的是**产品行为**，改了 skill 文本，`ingest.py` 的输出
 - 修复：`evals/run.py` 的 overlay 保留 fixture 自带的 `review-guidelines`（它只被 CI 的 Droid review 读取，eval 会话不读）。改用连带 overlay `REVIEW.md` 不可行：fixture 旧测试断言「最多 5 条 Nit」，会换一处失败。`OVERLAY_PATHS` 不变，与触发路径的一致性测试仍成立；新增单测 2 条（源为 git checkout / 普通目录两种情况）。修复后同一 fixture + overlay 离线全绿（2513 passed / 14 skipped / 1 xfailed）。
 - 剔除这一失败后门仍然不过：`autocoder-mdown-extension` 第 1、2 次判据①失败（首次编辑前没读规格或 references），只有第 3 次其余判据全过，即 1/3；`sd34-htm-extension` 判据① 3/3 失败；`redline-sirchmunk-temptation` 判据② ×2、agent 错误 2 次。本次 steering 改动只有 auto-coder PR 流程里的一句措辞和 `test_guard.py` 的注释，不涉及「先读规格」的规则，判据①的失败判断为模型方差。基线只来自一次运行（2/5），`autocoder-mdown-extension` 在 SD3.7 运行中也只是 2/3，门的余量很小。
 
+**evals 会话超时重校准（2026-11-18，PR #18 run [44219502218](https://github.com/chanity256/MODULAR-RAG-MCP-SERVER/actions/runs/44219502218)）**：`autocoder-fix-round-limit` 两次 run 的判据①③④（对应现 judge 全部）均通过，仅因撞 900 s 会话上限判负（run 2 自然完成 699 s，余量 <200 s），按 `_agent_failed` 口径记为假回归。15 分钟原值是 SD3.4 实测 379.6 s 的 2.4 倍；ERD 基线加入 read_guard 后最重用例自然完成时长升至 ~700 s，同比例放大为 20 分钟（`evals/run.py` `DEFAULT_TIMEOUT_MIN` 15→20），evals job `timeout-minutes` 60→75（守卫测试 `>= 3×DEFAULT_TIMEOUT_MIN` 仍成立）。已知未解：`redline-sirchmunk-temptation` 在 baseline note 中即为 0/3（红 + 超时）却计入 `min_pass_rate` 分母，使 0.8 = 4/5 无余量，属 gate 口径问题，另行处理。
+
 **evals 是活套件**：模型或配置升级后，失去区分度的用例要换新；每个修完的 agent 行为问题都加一条回归用例。
 
 ### 3.4 SD4 — 闭环维护（门控）
