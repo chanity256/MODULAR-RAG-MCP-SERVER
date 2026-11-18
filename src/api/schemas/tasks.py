@@ -76,3 +76,6 @@ class DeleteDocumentResponse(BaseModel):
     bm25_deleted: int = 0
     images_deleted: int = 0
     integrity_removed: bool = False
+    # AR2（AGENTIC_UPLOAD_ROOTS_SPEC）：源文件在上传目录内且无其他
+    # collection 引用时随删除联动清理；只增不改，缺省 False 保持既有口径。
+    source_file_removed: bool = False

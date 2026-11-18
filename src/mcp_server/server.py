@@ -183,6 +183,11 @@ def main(stdin: TextIO | None = None, stdout: TextIO | None = None) -> int:
     except (ConfigError, FileNotFoundError, OSError):
         settings = None
     if settings is not None:
+        from libs.agentic_search.local_roots import ensure_local_roots
+
+        # AR1：预建 data/ 下白名单根（如 data/uploads）；日志走 stderr，
+        # stdout 只输出 JSON-RPC（DEV_SPEC 3.2.2）。
+        ensure_local_roots(settings.agentic_search)
         setup_app_logging(settings, "mcp")
     return MCPServer(protocol_handler=build_default_protocol_handler(settings)).serve(
         stdin=stdin, stdout=stdout

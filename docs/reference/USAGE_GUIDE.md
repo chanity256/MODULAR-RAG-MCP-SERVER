@@ -283,11 +283,19 @@ agentic_search:
   timeout_s: 30                     # 须低于 MCP 客户端工具超时
   allowed_roots:                    # 检索白名单（enabled 时必须非空）
     - ./data/documents
+    - ./data/uploads                # Web UI 上传目录（AR1）：agentic 模式可检索上传文件
   denied_substrings:                # 白名单内仍强制排除
     - .env
     - .git
     - data/db
 ```
+
+白名单说明（AR 系列）：
+
+- **隐私提示**：`./data/uploads` 在白名单内时，agentic 检索（MCP 工具、Chat `agentic_fast` / `agentic_deep`、第三路）会把命中上传文件的内容经 sidecar 发给外部 LLM；只想让上传文件留在本地索引，就从 `allowed_roots` 移除该行（`agentic_search.enabled: false` 时完全不外发）。
+- **目录预建**：进程入口（`start_api.py` / MCP server / `query.py --agentic`）会自动预建位于 `data/` 之下的白名单根（如 `data/uploads`）；`data/` 之外的根仍须自行创建，否则 PathGuard fail-closed 拒绝（`allowed root does not exist`）。
+- **从仓库根启动**：白名单根按启动进程的 CWD 解析（`./data/...`），须从仓库根启动主项目。
+- **删除联动**：经 Web UI 删除文档时，源文件若在上传目录内且不再被任何 collection 引用，会随四存储删除一并清理；删除响应新增 `source_file_removed` 字段。
 
 ---
 
@@ -425,6 +433,9 @@ python scripts/start_api.py --serve-ui
 - 其它覆盖：`--host` / `--port` / `--config`。
 - `start_api.py` 默认**不托管 sidecar**；用 Fast/Deep（Playground）或 `agentic_fast` / `agentic_deep`（Chat）需先手动起 sidecar（第 5 节），或加 `--manage-sidecar` 让启动器自动托管（拉起 / 等健康 / 退出回收）。
 - Chat 复用 `settings.yaml` 的 `llm:` 配置，hybrid 检索要求已摄取数据（第 2.2 节或 Ingestion Manager 页）。
+- **上传文件与 agentic 检索（AR1）**：上传落盘 `data/uploads/`，该目录默认已在 `agentic_search.allowed_roots` 白名单内——Agentic 模式可检索上传文件，命中内容会经 sidecar 发给外部 LLM（隐私边界见 4.4）；从白名单移除 `./data/uploads` 可关闭外发。
+- **删除联动（AR2）**：Ingestion Manager 或 `DELETE /documents/{id}` 删除上传文档时，源文件在上传目录内且无其他 collection 引用会一并删除（响应 `source_file_removed`）。
+- **从仓库根启动**：`start_api.py` 预建 `data/` 下白名单根、白名单按 CWD 解析，均要求从仓库根启动（4.4）。
 
 **前端开发模式**（热更新，前后端分开启动）：
 
@@ -525,7 +536,7 @@ chat:
 |------|------|
 | 健康（免鉴权，不带前缀） | `GET /health` |
 | 只读 | `GET /overview`；`GET /collections`、`GET /collections/{name}`；`GET /documents`（`collection` / `keyword` / `limit<=500` / `offset`）、`GET /documents/{source_path}?collection=`；`GET /images`、`GET /images/{image_id}`（图片字节）；`GET /traces`（`trace_type` / `keyword` / `routes` / `limit<=500` / `offset`）、`GET /traces/{trace_id}` |
-| 写（后台任务，202 + `task_id`） | `POST /uploads`（multipart 字段 `files`，201）；`POST /ingestions`（`{files, collection, force}`，只接受已上传文件名；同文件同集合重复提交 409）；`POST /evaluations`（`{backend, test_set_path?, top_k?, filters?}`；同时只允许一个，409）；`DELETE /documents/{source_path}?collection=`（同步，Chroma + BM25 + 图片 + 摄取历史） |
+| 写（后台任务，202 + `task_id`） | `POST /uploads`（multipart 字段 `files`，201）；`POST /ingestions`（`{files, collection, force}`，只接受已上传文件名；同文件同集合重复提交 409）；`POST /evaluations`（`{backend, test_set_path?, top_k?, filters?}`；同时只允许一个，409）；`DELETE /documents/{source_path}?collection=`（同步，Chroma + BM25 + 图片 + 摄取历史 + 上传目录内的源文件联动清理） |
 | 任务 | `GET /tasks`（`kind` / `status` / `limit<=200` / `offset`）、`GET /tasks/{task_id}`（断线恢复轮询）；**`WS /tasks/{task_id}/events`**：先回放当前快照再推送 `{type:"task_event", task_id, status, detail, timestamp, version}`，终态后服务端关闭 |
 | 检索（Query Playground） | `POST /search`（`{mode: normal\|fast\|deep, query, top_k?, collection?}`，被门控拒绝 403 `AGENTIC_DISABLED` / `DEEP_DISABLED`；检索自身失败 200 + `is_error`）；`GET /search/capabilities`（含 `progress_stream`，反映 `api.deep_progress_stream`）；**`WS /search/ws`**（仅 `api.deep_progress_stream: true` 时可用，见 10.6） |
 | Chat | `WS /chat`；`GET /chat/capabilities`；`GET /chat/sessions`、`GET /chat/sessions/{session_id}`、`DELETE /chat/sessions/{session_id}` |

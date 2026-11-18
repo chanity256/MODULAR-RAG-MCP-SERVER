@@ -451,6 +451,9 @@ def main(
                 f"{settings.agentic_search.backend!r}）后重试"
             )
             return EXIT_USAGE
+        from libs.agentic_search.local_roots import ensure_local_roots
+
+        ensure_local_roots(settings.agentic_search)  # AR1：预建 data/ 下白名单根
         if agentic_backend is not None:
             agentic_adapter = AgenticRouteAdapter(agentic_backend)
         else:

@@ -89,6 +89,9 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         settings = resolve_api_settings(load_settings(args.config), args)
+        from libs.agentic_search.local_roots import ensure_local_roots
+
+        ensure_local_roots(settings.agentic_search)  # AR1：预建 data/ 下白名单根（如 data/uploads）
         api = settings.api  # type: ignore[attr-defined]
         if not api.enabled and not args.force:
             print("api.enabled is false; set api.enabled: true or pass --force", file=sys.stderr)
