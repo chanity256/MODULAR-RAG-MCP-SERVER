@@ -98,6 +98,8 @@ class CloudflareWorkersAIRouter(BaseModeRouter):
       ~0.35 s），线程安全；``close()`` 释放。
     """
 
+    backend_name = "cloudflare_workers_ai"
+
     def __init__(
         self,
         *,

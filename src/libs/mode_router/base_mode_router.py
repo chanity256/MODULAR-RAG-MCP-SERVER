@@ -55,6 +55,8 @@ class BaseModeRouter(abc.ABC):
         self.wording_lang = wording_lang
         #: 最近一次 decide 的输入 token 数（后端返回 usage 时），供 MR3 trace 使用。
         self.last_input_tokens: int | None = None
+        #: 后端标识（trace ``mode_routing.backend`` 用）；子类覆写。
+        self.backend_name = "unknown"
 
     @abc.abstractmethod
     def _answers(self, query: str, candidates: tuple[str, ...]) -> dict[str, Any]:
