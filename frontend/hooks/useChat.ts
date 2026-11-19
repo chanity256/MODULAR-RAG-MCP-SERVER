@@ -5,7 +5,7 @@ import { deleteSession, fetchCapabilities, fetchSession, fetchSessions } from "@
 import { openChatTurn, type ChatTurn } from "@/lib/chat/client";
 import { resolveMode } from "@/lib/chat/modes";
 import { chatReducer, initialChatState } from "@/lib/chat/reducer";
-import type { RetrievalMode } from "@/lib/chat/types";
+import type { RequestedRetrieval } from "@/lib/chat/types";
 import { toApiError, type ApiError } from "@/lib/errors";
 import { useAsyncData } from "@/hooks/useAsyncData";
 
@@ -19,7 +19,7 @@ function newId(prefix: string): string {
 
 export function useChat() {
   const [state, dispatch] = useReducer(chatReducer, initialChatState);
-  const [selectedMode, setSelectedMode] = useState<RetrievalMode | null>(null);
+  const [selectedMode, setSelectedMode] = useState<RequestedRetrieval | null>(null);
   // Bumped when the stored token changes so capability / session requests are re-issued with it.
   const [tokenVersion, setTokenVersion] = useState(0);
   const [sessionError, setSessionError] = useState<ApiError | null>(null);

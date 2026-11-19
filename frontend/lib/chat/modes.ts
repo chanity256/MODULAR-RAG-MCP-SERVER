@@ -1,26 +1,47 @@
-import type { ChatCapabilities, RetrievalMode } from "./types";
+import type { ChatCapabilities, RequestedRetrieval } from "./types";
 
 export interface ModeOption {
-  mode: RetrievalMode;
+  mode: RequestedRetrieval;
   label: string;
   disabled: boolean;
   /** Why the option is disabled; shown as a tooltip / hint. */
   reason?: string;
 }
 
-const LABELS: Record<RetrievalMode, string> = {
+const LABELS: Record<RequestedRetrieval, string> = {
+  auto: "Auto",
   hybrid: "Hybrid",
   agentic_fast: "Agentic (fast)",
   agentic_deep: "Agentic (deep)",
 };
 
+/** English label for a mode value coming from a frame or trace. */
+export function modeLabel(mode: string | null | undefined): string {
+  const key = mode as RequestedRetrieval | undefined;
+  return key && LABELS[key] ? LABELS[key] : (mode ?? "");
+}
+
+/** Why an auto turn fell back to `fallback_retrieval` (MODE_ROUTER_SPEC §3.2). */
+export const FALLBACK_REASON_LABELS: Record<string, string> = {
+  timeout: "router timed out",
+  unreachable: "router unreachable",
+  invalid_output: "invalid router output",
+  low_confidence: "low confidence",
+  error: "router error",
+};
+
 /**
- * Selector options for the server's capabilities. Hybrid is always offered; agentic modes are
- * hidden when the sidecar is off, and DEEP stays visible but disabled when `allow_deep` is false.
- * Before capabilities load (or if they fail) only hybrid is offered.
+ * Selector options for the server's capabilities. The Auto option appears when the server reports
+ * `auto_routing`; hybrid is always offered; agentic modes are hidden when the sidecar is off, and
+ * DEEP stays visible but disabled when `allow_deep` is false. Before capabilities load (or if they
+ * fail) only hybrid is offered.
  */
 export function buildModeOptions(capabilities: ChatCapabilities | null): ModeOption[] {
-  const options: ModeOption[] = [{ mode: "hybrid", label: LABELS.hybrid, disabled: false }];
+  const options: ModeOption[] = [];
+  if (capabilities?.auto_routing) {
+    options.push({ mode: "auto", label: LABELS.auto, disabled: false });
+  }
+  options.push({ mode: "hybrid", label: LABELS.hybrid, disabled: false });
   if (!capabilities || !capabilities.agentic_enabled) return options;
 
   const served = new Set(capabilities.retrievals);
@@ -43,7 +64,10 @@ export function buildModeOptions(capabilities: ChatCapabilities | null): ModeOpt
 }
 
 /** Selected mode if it is currently usable, else the server default, else hybrid. */
-export function resolveMode(selected: RetrievalMode | null, capabilities: ChatCapabilities | null): RetrievalMode {
+export function resolveMode(
+  selected: RequestedRetrieval | null,
+  capabilities: ChatCapabilities | null,
+): RequestedRetrieval {
   const usable = new Set(buildModeOptions(capabilities).filter((o) => !o.disabled).map((o) => o.mode));
   if (selected && usable.has(selected)) return selected;
   if (capabilities && usable.has(capabilities.default_retrieval)) return capabilities.default_retrieval;

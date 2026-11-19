@@ -183,6 +183,36 @@ describe("MessageBubble", () => {
     expect(screen.getByText(/15 tokens/)).toBeTruthy();
   });
 
+  it("shows the served mode for auto turns and the fallback reason (MR4)", () => {
+    render(
+      <ThemeProvider>
+        <MessageBubble
+          message={assistant({
+            content: "a",
+            retrieval: "agentic_fast",
+            routing: { requested: "auto", decided: "agentic_fast", fallback_reason: null },
+          })}
+        />
+      </ThemeProvider>,
+    );
+    expect(screen.getByText("Auto → Agentic (fast)")).toBeTruthy();
+  });
+
+  it("marks a fallback auto turn with its reason (MR4)", () => {
+    render(
+      <ThemeProvider>
+        <MessageBubble
+          message={assistant({
+            content: "a",
+            retrieval: "hybrid",
+            routing: { requested: "auto", decided: null, fallback_reason: "timeout" },
+          })}
+        />
+      </ThemeProvider>,
+    );
+    expect(screen.getByText("Auto → Hybrid (fell back: router timed out)")).toBeTruthy();
+  });
+
   it("shows the stage while streaming and the collapsible search log", () => {
     render(
       <ThemeProvider>
@@ -259,6 +289,7 @@ describe("ModeSelector", () => {
     enabled: true,
     retrievals: ["hybrid", "agentic_fast", "agentic_deep"],
     default_retrieval: "hybrid",
+    auto_routing: false,
     agentic_enabled: true,
     allow_deep: false,
     progress_stream: true,
@@ -297,5 +328,25 @@ describe("ModeSelector", () => {
       }
       unmount();
     }
+  });
+
+  it("shows Auto only when auto_routing is on and colors its selected state (MR4)", () => {
+    // Hidden while auto_routing is false.
+    render(<ModeSelector capabilities={caps} value="hybrid" onChange={() => undefined} />);
+    expect(screen.queryByRole("radio", { name: "Auto" })).toBeNull();
+    cleanup();
+
+    // Present (first) when auto_routing is true, with the violet selected tone.
+    const autoCaps = { ...caps, auto_routing: true };
+    const onChange = vi.fn();
+    render(<ModeSelector capabilities={autoCaps} value="auto" onChange={onChange} />);
+    const radios = screen.getAllByRole("radio") as HTMLButtonElement[];
+    expect(radios[0].textContent).toBe("Auto");
+    for (const tone of ["bg-violet-100", "text-violet-800", "dark:bg-violet-500/20", "dark:text-violet-200"]) {
+      expect(radios[0].className).toContain(tone);
+    }
+    expect(screen.getByRole("radio", { name: "Hybrid" }).className).toContain("text-slate-600");
+    fireEvent.click(screen.getByRole("radio", { name: "Hybrid" }));
+    expect(onChange).toHaveBeenCalledWith("hybrid");
   });
 });

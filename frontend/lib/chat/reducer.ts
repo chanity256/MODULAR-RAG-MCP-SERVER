@@ -1,5 +1,5 @@
 import { messagesFromSession } from "./normalize";
-import type { ChatError, ChatMessage, ChatSessionDetail, DownstreamFrame } from "./types";
+import type { ChatError, ChatMessage, ChatSessionDetail, DownstreamFrame, RequestedRetrieval } from "./types";
 
 export interface ChatState {
   sessionId: string | null;
@@ -10,7 +10,7 @@ export interface ChatState {
 }
 
 export type ChatAction =
-  | { type: "send"; userId: string; assistantId: string; message: string; retrieval?: string }
+  | { type: "send"; userId: string; assistantId: string; message: string; retrieval?: RequestedRetrieval }
   | { type: "frame"; frame: DownstreamFrame }
   | { type: "closed" }
   | { type: "load_session"; session: ChatSessionDetail }
@@ -100,6 +100,9 @@ function reduceFrame(state: ChatState, frame: DownstreamFrame): ChatState {
             rewrittenQuery: frame.rewritten_query ?? m.rewrittenQuery,
             usage: frame.usage ?? m.usage,
             traceId: frame.trace_id ?? m.traceId,
+            // The server reports the actually served mode (auto turns may route elsewhere).
+            retrieval: frame.retrieval ?? m.retrieval,
+            routing: frame.routing ?? m.routing,
             stage: null,
             stageMessage: undefined,
           }),

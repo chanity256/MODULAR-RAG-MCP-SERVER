@@ -319,3 +319,54 @@ def test_router_shared_across_engines(tmp_path):
     e1, e2 = services.new_engine(), services.new_engine()
     assert e1._mode_router is not None
     assert e1._mode_router is e2._mode_router  # 跨轮共享，连接复用
+
+
+# --------------------------------------------------------------------------- capabilities group (MR4)
+
+def test_capabilities_auto_routing_false_when_router_disabled(tmp_path):
+    services = _services(tmp_path, agentic="full")
+    caps = services.capabilities()
+    assert caps["auto_routing"] is False
+    assert "auto" not in caps["retrievals"]  # retrievals 只含三档真实模式
+
+
+def test_capabilities_auto_routing_true_when_router_enabled(tmp_path):
+    yaml = (
+        _MINIMAL_YAML
+        + "agentic_search:\n  enabled: true\n  allowed_roots: ['./data/documents']\n"
+        + "mode_router:\n  enabled: true\n  account_id: acct\n  api_token: tok\n"
+        + "chat:\n  session_db: " + str(tmp_path / "chat.db") + "\n"
+    )
+    settings = load_settings(_write(tmp_path, yaml))
+    services = ChatServices(
+        settings,
+        session_store=SessionStore(tmp_path / "chat.db"),
+        retrievers={m: FakeRetriever(m) for m in ALL_MODES},
+        llm_factory=lambda s: FakeLLM(),
+    )
+    caps = services.capabilities()
+    assert caps["auto_routing"] is True
+    assert caps["retrievals"] == list(ALL_MODES)
+
+
+def test_capabilities_auto_routing_false_when_candidates_empty(tmp_path):
+    # 路由器启用但注入的检索器为空 → 候选为空，不上报 auto_routing。
+    yaml = (
+        _MINIMAL_YAML
+        + "mode_router:\n  enabled: true\n  account_id: acct\n  api_token: tok\n"
+        + "chat:\n  session_db: " + str(tmp_path / "chat.db") + "\n"
+    )
+    settings = load_settings(_write(tmp_path, yaml))
+    services = ChatServices(
+        settings,
+        session_store=SessionStore(tmp_path / "chat.db"),
+        retrievers={},
+        llm_factory=lambda s: FakeLLM(),
+    )
+    assert services.capabilities()["auto_routing"] is False
+
+
+def test_compute_capabilities_auto_routing_defaults_off():
+    from api.chat_wiring import compute_capabilities
+
+    assert compute_capabilities(None)["auto_routing"] is False

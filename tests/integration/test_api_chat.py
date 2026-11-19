@@ -524,6 +524,7 @@ class TestRest:
             "enabled": True,
             "retrievals": ["hybrid"],
             "default_retrieval": "hybrid",
+            "auto_routing": False,
             "agentic_enabled": False,
             "allow_deep": False,
             "progress_stream": False,

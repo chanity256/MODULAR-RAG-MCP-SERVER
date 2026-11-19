@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildModeOptions, resolveMode } from "./modes";
+import { buildModeOptions, FALLBACK_REASON_LABELS, modeLabel, resolveMode } from "./modes";
 import type { ChatCapabilities } from "./types";
 
 const caps = (over: Partial<ChatCapabilities> = {}): ChatCapabilities => ({
   enabled: true,
   retrievals: ["hybrid"],
   default_retrieval: "hybrid",
+  auto_routing: false,
   agentic_enabled: false,
   allow_deep: false,
   progress_stream: false,
@@ -45,6 +46,16 @@ describe("buildModeOptions", () => {
     const options = buildModeOptions(caps({ agentic_enabled: true, retrievals: ["hybrid", "agentic_fast"] }));
     expect(options.map((o) => o.mode)).toEqual(["hybrid", "agentic_fast"]);
   });
+
+  it("offers Auto only when the server reports auto_routing (MR4)", () => {
+    expect(buildModeOptions(caps({ auto_routing: true })).map((o) => o.mode)).toEqual(["auto", "hybrid"]);
+    expect(buildModeOptions(caps({ auto_routing: false })).map((o) => o.mode)).toEqual(["hybrid"]);
+    expect(buildModeOptions(caps({ auto_routing: true, agentic_enabled: true, retrievals: ["hybrid", "agentic_fast"] })).map((o) => o.mode)).toEqual([
+      "auto",
+      "hybrid",
+      "agentic_fast",
+    ]);
+  });
 });
 
 describe("resolveMode", () => {
@@ -69,5 +80,31 @@ describe("resolveMode", () => {
   it("falls back to hybrid when agentic is unavailable", () => {
     expect(resolveMode("agentic_fast", caps())).toBe("hybrid");
     expect(resolveMode(null, null)).toBe("hybrid");
+  });
+
+  it("keeps an auto selection and honors the auto default (MR4)", () => {
+    const auto = caps({ auto_routing: true, default_retrieval: "auto" });
+    expect(resolveMode("auto", auto)).toBe("auto");
+    expect(resolveMode(null, auto)).toBe("auto");
+    // Without auto_routing the requested auto falls back to hybrid.
+    expect(resolveMode("auto", caps())).toBe("hybrid");
+    expect(resolveMode(null, caps({ default_retrieval: "auto" }))).toBe("hybrid");
+  });
+});
+
+describe("modeLabel / fallback reasons (MR4)", () => {
+  it("labels known modes and passes through unknown values", () => {
+    expect(modeLabel("auto")).toBe("Auto");
+    expect(modeLabel("hybrid")).toBe("Hybrid");
+    expect(modeLabel("agentic_fast")).toBe("Agentic (fast)");
+    expect(modeLabel("agentic_deep")).toBe("Agentic (deep)");
+    expect(modeLabel("mystery")).toBe("mystery");
+    expect(modeLabel(null)).toBe("");
+  });
+
+  it("maps every documented fallback reason", () => {
+    for (const reason of ["timeout", "unreachable", "invalid_output", "low_confidence", "error"]) {
+      expect(FALLBACK_REASON_LABELS[reason]).toBeTruthy();
+    }
   });
 });

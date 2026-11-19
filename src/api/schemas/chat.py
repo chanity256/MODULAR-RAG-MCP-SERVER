@@ -16,12 +16,16 @@ __all__ = [
     "ChatMessageOut",
     "ChatSessionDetail",
     "ChatSessionSummary",
+    "RequestedRetrieval",
     "UpstreamFrame",
     "UserMessageFrame",
     "parse_upstream_frame",
 ]
 
 RetrievalMode = Literal["hybrid", "agentic_fast", "agentic_deep"]
+
+# MODE_ROUTER_SPEC MR4：请求值可以是 auto（检索前由决策模型定档）；`retrievals` 仍只列三档真实模式。
+RequestedRetrieval = Union[RetrievalMode, Literal["auto"]]
 
 
 class UserMessageFrame(BaseModel):
@@ -30,7 +34,7 @@ class UserMessageFrame(BaseModel):
     type: Literal["user_message"]
     message: StrictStr = Field(min_length=1)
     session_id: StrictStr | None = None
-    retrieval: RetrievalMode | None = None
+    retrieval: RequestedRetrieval | None = None
     collection: StrictStr | None = None
     top_k: StrictInt | None = Field(default=None, ge=1)
 
@@ -77,7 +81,8 @@ class ChatSessionDetail(ChatSessionSummary):
 class ChatCapabilities(BaseModel):
     enabled: bool = Field(description="chat.enabled")
     retrievals: list[RetrievalMode] = Field(description="Retrieval modes the server can serve now")
-    default_retrieval: RetrievalMode
+    default_retrieval: RequestedRetrieval
+    auto_routing: bool = Field(description="mode_router.enabled and the auto candidate set is non-empty")
     agentic_enabled: bool = Field(description="agentic_search.enabled")
     allow_deep: bool = Field(description="agentic_search.allow_deep; false -> agentic_deep fails with DEEP_DISABLED")
     progress_stream: bool = Field(description="chat.agentic_progress_stream")

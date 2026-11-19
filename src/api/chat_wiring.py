@@ -32,10 +32,21 @@ def compute_capabilities(
     allow_deep = agentic_enabled and bool(getattr(agentic, "allow_deep", False))
     if available is None:
         available = _ALL_MODES if agentic_enabled else ("hybrid",)
+    # MODE_ROUTER_SPEC MR4：auto 候选与 ChatServices._auto_candidates 同口径
+    # （已注册检索器 ∩ 门控可用），路由器启用且候选非空才上报 auto_routing。
+    if not agentic_enabled:
+        allowed: tuple[str, ...] = ("hybrid",)
+    elif allow_deep:
+        allowed = _ALL_MODES
+    else:
+        allowed = ("hybrid", "agentic_fast")
+    candidates = [m for m in _ALL_MODES if m in available and m in allowed]
+    router = getattr(settings, "mode_router", None)
     return {
         "enabled": chat.enabled,
         "retrievals": [m for m in _ALL_MODES if m in available],
         "default_retrieval": chat.default_retrieval,
+        "auto_routing": bool(getattr(router, "enabled", False)) and bool(candidates),
         "agentic_enabled": agentic_enabled,
         "allow_deep": allow_deep,
         "progress_stream": chat.agentic_progress_stream,
