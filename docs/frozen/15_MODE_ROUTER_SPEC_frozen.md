@@ -2,6 +2,12 @@
 
 # 检索模式路由器规格 (MODE_ROUTER_SPEC)
 
+> **📌 冻结记录**
+>
+> - 冻结时间：2026-11-19
+> - 完成概要：MR0.1–MR5 全部收口——MR0.2 立项门通过（`clef-flash` zh-v2 留出集命中率 93.3%，D2/D8 终裁）；MR1 `mode_router` 配置节 + `RETRIEVAL_AUTO` / `ModeRouter` 协议；MR2 `libs/mode_router/` 组件（System One 请求/解析 + `cloudflare_workers_ai` 后端 + 工厂，零新增依赖）；MR3 ChatEngine auto 分支（改写后定档 D5、`mode_routing` trace 阶段、失败回退、候选装配注入 D4）；MR4 API schema（`RequestedRetrieval`、capabilities `auto_routing`）与 Chat 前端（Auto 选项 violet 选中态对比度实测 ≥ AA、实际模式与回退原因展示）；MR5 假后端 Playwright auto 用例 + `RAG_MODE_ROUTER_INTEGRATION=1` 门控冒烟（真实端点三类典型问题 3/3 合法定档，单次决策 269–1316 ms；不可达 `base_url` 回退且 trace 记 `unreachable`）+ USAGE_GUIDE 第 11 章。全量禁网 2941 passed / 23 skipped / 1 xfailed，红线 0 违规，前端 typecheck / lint / vitest / Playwright 全绿。
+> - 遗留：见 [backlog/mode-router-followups_backlog.md](../backlog/mode-router-followups_backlog.md)（#1 同一问题集合 auto 与人工三选一对比记表延后；#2 / #3 为 MR6 Jev、MR7 本地微调模型，凭据 / 端点到位后推进）
+
 > 版本：0.3 — 由 backlog 提案立项为可执行规格；MR0.2 决策质量门控已通过（2026-11-18），MR1 起可进入编码
 >
 > v0.3（2026-11-18）更新依据：MR0.2 基线与留出集复核完成，D2 / D8 终裁回填 §1.3；默认 `model: clef-flash`、`min_confidence: null`；§3.6 请求示例改为选定的 zh-v2 文案

@@ -595,7 +595,7 @@ Playwright 流程跑在 `tests/e2e_web/fake_api_server.py` 上：真实 FastAPI 
 
 ## 11. Auto 检索模式（mode_router）
 
-设计来源：[MODE_ROUTER_SPEC.md](../specs/MODE_ROUTER_SPEC.md)（MR 系列）。auto 是 Chat 的第四种「检索模式」选项：不人工三选一，改写后的问题交**进程外决策模型**在当前可用的三档（hybrid / agentic_fast / agentic_deep）中定档；决策失败按原因回退 `mode_router.fallback_retrieval`，不中断会话。
+设计来源：[15_MODE_ROUTER_SPEC_frozen.md](../frozen/15_MODE_ROUTER_SPEC_frozen.md)（MR 系列，已收口冻结）。auto 是 Chat 的第四种「检索模式」选项：不人工三选一，改写后的问题交**进程外决策模型**在当前可用的三档（hybrid / agentic_fast / agentic_deep）中定档；决策失败按原因回退 `mode_router.fallback_retrieval`，不中断会话。
 
 边界（规格 Out of Scope，本指南只讲用法）：决策模型只经 HTTP 调用，主 venv 不加载模型、零新增依赖；MCP 工具、CLI（`scripts/query.py` / `scripts/evaluate.py`）、Query Playground 与评估链路不受影响。
 
