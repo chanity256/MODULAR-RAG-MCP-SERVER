@@ -165,10 +165,9 @@ def build_request(query: str, *, model: str, criteria_lang: str) -> dict[str, An
     }
 
 
-def _to_float(value: Any) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    return float(value)
+def _is_number(value: Any) -> bool:
+    """与 ``BaseModeRouter._is_number`` 同口径：bool 不算数值。"""
+    return not isinstance(value, bool) and isinstance(value, (int, float))
 
 
 def parse_decision(payload: Any, candidates: Sequence[str] = MODES) -> Decision:
@@ -193,21 +192,29 @@ def parse_decision(payload: Any, candidates: Sequence[str] = MODES) -> Decision:
     if not isinstance(answer, dict) or answer.get("type") != "choice":
         return Decision(choice=None, input_tokens=input_tokens, error="invalid_output")
     choice = answer.get("choice")
-    probabilities_raw = answer.get("probabilities")
-    probabilities = (
-        {str(k): f for k, v in probabilities_raw.items() if (f := _to_float(v)) is not None}
-        if isinstance(probabilities_raw, dict)
-        else {}
-    )
-    confidence = _to_float(answer.get("confidence"))
     if choice not in candidates:
-        return Decision(
-            choice=None,
-            confidence=confidence,
-            probabilities=probabilities,
-            input_tokens=input_tokens,
-            error="invalid_output",
-        )
+        return Decision(choice=None, input_tokens=input_tokens, error="invalid_output")
+
+    # 与 BaseModeRouter.decide 同口径（MR0.2 基线运行时该路径未触发非法输出，
+    # 记录不受影响）：confidence / probabilities 提供了就必须是数值，否则该响应
+    # 在运行时会整体按 invalid_output 回退，评估不应记为合法决策。
+    raw_confidence = answer.get("confidence")
+    confidence = None
+    if raw_confidence is not None:
+        if not _is_number(raw_confidence):
+            return Decision(choice=None, input_tokens=input_tokens, error="invalid_output")
+        confidence = float(raw_confidence)
+
+    raw_probabilities = answer.get("probabilities")
+    probabilities: dict[str, float] = {}
+    if raw_probabilities is not None:
+        if not isinstance(raw_probabilities, dict):
+            return Decision(choice=None, input_tokens=input_tokens, error="invalid_output")
+        for key, value in raw_probabilities.items():
+            if not _is_number(value):
+                return Decision(choice=None, input_tokens=input_tokens, error="invalid_output")
+            probabilities[str(key)] = float(value)
+
     return Decision(
         choice=choice,
         confidence=confidence,
@@ -312,7 +319,9 @@ def compute_metrics(
 
     sweep = []
     for threshold in min_confidence_grid:
-        covered = [r for r in valid if r.confidence is not None and r.confidence >= threshold]
+        # 运行时语义（D8）：min_confidence 只在 confidence 存在时判定；
+        # 不带 confidence 的合法决策在任何阈值下都不回退。
+        covered = [r for r in valid if r.confidence is None or r.confidence >= threshold]
         covered_ids = {r.id for r in covered}
         # 未覆盖（低置信度或非法输出）的用例按运行时语义回退到 fallback 模式。
         effective_hits = sum(r.hit if r.id in covered_ids else r.expected == fallback for r in results)
