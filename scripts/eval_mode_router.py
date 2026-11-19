@@ -2,7 +2,7 @@
 
 用法::
 
-    set -a; . ~/.config/modular-rag-mcp/mode_router.env; set +a
+    set -a; . .env-mode-router.local; set +a   # 仓库根目录的本地凭据文件（已 gitignore）
     python scripts/eval_mode_router.py
     python scripts/eval_mode_router.py --models clef-flash --criteria zh --limit 6
     python scripts/eval_mode_router.py --json-out logs/mode_router_eval.json
