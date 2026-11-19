@@ -381,6 +381,7 @@ RAG_AGENTIC_INTEGRATION=1 pytest tests/e2e/test_agentic_mcp.py -v               
 | `evaluation.backends / golden_test_set` | 评估后端组合与黄金测试集路径 |
 | `observability.log_file` | JSON Lines trace 日志路径（Dashboard 追踪页数据源） |
 | `agentic_search.*` | 可选 sirchmunk sidecar 检索（默认关闭；`base_url` / `api_token` / `mode` / `allowed_roots`，见 5.1 节） |
+| `mode_router.*` | 可选 auto 检索模式的决策模型（默认关闭；backend / model / 凭据 / `fallback_retrieval`，见 [USAGE_GUIDE 第 11 章](docs/reference/USAGE_GUIDE.md#11-auto-检索模式mode_router)） |
 
 ### 常见问题排查
 

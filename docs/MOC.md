@@ -132,6 +132,6 @@ docs/ 文档分两类：
 
 | 文档 | 说明 |
 |------|------|
-| [USAGE_GUIDE.md](reference/USAGE_GUIDE.md) | 项目使用指南：主项目用法、Sirchmunk sidecar 搭建与日常启动、常见问题排查、安全边界；第 10 章 Web UI 与 Chat（启动、`RAG_API_TOKEN`、`api:`/`chat:` 配置、WS 帧协议、REST 路由、e2e、Streamlit legacy 删除条件） |
+| [USAGE_GUIDE.md](reference/USAGE_GUIDE.md) | 项目使用指南：主项目用法、Sirchmunk sidecar 搭建与日常启动、常见问题排查、安全边界；第 10 章 Web UI 与 Chat（启动、`RAG_API_TOKEN`、`api:`/`chat:` 配置、WS 帧协议、REST 路由、e2e、Streamlit legacy 删除条件）；第 11 章 Auto 检索模式（mode_router 开启步骤、回退语义、AI Gateway `base_url` 覆盖、门控冒烟，承接 [MODE_ROUTER_SPEC.md](specs/MODE_ROUTER_SPEC.md) MR5） |
 | [AI_NATIVE_SDLC_REFERENCE.md](reference/AI_NATIVE_SDLC_REFERENCE.md) | AI-Native SDLC 参考手册：门禁架构 / 任务开发循环 / 规格生命周期三张 mermaid 流程图、落地前需准备的工具清单与文档清单、落地顺序与门控验收要点速查；设计细节与落地记录见 [AI_NATIVE_SDLC_SPEC.md](specs/AI_NATIVE_SDLC_SPEC.md) |
 | [FUTURE_OPTIMIZATION_ROADMAP.md](reference/FUTURE_OPTIMIZATION_ROADMAP.md) | 后续优化路线图：候选优化方向与决策纪律（Dashboard 前后端分离迁移已拆分至 [frozen/dashboard-api-migration_backlog_frozen.md](frozen/dashboard-api-migration_backlog_frozen.md)，见其 6.10；含第 10 章决策原则） |

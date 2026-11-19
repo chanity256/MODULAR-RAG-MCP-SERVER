@@ -518,12 +518,12 @@ chat:
 | ↑ | `user_message` | `{message, session_id?, retrieval?, collection?, top_k?}` |
 | ↑ | `cancel` | 无；轮进行中到达则终止并以 `result{cancelled:true}` 收尾，已生成部分落库 |
 | ↓ | `session` | `{session_id}`（新会话时） |
-| ↓ | `status` | `{stage, message?}`，stage: `rewriting` / `retrieving` / `generating` / `retrying` |
+| ↓ | `status` | `{stage, message?}`，stage: `rewriting` / `routing`（仅 auto 轮次）/ `retrieving` / `generating` / `retrying` |
 | ↓ | `search_log` | `{task_id, level, message, timestamp?}`，仅 agentic 且 `agentic_progress_stream` 开启 |
 | ↓ | `search_complete` / `search_error` | `{message}` |
 | ↓ | `stream` | `{content}`，真流式增量（agentic 为一整块） |
 | ↓ | `sources` | `{citations: [...]}`，真实 score |
-| ↓ | `result` | 终帧 `{content, session_id, message_id, grounded, rewritten_query?, usage?, trace_id, cancelled?}` |
+| ↓ | `result` | 终帧 `{content, session_id, message_id, grounded, rewritten_query?, usage?, trace_id, cancelled?, retrieval, routing?}`；`retrieval` 为实际使用的模式（全部轮次），`routing` 仅 auto 轮次（定档与回退原因，见第 11 章） |
 | ↓ | `error` | 终帧 `{code, message}` |
 
 **错误码**：`AUTH`（token 缺失/错误，或 LLM 401/403）、`RATE_LIMITED`（连接超限或上游 429）、`UPSTREAM`（上游/sidecar 失败）、`DEEP_DISABLED`、`INTERNAL`；协议层另有 `BAD_REQUEST`（帧非法、会话不存在、未启用的检索模式、Origin 不允许、首帧 30s 超时、轮进行中收到 `cancel` 以外的帧）与 `UNAVAILABLE`（`chat.enabled=false`）。协议类拒绝在握手后先发 `error` 帧再以 1008 关闭，浏览器能看到原因。
