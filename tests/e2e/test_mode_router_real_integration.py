@@ -66,7 +66,7 @@ def _typical_questions() -> dict[str, str]:
         if not line.strip():
             continue
         item = json.loads(line)
-        picked.setdefault(item["expected_mode"], item["query"])
+        picked.setdefault(item["expected"], item["query"])
         if len(picked) == 3:
             break
     assert len(picked) == 3, "标注集应覆盖三档模式"
