@@ -17,6 +17,7 @@
 8. [常见问题排查](#8-常见问题排查)
 9. [安全边界（必读）](#9-安全边界必读)
 10. [Web UI 与 Chat](#10-web-ui-与-chat)
+11. [Auto 检索模式（mode_router）](#11-auto-检索模式mode_router)
 
 ---
 
@@ -499,8 +500,9 @@ chat:
 | `hybrid`（默认） | Dense + BM25 + RRF + Rerank 取上下文，LLM 流式生成带 `[n]` 引用的答案 | 已摄取数据 + `llm` 可用 |
 | `agentic_fast` | 经 `AgenticSearchTool`（PathGuard / 参数校验 / trace 原样生效）调 sidecar FAST，**sidecar 答案整块透传**，不再经本项目 LLM | `agentic_search.enabled: true` + sidecar 运行 |
 | `agentic_deep` | 同上，DEEP 模式（数十秒） | 另需 `agentic_search.allow_deep: true`，否则 `error{DEEP_DISABLED}` |
+| `auto` | 不人工选档：改写后的问题交决策模型在当前可用的三档中定档，失败回退 `chat` 默认或 `mode_router.fallback_retrieval` | `mode_router.enabled: true` 且候选非空（capabilities 上报 `auto_routing`）；见 [第 11 章](#11-auto-检索模式mode_router) |
 
-选中态按模式着色以便一眼区分：Hybrid 黄、Agentic (fast) 绿、Agentic (deep) 蓝（明暗两种主题下均保证文字对比度，见 CHAT_MODE_COLORS_SPEC §3.1）。
+选中态按模式着色以便一眼区分：Hybrid 黄、Agentic (fast) 绿、Agentic (deep) 蓝、Auto 紫（明暗两种主题下均保证文字对比度，见 CHAT_MODE_COLORS_SPEC §3.1 与 MODE_ROUTER_SPEC MR4）。
 
 **降级与 `grounded`**：
 
@@ -576,6 +578,7 @@ Playwright 流程跑在 `tests/e2e_web/fake_api_server.py` 上：真实 FastAPI 
 | `RAG_AGENTIC_INTEGRATION=1` | 真实 sidecar 的 `agentic_search` MCP 冒烟（需 sidecar 已启动） |
 | `RAG_CHAT_INTEGRATION=1` | 真实 LLM 多轮 Chat 冒烟（`tests/e2e/test_chat_real_integration.py`）：流式端到端、指代消解、话题漂移、会话重启恢复；需 LLM/embedding 可用且本地索引非空，会话库与 trace 落 tmp。运行：`RAG_CHAT_INTEGRATION=1 pytest tests/e2e/test_chat_real_integration.py -v`。若 settings 里的 chat LLM 不可用，可用 `RAG_CHAT_LLM_PROVIDER` / `RAG_CHAT_LLM_MODEL` / `RAG_CHAT_LLM_BASE_URL` / `RAG_CHAT_LLM_API_KEY` 覆盖（如 DeepSeek 的 OpenAI 兼容端点） |
 | `RAG_AGENTIC_INTEGRATION=1`（Chat） | agentic 路由经真实 sidecar（`tests/e2e/test_chat_agentic_real_integration.py`）：FAST 透传、DEEP 门控拒绝、`allow_deep` 开启时的 DEEP、`search_log` 进度帧；需 sidecar 已启动，且运行 pytest 的 shell 必须导出与 sidecar 相同的 `SIRCHMUNK_API_TOKEN`（缺失时 sidecar 把 401 包成 HTTP 500 INTERNAL_ERROR，易误判为 sidecar 故障）。运行：`RAG_AGENTIC_INTEGRATION=1 pytest tests/e2e/test_chat_agentic_real_integration.py -v` |
+| `RAG_MODE_ROUTER_INTEGRATION=1` | auto 检索模式的真实端点冒烟（`tests/e2e/test_mode_router_real_integration.py`，见 [第 11 章](#11-auto-检索模式mode_router)）：真实端点对三类典型问题给出合法决策、`base_url` 指向不可达地址后回退并记 trace。需 `CLOUDFLARE_ACCOUNT_ID` 与 `MODE_ROUTER_API_TOKEN`（缺失时 skip 不 fail）。运行：`RAG_MODE_ROUTER_INTEGRATION=1 pytest tests/e2e/test_mode_router_real_integration.py -v` |
 
 ### 10.9 Streamlit Dashboard（legacy）
 
@@ -587,3 +590,66 @@ Playwright 流程跑在 `tests/e2e_web/fake_api_server.py` 上：真实 FastAPI 
 2. WC10.3 门控冒烟通过（已于 2026-10-15 通过），WEBUI_CHAT_SPEC 已冻结——已满足；
 3. Python、API、前端测试全部通过——已满足（SR6 全量离线回归，计数见该规格）；
 4. Web UI 已稳定使用一段时间，使用者确认不再依赖 Streamlit（2026-11-13）——已满足。
+
+---
+
+## 11. Auto 检索模式（mode_router）
+
+设计来源：[MODE_ROUTER_SPEC.md](../specs/MODE_ROUTER_SPEC.md)（MR 系列）。auto 是 Chat 的第四种「检索模式」选项：不人工三选一，改写后的问题交**进程外决策模型**在当前可用的三档（hybrid / agentic_fast / agentic_deep）中定档；决策失败按原因回退 `mode_router.fallback_retrieval`，不中断会话。
+
+边界（规格 Out of Scope，本指南只讲用法）：决策模型只经 HTTP 调用，主 venv 不加载模型、零新增依赖；MCP 工具、CLI（`scripts/query.py` / `scripts/evaluate.py`）、Query Playground 与评估链路不受影响。
+
+### 11.1 开启步骤
+
+1. 控制台创建 **Workers AI API token** 并复制 **Account ID**，导出环境变量：
+
+```bash
+export CLOUDFLARE_ACCOUNT_ID=<account id>
+export MODE_ROUTER_API_TOKEN=<workers ai api token>
+```
+
+2. `config/settings.yaml` 加 `mode_router` 节（缺省 `enabled: false`，零加载）：
+
+```yaml
+mode_router:
+  enabled: true                  # true 才提供 auto 模式
+  backend: cloudflare_workers_ai # 首期仅此值（typesafe / openai_compatible 随 MR6 / MR7 开放）
+  model: clef-flash              # clef（27B，更准、略慢）| clef-flash（9B，默认）
+  account_id: ${CLOUDFLARE_ACCOUNT_ID}  # 仅 cloudflare_workers_ai 需要
+  base_url: null                 # 可选端点覆盖（AI Gateway）；缺省按 account_id 与 model 拼接
+  api_token: ${MODE_ROUTER_API_TOKEN}   # 不落盘，从环境变量解析
+  timeout_s: 3                   # 决策在每轮检索前，超时即回退；实测 p95 约 0.5 s
+  min_confidence: null           # 低于该值回退；null 不启用（D8 终裁：默认关）
+  fallback_retrieval: hybrid     # 决策失败 / 超时 / 输出非法 / 低置信度时的兜底档
+```
+
+交叉校验（启动 fail-fast）：`fallback_retrieval` 取 agentic 档时要求 `agentic_search.enabled`（deep 另需 `allow_deep`）；`chat.default_retrieval: auto` 仅在路由器启用时合法。
+
+3. 重启 Web UI。Chat 的模式选择器出现 **Auto**（紫色选中态）；`GET /api/v1/chat/capabilities` 的 `auto_routing: true` 即开启成功。agentic 关闭或 `allow_deep: false` 时，auto 候选相应收窄（只会在可用档中定档）。
+
+### 11.2 运行行为
+
+- 每轮 auto 先推 `status{stage: "routing"}`，决策完成再检索、生成；消息气泡显示 **Auto → 实际模式**（如 `Auto → Agentic (fast)`）。
+- 决策用**改写后的查询**；候选 = 已注册检索器 ∩ 门控可用（`allow_deep: false` 不会选中被禁的 deep）。
+- 失败回退并在气泡标注原因：`router timed out` / `router unreachable` / `invalid router output` / `low confidence` / `router error`。回退档照常检索，与人工选它语义一致。
+- result 帧 `retrieval` 始终是**实际使用的模式**；auto 轮次另有 `routing` 对象（`requested` / `decided` / `candidates` / `backend` / `model` / `confidence` / `probabilities` / `fallback_reason` / `input_tokens` / `elapsed_ms`）。每轮 trace 多一个 `mode_routing` 阶段，不记 token 值与 Account ID。
+- 费用：按输入 token 计费（Clef $0.24 / M、Clef-flash $0.038 / M），一次路由约 270–290 token；不缓存决策结果。
+
+### 11.3 AI Gateway 与自建端点（`base_url` 覆盖）
+
+`base_url` 直接替换完整端点 URL：接 [AI Gateway](https://developers.cloudflare.com/ai-gateway/) 时填 Gateway 的统一端点（可缓存 / 观测）；MR7 的本地端点（vLLM / Ollama 的 OpenAI 兼容服务）走 `openai_compatible` 后端（另行开放）。
+
+### 11.4 验证与冒烟
+
+```bash
+# 离线：全部 auto 逻辑（配置 / 组件 / 引擎 / capabilities / 前端 / e2e 假后端）都在默认套件内
+pytest tests -o addopts="" -q
+
+# 门控：真实端点冒烟（花 token，默认跳过）
+RAG_MODE_ROUTER_INTEGRATION=1 pytest tests/e2e/test_mode_router_real_integration.py -v
+
+# 决策质量评估（真实运行，不进 pytest）：命中率 / 混淆矩阵 / 置信度分桶 / 延迟
+python scripts/eval_mode_router.py --models clef-flash
+```
+
+日常使用建议：先在少量问题上对比 auto 与人工三选一的答案质量与延迟（对比数据记入 MODE_ROUTER_SPEC 任务表），确认可信后再把 `chat.default_retrieval` 设为 `auto` 作为默认。

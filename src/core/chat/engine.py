@@ -53,7 +53,9 @@ from libs.agentic_search.base_agentic_search import (
 )
 from libs.llm.base_llm import ChatMessage
 from libs.llm.openai_llm import LLMRequestError
-from libs.mode_router.base_mode_router import ModeRouterError
+# ModeRouterError 延迟到 _route 内导入：libs.mode_router.base_mode_router 反向依赖
+# core.chat.retriever（RoutingDecision），模块级互相导入会在「先 import libs.mode_router」
+# 的入口（如 scripts/eval_mode_router.py）触发循环导入。
 
 if TYPE_CHECKING:
     from core.trace.trace_context import TraceContext
@@ -406,6 +408,7 @@ class ChatEngine:
         """
         router = self._mode_router
         assert router is not None  # run_turn 已保证 auto 只在注入 router 时进入
+        from libs.mode_router.base_mode_router import ModeRouterError  # 局部导入避免循环依赖
         routing: dict[str, Any] = {
             "requested": RETRIEVAL_AUTO,
             "decided": None,

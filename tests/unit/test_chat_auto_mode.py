@@ -21,6 +21,7 @@ from core.settings import ChatSettings, load_settings
 from core.types import RetrievalResult
 from libs.llm.base_llm import ChatResponse
 from libs.mode_router import ModeRouterError
+from libs.mode_router.system_one_router import CloudflareWorkersAIRouter
 
 _MINIMAL_YAML = """\
 llm:
@@ -370,3 +371,63 @@ def test_compute_capabilities_auto_routing_defaults_off():
     from api.chat_wiring import compute_capabilities
 
     assert compute_capabilities(None)["auto_routing"] is False
+
+
+# --------------------------------------------------------------------------- MR5 group: unreachable base_url fallback
+
+def _closed_loopback_port() -> int:
+    """占用后立即释放的 loopback 端口：连接被立即拒绝，零真实网络（loopback 白名单内）。"""
+    import socket
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def _unreachable_router() -> "CloudflareWorkersAIRouter":
+    return CloudflareWorkersAIRouter(
+        account_id="acct",
+        api_token="tok",
+        model="clef-flash",
+        base_url=f"http://127.0.0.1:{_closed_loopback_port()}",
+        timeout_s=1.0,
+    )
+
+
+def test_real_router_unreachable_base_url_raises_unreachable():
+    """MR5：真实 httpx 客户端 + 不可达 base_url → ModeRouterError(unreachable)。
+
+    门控真实冒烟（RAG_MODE_ROUTER_INTEGRATION=1）的离线等价：同一后端实现，
+    只把端点换成不可达地址，不触外网。
+    """
+    router = _unreachable_router()
+    try:
+        with pytest.raises(ModeRouterError) as excinfo:
+            router.decide("什么是 RAG？", ALL_MODES)
+        assert excinfo.value.reason == "unreachable"
+    finally:
+        router.close()
+
+
+def test_unreachable_base_url_auto_turn_falls_back_with_trace(store):
+    """MR5：不可达端点的 auto 轮次回退 fallback_retrieval，result 帧与 trace 均记 unreachable。"""
+    router = _unreachable_router()
+    try:
+        h = Harness(store, router=router)
+        frames = h.run(retrieval="auto")
+    finally:
+        router.close()
+
+    result = frames[-1]
+    assert result["type"] == "result"
+    assert result["retrieval"] == RETRIEVAL_HYBRID
+    assert result["routing"]["decided"] is None
+    assert result["routing"]["fallback_reason"] == "unreachable"
+    assert h.retrievers[RETRIEVAL_HYBRID].calls, "fallback mode retrieves normally"
+
+    stage = _stage(h.persisted[0], "mode_routing")
+    assert stage["requested"] == "auto"
+    assert stage["fallback_reason"] == "unreachable"
+    assert stage["backend"] == "cloudflare_workers_ai"
+    assert stage["model"] == "clef-flash"
+    assert "api_token" not in stage and "account_id" not in stage

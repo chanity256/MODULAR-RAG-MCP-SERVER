@@ -65,6 +65,29 @@ test.describe("Chat", () => {
     );
   });
 
+  // MODE_ROUTER_SPEC MR5: the fake backend serves a scripted mode router, so the Auto
+  // option appears and the decision (or fallback) is reported on the assistant message.
+  test("auto mode routes the question and reports the decision", async ({ page }) => {
+    const chat = chatRegion(page);
+    const modes = chat.getByRole("radiogroup", { name: "Retrieval mode" });
+    const auto = modes.getByRole("radio", { name: "Auto" });
+    await expect(auto).toBeVisible();
+    await auto.click();
+    await expect(auto).toHaveAttribute("aria-checked", "true");
+
+    // Unmarked question routes to hybrid; the bubble meta line reports the decision.
+    await sendChat(page, uniq("What is RAG? (auto flow)"));
+    await expect(chat.getByText("Auto → Hybrid", { exact: true })).toBeVisible();
+
+    // ROUTE_FAST keyword routes to agentic_fast.
+    await sendChat(page, uniq("ROUTE_FAST scan the notes (auto flow)"));
+    await expect(chat.getByText("Auto → Agentic (fast)", { exact: true })).toBeVisible();
+
+    // FORCE_ROUTING_FALLBACK makes the router unreachable; the turn falls back to hybrid.
+    await sendChat(page, uniq("FORCE_ROUTING_FALLBACK please (auto flow)"));
+    await expect(chat.getByText("Auto → Hybrid (fell back: router unreachable)", { exact: true })).toBeVisible();
+  });
+
   test("reload keeps the session list and reopening restores the history", async ({ page }) => {
     const question = uniq("Remember me (reload flow)");
     const chat = chatRegion(page);
