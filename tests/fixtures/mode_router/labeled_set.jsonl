@@ -1,0 +1,60 @@
+{"id": "h01", "query": "LoRA 里的秩 r 和 lora_alpha 分别控制什么？", "expected": "hybrid", "lang": "zh", "note": "单一概念，06_模型微调 1.2"}
+{"id": "h02", "query": "SFT 和 RLHF 的主要区别是什么？", "expected": "hybrid", "lang": "zh", "note": "单节问答，06_模型微调 3"}
+{"id": "h03", "query": "模型量化有哪些常见方法，各有什么利弊？", "expected": "hybrid", "lang": "zh", "note": "07_模型推理加速 3.1/3.2"}
+{"id": "h04", "query": "为什么 llama.cpp 在 CPU 上推理效果更好？", "expected": "hybrid", "lang": "zh", "note": "07_模型推理加速 7.1"}
+{"id": "h05", "query": "知识蒸馏是怎么用来做推理加速的？", "expected": "hybrid", "lang": "zh", "note": "07_模型推理加速 2"}
+{"id": "h06", "query": "MCP 和 Function Calling 有什么区别？", "expected": "hybrid", "lang": "zh", "note": "05_Agent 4.1"}
+{"id": "h07", "query": "MCP 支持哪些传输协议？", "expected": "hybrid", "lang": "zh", "note": "05_Agent 4.3"}
+{"id": "h08", "query": "大模型产生幻觉的原因有哪些？", "expected": "hybrid", "lang": "zh", "note": "05.10_大模型幻觉 10.2"}
+{"id": "h09", "query": "RAG 和微调分别适合什么场景？", "expected": "hybrid", "lang": "zh", "note": "04_RAG 2"}
+{"id": "h10", "query": "常用的 RAG 评价指标有哪些？", "expected": "hybrid", "lang": "zh", "note": "04_RAG 3"}
+{"id": "h11", "query": "Transformer 的编码器和解码器有什么区别？", "expected": "hybrid", "lang": "zh", "note": "03_LLM模型结构 2.2"}
+{"id": "h12", "query": "简单介绍一下 Prompt Tuning", "expected": "hybrid", "lang": "zh", "note": "06_模型微调 1.3"}
+{"id": "h13", "query": "DeepSeek R1 是怎么训练出来的？", "expected": "hybrid", "lang": "zh", "note": "06_模型微调 4.3"}
+{"id": "h14", "query": "Jev 用的 RLCD 后训练和 RLHF 有什么不同？", "expected": "hybrid", "lang": "zh", "note": "7.3.2-Jev 2.2"}
+{"id": "h15", "query": "SKILL 和 MCP 有什么区别？", "expected": "hybrid", "lang": "zh", "note": "08_AI 通用素养 3.6"}
+{"id": "h16", "query": "OpenClaw 存在哪些安全风险？", "expected": "hybrid", "lang": "zh", "note": "05.11_Openclaw 11.5"}
+{"id": "h17", "query": "What is the difference between BERT and GPT?", "expected": "hybrid", "lang": "en", "note": "03_LLM模型结构 3"}
+{"id": "h18", "query": "How is function calling trained into an LLM?", "expected": "hybrid", "lang": "en", "note": "03_LLM模型结构 1.2"}
+{"id": "h19", "query": "What are the common sources of fine-tuning datasets?", "expected": "hybrid", "lang": "en", "note": "06_模型微调 4.1"}
+{"id": "h20", "query": "What is Harness Engineering?", "expected": "hybrid", "lang": "en", "note": "08_AI 通用素养 2.1"}
+{"id": "f01", "query": "哪份笔记文件里提到了 RLCD？", "expected": "agentic_fast", "lang": "zh", "note": "定位文件"}
+{"id": "f02", "query": "在本地笔记里找出所有出现 vLLM 的地方，列出文件名", "expected": "agentic_fast", "lang": "zh", "note": "全量字面检索，一次扫描"}
+{"id": "f03", "query": "13_面试实战.md 里记录了哪些公司的面试？", "expected": "agentic_fast", "lang": "zh", "note": "单文件枚举，top-k 片段覆盖不全"}
+{"id": "f04", "query": "data/documents 下有哪些开源 Agent 框架解读的文件？", "expected": "agentic_fast", "lang": "zh", "note": "目录级枚举"}
+{"id": "f05", "query": "“Loop Engineering” 这个词出现在哪份文档的哪一节？", "expected": "agentic_fast", "lang": "zh", "note": "字面定位"}
+{"id": "f06", "query": "在本地文件里搜一下 ForgePilot，看它出现在哪些文件", "expected": "agentic_fast", "lang": "zh", "note": "字面定位"}
+{"id": "f07", "query": "列出 Claude Code 那篇笔记的全部三级标题", "expected": "agentic_fast", "lang": "zh", "note": "单文件结构枚举"}
+{"id": "f08", "query": "刚上传、还没入库的文档里有没有提到 Clef？", "expected": "agentic_fast", "lang": "zh", "note": "超出已摄取语料"}
+{"id": "f09", "query": "模块化RAG项目.md 里“PDF 有乱码怎么处理”那一问的原文是怎么写的？", "expected": "agentic_fast", "lang": "zh", "note": "指定文件取原文"}
+{"id": "f10", "query": "把本地文档中所有包含“压力测试”的段落找出来", "expected": "agentic_fast", "lang": "zh", "note": "全量字面检索"}
+{"id": "f11", "query": "哪些文件提到了 Gemini 3？", "expected": "agentic_fast", "lang": "zh", "note": "定位文件"}
+{"id": "f12", "query": "笔记里哪里写了 LoRA 的 target_modules 配置示例？给出文件和位置", "expected": "agentic_fast", "lang": "zh", "note": "字面定位"}
+{"id": "f13", "query": "data/uploads 里新上传的文件有没有和“报销”相关的内容？", "expected": "agentic_fast", "lang": "zh", "note": "上传目录，超出已摄取语料"}
+{"id": "f14", "query": "把 PI-Agent 那篇笔记末尾的参考资料链接原样列出来", "expected": "agentic_fast", "lang": "zh", "note": "指定文件取原文"}
+{"id": "f15", "query": "FDE 这个岗位是在哪个文件里介绍的？", "expected": "agentic_fast", "lang": "zh", "note": "定位文件"}
+{"id": "f16", "query": "搜一下本地目录，有没有给出 Hermes Agent 源代码仓库地址的地方", "expected": "agentic_fast", "lang": "zh", "note": "字面定位"}
+{"id": "f17", "query": "Which file contains the section \"Codex VS ClaudeCode\"?", "expected": "agentic_fast", "lang": "en", "note": "定位文件"}
+{"id": "f18", "query": "Search the local notes for every occurrence of \"Graph 工程\".", "expected": "agentic_fast", "lang": "en", "note": "全量字面检索"}
+{"id": "f19", "query": "Find the exact line in the local notes that gives the GitHub address of the modular RAG project.", "expected": "agentic_fast", "lang": "en", "note": "字面定位"}
+{"id": "f20", "query": "Check the newly uploaded files that are not indexed yet for any mention of LangGraph.", "expected": "agentic_fast", "lang": "en", "note": "超出已摄取语料"}
+{"id": "d01", "query": "对比 OpenClaw、Hermes Agent、PI-Agent 三个开源框架的记忆系统设计差异", "expected": "agentic_deep", "lang": "zh", "note": "三文件对比"}
+{"id": "d02", "query": "综合所有面试实战记录，总结被问得最多的 RAG 问题", "expected": "agentic_deep", "lang": "zh", "note": "全量聚合"}
+{"id": "d03", "query": "梳理笔记里所有 Agent 评测方法，再结合各框架解读设计一套评测方案", "expected": "agentic_deep", "lang": "zh", "note": "多文件综合 + 推理"}
+{"id": "d04", "query": "对比 DeepSeek Harness、ClawCode Harness 和 Anthropic Harness 的架构异同", "expected": "agentic_deep", "lang": "zh", "note": "跨两文件三对象对比"}
+{"id": "d05", "query": "根据整套笔记，给想转大模型应用开发的后端工程师排一个三个月学习计划，并注明每一步依据的章节", "expected": "agentic_deep", "lang": "zh", "note": "全库综合"}
+{"id": "d06", "query": "把笔记中提到的所有推理加速手段和推理框架整理成对照表，说明各自适用场景", "expected": "agentic_deep", "lang": "zh", "note": "多文件汇总"}
+{"id": "d07", "query": "结合 Claude Code 源码解读和 PI-Agent 架构，分析两者上下文压缩策略的异同", "expected": "agentic_deep", "lang": "zh", "note": "两大文件深读对比"}
+{"id": "d08", "query": "统计各家公司面试中对 Agent 项目的追问点，归纳共性", "expected": "agentic_deep", "lang": "zh", "note": "全量聚合"}
+{"id": "d09", "query": "笔记里关于 Agent 记忆的内容分散在 LangChain、LangGraph、OpenClaw、Hermes 几处，帮我整合成一份完整综述", "expected": "agentic_deep", "lang": "zh", "note": "多文件整合"}
+{"id": "d10", "query": "Loop Engineering 的思想在 OpenClaw、Hermes、PI-Agent 中分别是怎么体现的？", "expected": "agentic_deep", "lang": "zh", "note": "概念 × 多框架"}
+{"id": "d11", "query": "把所有笔记里的面试题去重合并，按主题分类列一份清单", "expected": "agentic_deep", "lang": "zh", "note": "全库聚合去重"}
+{"id": "d12", "query": "结合模型微调、RAG、大模型幻觉三章，论证企业知识问答场景应该怎么选型", "expected": "agentic_deep", "lang": "zh", "note": "三章综合论证"}
+{"id": "d13", "query": "Jev 的“先分类再路由”模式能不能用到模块化 RAG 项目里？结合两篇笔记分析可行方案", "expected": "agentic_deep", "lang": "zh", "note": "两文件综合 + 推理"}
+{"id": "d14", "query": "不同笔记对 MCP 未来趋势的描述是否一致？找出相互矛盾的地方", "expected": "agentic_deep", "lang": "zh", "note": "跨文件一致性核查"}
+{"id": "d15", "query": "根据面试实战记录和面试技巧章节，复盘候选人最常见的失误并给出改进建议", "expected": "agentic_deep", "lang": "zh", "note": "多文件综合"}
+{"id": "d16", "query": "对比 01_阅读指南和学习建议.md 与 大模型应用_算法学习路线+八股+面试实战4.md，找出两者内容上的差异", "expected": "agentic_deep", "lang": "zh", "note": "两大文件逐段比对"}
+{"id": "d17", "query": "Compare how the OpenClaw, Hermes and PI-Agent notes describe their agent loop architectures.", "expected": "agentic_deep", "lang": "en", "note": "三文件对比"}
+{"id": "d18", "query": "Across all the interview records, which topics come up most often, and how well do the study notes cover them?", "expected": "agentic_deep", "lang": "en", "note": "全量聚合 + 覆盖核查"}
+{"id": "d19", "query": "Combine every note that discusses SKILL, MCP and prompts into one guide for choosing between them.", "expected": "agentic_deep", "lang": "en", "note": "多文件整合"}
+{"id": "d20", "query": "Trace how the notes' view of RAG changes from the RAG chapter to the modular RAG project and the 2026 project recommendations.", "expected": "agentic_deep", "lang": "en", "note": "跨文件演进梳理"}

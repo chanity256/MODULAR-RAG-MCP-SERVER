@@ -8,7 +8,9 @@ import {
   type ChatStage,
   type Citation,
   type DownstreamFrame,
+  type RequestedRetrieval,
   type RetrievalMode,
+  type RoutingInfo,
   type TokenUsage,
 } from "./types";
 
@@ -26,10 +28,49 @@ function finiteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-const STAGES: readonly ChatStage[] = ["rewriting", "retrieving", "generating", "retrying"];
+const STAGES: readonly ChatStage[] = ["routing", "rewriting", "retrieving", "generating", "retrying"];
 
 export function isRetrievalMode(value: unknown): value is RetrievalMode {
   return typeof value === "string" && (RETRIEVAL_MODES as readonly string[]).includes(value);
+}
+
+/** A requested mode: a real mode or "auto" (only usable when the server reports auto_routing). */
+export function isRequestedRetrieval(value: unknown): value is RequestedRetrieval {
+  return value === "auto" || isRetrievalMode(value);
+}
+
+/** Parse the `mode_routing` object of a result frame; undefined when absent (non-auto turns). */
+export function normalizeRouting(raw: unknown): RoutingInfo | undefined {
+  if (!isRecord(raw)) return undefined;
+  const routing: RoutingInfo = {};
+  if (isRequestedRetrieval(raw.requested)) routing.requested = raw.requested;
+  if (raw.decided === null || isRetrievalMode(raw.decided)) routing.decided = raw.decided ?? null;
+  if (Array.isArray(raw.candidates)) routing.candidates = raw.candidates.filter(isRetrievalMode);
+  const backend = str(raw.backend);
+  if (backend) routing.backend = backend;
+  const model = str(raw.model);
+  if (model) routing.model = model;
+  const confidence = finiteNumber(raw.confidence);
+  if (confidence !== null) routing.confidence = confidence;
+  else if (raw.confidence === null) routing.confidence = null;
+  if (isRecord(raw.probabilities)) {
+    const probabilities: Record<string, number> = {};
+    for (const [mode, probability] of Object.entries(raw.probabilities)) {
+      const value = finiteNumber(probability);
+      if (isRetrievalMode(mode) && value !== null) probabilities[mode] = value;
+    }
+    routing.probabilities = Object.keys(probabilities).length > 0 ? probabilities : null;
+  } else if (raw.probabilities === null) {
+    routing.probabilities = null;
+  }
+  if (typeof raw.fallback_reason === "string") routing.fallback_reason = raw.fallback_reason;
+  else if (raw.fallback_reason === null) routing.fallback_reason = null;
+  const inputTokens = finiteNumber(raw.input_tokens);
+  if (inputTokens !== null) routing.input_tokens = Math.floor(inputTokens);
+  else if (raw.input_tokens === null) routing.input_tokens = null;
+  const elapsed = finiteNumber(raw.elapsed_ms);
+  if (elapsed !== null) routing.elapsed_ms = elapsed;
+  return Object.keys(routing).length > 0 ? routing : undefined;
 }
 
 export function normalizeCitation(raw: unknown, fallbackId: number): Citation | null {
@@ -122,6 +163,8 @@ export function parseDownstreamFrame(text: string): DownstreamFrame | null {
         usage: normalizeUsage(raw.usage),
         trace_id: str(raw.trace_id),
         cancelled: raw.cancelled === true,
+        retrieval: str(raw.retrieval),
+        routing: normalizeRouting(raw.routing),
       };
     case "error":
       return { type: "error", code: str(raw.code) ?? "INTERNAL", message: str(raw.message) ?? "Chat error" };
@@ -133,11 +176,16 @@ export function parseDownstreamFrame(text: string): DownstreamFrame | null {
 export function normalizeCapabilities(raw: unknown): ChatCapabilities {
   const r = isRecord(raw) ? raw : {};
   const retrievals = Array.isArray(r.retrievals) ? r.retrievals.filter(isRetrievalMode) : [];
-  const defaultRetrieval = isRetrievalMode(r.default_retrieval) ? r.default_retrieval : "hybrid";
+  // `default_retrieval = "auto"` is honored only when the server actually serves auto routing;
+  // otherwise (older server, router disabled) it silently falls back to hybrid.
+  const autoRouting = r.auto_routing === true;
+  const defaultRetrieval =
+    r.default_retrieval === "auto" && autoRouting ? "auto" : isRetrievalMode(r.default_retrieval) ? r.default_retrieval : "hybrid";
   return {
     enabled: r.enabled !== false,
     retrievals: retrievals.length > 0 ? retrievals : ["hybrid"],
     default_retrieval: defaultRetrieval,
+    auto_routing: autoRouting,
     agentic_enabled: r.agentic_enabled === true,
     allow_deep: r.allow_deep === true,
     progress_stream: r.progress_stream === true,

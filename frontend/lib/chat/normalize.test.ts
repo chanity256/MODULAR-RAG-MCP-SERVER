@@ -67,6 +67,76 @@ describe("parseDownstreamFrame", () => {
     expect(parseDownstreamFrame('{"type":"result","content":"x","session_id":"s"}')).toMatchObject({ grounded: true });
   });
 
+  it("parses the routing object and actual mode of an auto turn (MR4)", () => {
+    const result = parseDownstreamFrame(
+      JSON.stringify({
+        type: "result",
+        content: "x",
+        session_id: "s",
+        grounded: true,
+        retrieval: "agentic_fast",
+        routing: {
+          requested: "auto",
+          decided: "agentic_fast",
+          candidates: ["hybrid", "agentic_fast", "agentic_deep"],
+          backend: "cloudflare_workers_ai",
+          model: "clef-flash",
+          confidence: 0.74,
+          probabilities: { hybrid: 0.2, agentic_fast: 0.74, agentic_deep: 0.06, junk: "x" },
+          fallback_reason: null,
+          input_tokens: 281,
+          elapsed_ms: 402.1,
+        },
+      }),
+    );
+    expect(result).toMatchObject({
+      type: "result",
+      retrieval: "agentic_fast",
+      routing: {
+        requested: "auto",
+        decided: "agentic_fast",
+        backend: "cloudflare_workers_ai",
+        model: "clef-flash",
+        confidence: 0.74,
+        fallback_reason: null,
+        input_tokens: 281,
+        elapsed_ms: 402.1,
+      },
+    });
+    // Unknown probability keys are dropped.
+    expect(result?.type === "result" && result.routing?.probabilities).toEqual({
+      hybrid: 0.2,
+      agentic_fast: 0.74,
+      agentic_deep: 0.06,
+    });
+  });
+
+  it("parses a fallback routing object and omits routing on plain turns (MR4)", () => {
+    const fallback = parseDownstreamFrame(
+      JSON.stringify({
+        type: "result",
+        content: "x",
+        session_id: "s",
+        retrieval: "hybrid",
+        routing: { requested: "auto", decided: null, fallback_reason: "timeout" },
+      }),
+    );
+    expect(fallback).toMatchObject({ retrieval: "hybrid", routing: { decided: null, fallback_reason: "timeout" } });
+
+    // Non-auto turns carry no routing object.
+    const plain = parseDownstreamFrame(JSON.stringify({ type: "result", content: "x", session_id: "s", retrieval: "hybrid" }));
+    expect(plain).toMatchObject({ retrieval: "hybrid" });
+    expect(plain?.type === "result" && plain.routing).toBeUndefined();
+  });
+
+  it("accepts the routing status stage (MR4)", () => {
+    expect(parseDownstreamFrame('{"type":"status","stage":"routing","message":"正在选择检索模式"}')).toEqual({
+      type: "status",
+      stage: "routing",
+      message: "正在选择检索模式",
+    });
+  });
+
   it("drops invalid JSON, non-objects, unknown types and incomplete frames", () => {
     expect(parseDownstreamFrame("not json")).toBeNull();
     expect(parseDownstreamFrame("[1,2]")).toBeNull();
@@ -106,6 +176,7 @@ describe("normalizeCapabilities", () => {
       enabled: true,
       retrievals: ["hybrid", "agentic_fast"],
       default_retrieval: "agentic_fast",
+      auto_routing: false,
       agentic_enabled: true,
       allow_deep: false,
       progress_stream: true,
@@ -117,9 +188,20 @@ describe("normalizeCapabilities", () => {
     expect(normalizeCapabilities(null)).toMatchObject({
       retrievals: ["hybrid"],
       default_retrieval: "hybrid",
+      auto_routing: false,
       agentic_enabled: false,
       allow_deep: false,
     });
+  });
+
+  it("honors default_retrieval auto only with auto_routing (MR4)", () => {
+    const withAuto = normalizeCapabilities({ default_retrieval: "auto", auto_routing: true });
+    expect(withAuto.default_retrieval).toBe("auto");
+    expect(withAuto.auto_routing).toBe(true);
+
+    // Without auto_routing an auto default silently falls back to hybrid.
+    expect(normalizeCapabilities({ default_retrieval: "auto" }).default_retrieval).toBe("hybrid");
+    expect(normalizeCapabilities({ default_retrieval: "auto", auto_routing: false }).default_retrieval).toBe("hybrid");
   });
 });
 

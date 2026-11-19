@@ -3,6 +3,7 @@
 import { memo, useCallback, useState } from "react";
 import { AlertTriangle, Bot, Loader2, User } from "lucide-react";
 import { formatUsage } from "@/lib/chat/errors";
+import { FALLBACK_REASON_LABELS, modeLabel } from "@/lib/chat/modes";
 import { stageLabel } from "@/lib/chat/status";
 import type { ChatMessage } from "@/lib/chat/types";
 import MarkdownContent from "./MarkdownContent";
@@ -30,7 +31,7 @@ function AssistantBubble({ message }: { message: ChatMessage }) {
 
   const status = streaming ? stageLabel(message.stage, message.stageMessage) : null;
   const usage = formatUsage(message.usage);
-  const showMeta = !streaming && (message.rewrittenQuery || usage);
+  const showMeta = !streaming && Boolean(message.rewrittenQuery || usage || message.routing);
 
   return (
     <div className="flex gap-2">
@@ -78,6 +79,21 @@ function AssistantBubble({ message }: { message: ChatMessage }) {
 
         {showMeta && (
           <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 px-1 text-[11px] text-slate-400 dark:text-slate-500">
+            {message.routing && (
+              <span
+                title={
+                  message.routing.fallback_reason
+                    ? `Mode routing fell back (${FALLBACK_REASON_LABELS[message.routing.fallback_reason] ?? message.routing.fallback_reason})`
+                    : "The retrieval mode was chosen automatically for this question"
+                }
+              >
+                {message.routing.fallback_reason
+                  ? `Auto → ${modeLabel(message.retrieval)} (fell back: ${
+                      FALLBACK_REASON_LABELS[message.routing.fallback_reason] ?? message.routing.fallback_reason
+                    })`
+                  : `Auto → ${modeLabel(message.retrieval)}`}
+              </span>
+            )}
             {message.rewrittenQuery && (
               <span title="The question as rewritten for retrieval">Searched as: {message.rewrittenQuery}</span>
             )}

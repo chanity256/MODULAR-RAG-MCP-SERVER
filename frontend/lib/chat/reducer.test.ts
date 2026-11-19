@@ -100,6 +100,34 @@ describe("chatReducer: a normal turn (spec 4.7 sequence)", () => {
   });
 });
 
+describe("chatReducer: auto routing (MR4)", () => {
+  it("backfills the served mode and routing object from the result frame", () => {
+    const state = run([
+      { type: "send", userId: "u1", assistantId: "a1", message: "hi", retrieval: "auto" },
+      frame(result({ retrieval: "agentic_fast", routing: { requested: "auto", decided: "agentic_fast", fallback_reason: null } })),
+    ]);
+    const final = state.messages[1];
+    expect(state.busy).toBe(false);
+    expect(final.retrieval).toBe("agentic_fast");
+    expect(final.routing).toEqual({ requested: "auto", decided: "agentic_fast", fallback_reason: null });
+  });
+
+  it("records a fallback routing object", () => {
+    const state = run([
+      { type: "send", userId: "u1", assistantId: "a1", message: "hi", retrieval: "auto" },
+      frame(result({ retrieval: "hybrid", routing: { requested: "auto", decided: null, fallback_reason: "timeout" } })),
+    ]);
+    expect(state.messages[1].retrieval).toBe("hybrid");
+    expect(state.messages[1].routing?.fallback_reason).toBe("timeout");
+  });
+
+  it("keeps the requested mode when the result frame has none (non-auto turns)", () => {
+    const state = run([send(), frame(result())]);
+    expect(state.messages[1].retrieval).toBe("hybrid");
+    expect(state.messages[1].routing).toBeUndefined();
+  });
+});
+
 describe("chatReducer: retry status", () => {
   it("shows retrying and returns to generating", () => {
     const retrying = run([send(), frame({ type: "status", stage: "retrying", message: "retrying generation" })]);

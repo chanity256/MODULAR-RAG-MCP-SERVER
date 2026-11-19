@@ -39,6 +39,7 @@ __all__ = [
     "IngestionRetryConfig",
     "IngestionVersionPolicyConfig",
     "IngestionSourceFiltersConfig",
+    "ModeRouterSettings",
     "resolve_ingestion_versions",
     "Settings",
     "load_settings",
@@ -371,6 +372,38 @@ class ChatSettings:
 
 
 @dataclass
+class ModeRouterSettings:
+    """检索模式路由器配置（可选节，MODE_ROUTER_SPEC §3.3）。
+
+    默认 ``enabled=False``：零加载，存量行为完全不变。决策模型经进程外
+    HTTP 端点调用（首期 Cloudflare Clef），主 venv 不加推理依赖。
+    ``account_id`` / ``api_token`` 经 ``${ENV}`` 解析；环境变量缺失时
+    ``_resolve_env`` 保留占位符原值，``enabled=true`` 时视为缺失
+    （fail-fast）。
+    """
+
+    enabled: bool = False
+    # backend 随任务开放：MR1 只接受 cloudflare_workers_ai；
+    # typesafe 在 MR6、openai_compatible 在 MR7 交付时加入（见 _MODE_ROUTER_PENDING_BACKENDS）。
+    backend: str = "cloudflare_workers_ai"
+    # Workers AI：clef | clef-flash；TypeSafe：固定版本号；本地：部署名。
+    model: str = "clef-flash"
+    # 仅 cloudflare_workers_ai 需要；单独成字段是因为 _resolve_env 只解析整串 ${VAR}。
+    account_id: str | None = None
+    # 可选覆盖（AI Gateway 或本地端点）；缺省按 backend 拼 URL。
+    base_url: str | None = None
+    # Workers AI API token / TypeSafe API key；从环境变量解析，不落盘。
+    api_token: str | None = None
+    # 决策发生在每轮检索之前，超时即回退；上限 10（MODE_ROUTER_SPEC §3.3）。
+    timeout_s: float = 3.0
+    # D8：choice 答案 confidence 低于该值回退 fallback_retrieval；None 不启用。
+    min_confidence: float | None = None
+    # 决策失败 / 超时 / 输出非法 / 低置信度时的兜底模式（三档之一）。
+    fallback_retrieval: str = "hybrid"
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class Settings:
     """全局配置聚合，供各工厂/模块读取。"""
 
@@ -386,6 +419,7 @@ class Settings:
     ingestion: IngestionConfig = field(default_factory=IngestionConfig)
     agentic_search: AgenticSearchConfig = field(default_factory=AgenticSearchConfig)
     chat: ChatSettings = field(default_factory=ChatSettings)
+    mode_router: ModeRouterSettings = field(default_factory=ModeRouterSettings)
     api: ApiSettings = field(default_factory=ApiSettings)
     # 原始配置（便于后续模块读取未显式建模的字段）
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
@@ -416,6 +450,11 @@ def _resolve_env(value: Any) -> Any:
             env_name = match.group("name")
             return os.environ.get(env_name, value)
     return value
+
+
+def _is_unresolved_env(value: Any) -> bool:
+    """值是否仍是未解析的 ``${VAR}`` 占位符（环境变量缺失时 ``_resolve_env`` 保留原值）。"""
+    return isinstance(value, str) and _ENV_REF_PATTERN.match(value.strip()) is not None
 
 
 def _require_section(data: dict[str, Any], section: str) -> dict[str, Any]:
@@ -887,10 +926,14 @@ def _build_chat(sec: dict[str, Any]) -> ChatSettings:
         return value
 
     default_retrieval = _opt(sec, "default_retrieval", defaults.default_retrieval)
-    if not isinstance(default_retrieval, str) or default_retrieval not in CHAT_RETRIEVAL_MODES:
+    # "auto"（MODE_ROUTER_SPEC MR1）：此处只做取值合法性；是否具备路由器
+    # （mode_router.enabled）由 validate_settings 跨节校验。
+    if default_retrieval != "auto" and (
+        not isinstance(default_retrieval, str) or default_retrieval not in CHAT_RETRIEVAL_MODES
+    ):
         raise ConfigError(
             f"config field 'chat.default_retrieval' must be one of "
-            f"{'/'.join(CHAT_RETRIEVAL_MODES)}, got {default_retrieval!r}"
+            f"{'/'.join(CHAT_RETRIEVAL_MODES)}/auto, got {default_retrieval!r}"
         )
     session_db = _opt(sec, "session_db", defaults.session_db)
     if not isinstance(session_db, str) or not session_db.strip():
@@ -909,6 +952,124 @@ def _build_chat(sec: dict[str, Any]) -> ChatSettings:
         pipeline_max_retries=_int("pipeline_max_retries", minimum=0),
         fallback_to_chat_only=_bool("fallback_to_chat_only"),
         agentic_progress_stream=_bool("agentic_progress_stream"),
+    )
+
+
+# backend 交付状态（MODE_ROUTER_SPEC §3.3）：MR1 只接受 cloudflare_workers_ai；
+# 其余取值 fail-fast 并指出对应任务。
+_MODE_ROUTER_DELIVERED_BACKENDS = ("cloudflare_workers_ai",)
+_MODE_ROUTER_PENDING_BACKENDS = {"typesafe": "MR6", "openai_compatible": "MR7"}
+# 托管后端（enabled 时要求 api_token）；本地后端凭据可选。
+_MODE_ROUTER_MANAGED_BACKENDS = ("cloudflare_workers_ai", "typesafe")
+_MODE_ROUTER_CF_MODELS = ("clef", "clef-flash")
+
+
+def _build_mode_router(sec: dict[str, Any]) -> ModeRouterSettings:
+    """mode_router 为可选节，缺失时由调用方传空 dict 走默认值。"""
+    defaults = ModeRouterSettings()
+
+    enabled = _opt(sec, "enabled", False)
+    if not isinstance(enabled, bool):
+        raise ConfigError(f"config field 'mode_router.enabled' must be a boolean, got {enabled!r}")
+    backend = _opt(sec, "backend", defaults.backend)
+    if not isinstance(backend, str) or not backend.strip():
+        raise ConfigError("config field 'mode_router.backend' must be a non-empty string")
+    if backend in _MODE_ROUTER_PENDING_BACKENDS:
+        raise ConfigError(
+            f"config field 'mode_router.backend' value {backend!r} is not delivered yet; "
+            f"see MODE_ROUTER_SPEC {_MODE_ROUTER_PENDING_BACKENDS[backend]}"
+        )
+    if backend not in _MODE_ROUTER_DELIVERED_BACKENDS:
+        raise ConfigError(
+            f"config field 'mode_router.backend' must be one of "
+            f"{'/'.join(_MODE_ROUTER_DELIVERED_BACKENDS)}, got {backend!r}"
+        )
+    model = _opt(sec, "model", defaults.model)
+    if not isinstance(model, str) or not model.strip():
+        raise ConfigError("config field 'mode_router.model' must be a non-empty string")
+    if backend == "cloudflare_workers_ai" and model not in _MODE_ROUTER_CF_MODELS:
+        raise ConfigError(
+            f"config field 'mode_router.model' must be one of "
+            f"{'/'.join(_MODE_ROUTER_CF_MODELS)} for backend 'cloudflare_workers_ai', got {model!r}"
+        )
+    base_url = _opt(sec, "base_url")
+    if base_url is not None and (
+        not isinstance(base_url, str) or not base_url.startswith(("http://", "https://"))
+    ):
+        raise ConfigError(
+            "config field 'mode_router.base_url' must be an http(s) URL or null, got %r" % (base_url,)
+        )
+    account_id = _opt(sec, "account_id")
+    if account_id is not None and (not isinstance(account_id, str) or not account_id.strip()):
+        raise ConfigError("config field 'mode_router.account_id' must be a non-empty string")
+    api_token = _opt(sec, "api_token")
+    if api_token is not None and (not isinstance(api_token, str) or not api_token.strip()):
+        raise ConfigError("config field 'mode_router.api_token' must be a non-empty string")
+    timeout_s = _opt(sec, "timeout_s", defaults.timeout_s)
+    if (
+        isinstance(timeout_s, bool)
+        or not isinstance(timeout_s, (int, float))
+        or not 0 < float(timeout_s) <= 10
+    ):
+        raise ConfigError(
+            "config field 'mode_router.timeout_s' must be a positive number <= 10, got %r" % (timeout_s,)
+        )
+    min_confidence = _opt(sec, "min_confidence")
+    if min_confidence is not None:
+        if (
+            isinstance(min_confidence, bool)
+            or not isinstance(min_confidence, (int, float))
+            or not 0 < float(min_confidence) < 1
+        ):
+            raise ConfigError(
+                "config field 'mode_router.min_confidence' must be a number in (0, 1) or null,"
+                " got %r" % (min_confidence,)
+            )
+        if backend == "openai_compatible":
+            raise ConfigError(
+                "config field 'mode_router.min_confidence' must be null for backend"
+                " 'openai_compatible' (no confidence available)"
+            )
+        min_confidence = float(min_confidence)
+    fallback_retrieval = _opt(sec, "fallback_retrieval", defaults.fallback_retrieval)
+    if not isinstance(fallback_retrieval, str) or fallback_retrieval not in CHAT_RETRIEVAL_MODES:
+        raise ConfigError(
+            f"config field 'mode_router.fallback_retrieval' must be one of "
+            f"{'/'.join(CHAT_RETRIEVAL_MODES)}, got {fallback_retrieval!r}"
+        )
+
+    # 跨字段要求放最后：enabled=true 才要求凭据（false 时零加载，
+    # 对齐 agentic allowed_roots 先例）；未解析的 ${...} 占位符视为缺失。
+    if enabled and backend == "cloudflare_workers_ai" and (
+        account_id is None or _is_unresolved_env(account_id)
+    ):
+        raise ConfigError(
+            "config field 'mode_router.account_id' is required when enabled=true"
+            " (unresolved ${...} placeholders count as missing)"
+        )
+    if enabled and backend in _MODE_ROUTER_MANAGED_BACKENDS and (
+        api_token is None or _is_unresolved_env(api_token)
+    ):
+        raise ConfigError(
+            "config field 'mode_router.api_token' is required when enabled=true"
+            " (unresolved ${...} placeholders count as missing)"
+        )
+
+    known = {
+        "enabled", "backend", "model", "account_id", "base_url", "api_token",
+        "timeout_s", "min_confidence", "fallback_retrieval",
+    }
+    return ModeRouterSettings(
+        enabled=enabled,
+        backend=backend,
+        model=model,
+        account_id=account_id,
+        base_url=base_url,
+        api_token=api_token,
+        timeout_s=float(timeout_s),
+        min_confidence=min_confidence,
+        fallback_retrieval=fallback_retrieval,
+        extra=_extra(sec, known),
     )
 
 
@@ -982,6 +1143,24 @@ def validate_settings(settings: Settings) -> None:
     if not settings.evaluation.backends:
         raise ConfigError("invalid field: evaluation.backends must be a non-empty list")
 
+    # 跨节校验（MODE_ROUTER_SPEC MR1）：各节自身合法后，再校验节间组合约束。
+    mode_router = settings.mode_router
+    if mode_router.fallback_retrieval in ("agentic_fast", "agentic_deep"):
+        if not settings.agentic_search.enabled:
+            raise ConfigError(
+                f"config field 'mode_router.fallback_retrieval' value "
+                f"{mode_router.fallback_retrieval!r} requires agentic_search.enabled=true"
+            )
+        if mode_router.fallback_retrieval == "agentic_deep" and not settings.agentic_search.allow_deep:
+            raise ConfigError(
+                "config field 'mode_router.fallback_retrieval' value 'agentic_deep'"
+                " requires agentic_search.allow_deep=true"
+            )
+    if settings.chat.default_retrieval == "auto" and not mode_router.enabled:
+        raise ConfigError(
+            "config field 'chat.default_retrieval' value 'auto' requires mode_router.enabled=true"
+        )
+
 
 def load_settings(path: str | os.PathLike[str] = "config/settings.yaml") -> Settings:
     """读取 YAML -> 解析为 Settings -> 校验必填字段。
@@ -1031,6 +1210,9 @@ def load_settings(path: str | os.PathLike[str] = "config/settings.yaml") -> Sett
     chat_sec = data.get("chat") or {}
     if not isinstance(chat_sec, dict):
         raise ConfigError("config section 'chat' must be a mapping")
+    mode_router_sec = data.get("mode_router") or {}
+    if not isinstance(mode_router_sec, dict):
+        raise ConfigError("config section 'mode_router' must be a mapping")
     api_sec = data.get("api") or {}
     if not isinstance(api_sec, dict):
         raise ConfigError("config section 'api' must be a mapping")
@@ -1039,6 +1221,7 @@ def load_settings(path: str | os.PathLike[str] = "config/settings.yaml") -> Sett
     ingestion = _build_ingestion(ingestion_sec)
     agentic_search = _build_agentic_search(agentic_sec)
     chat = _build_chat(chat_sec)
+    mode_router = _build_mode_router(mode_router_sec)
     api = _build_api(api_sec)
 
     settings = Settings(
@@ -1054,6 +1237,7 @@ def load_settings(path: str | os.PathLike[str] = "config/settings.yaml") -> Sett
         ingestion=ingestion,
         agentic_search=agentic_search,
         chat=chat,
+        mode_router=mode_router,
         api=api,
         raw=data,
     )

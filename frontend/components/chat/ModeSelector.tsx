@@ -1,22 +1,24 @@
 "use client";
 
 import { buildModeOptions } from "@/lib/chat/modes";
-import type { ChatCapabilities, RetrievalMode } from "@/lib/chat/types";
+import type { ChatCapabilities, RequestedRetrieval } from "@/lib/chat/types";
 
 interface Props {
   capabilities: ChatCapabilities | null;
-  value: RetrievalMode;
-  onChange: (mode: RetrievalMode) => void;
+  value: RequestedRetrieval;
+  onChange: (mode: RequestedRetrieval) => void;
   disabled?: boolean;
 }
 
 /**
- * Selected-state palette per retrieval mode (CHAT_MODE_COLORS_SPEC §3.1). Light mode pairs a pale
- * background with a dark tone of the same hue; dark mode pairs a translucent background over the
- * slate-800 container with a bright tone. Written as full literal class strings — Tailwind's JIT
- * only picks up complete class names, not interpolated ones.
+ * Selected-state palette per retrieval mode (CHAT_MODE_COLORS_SPEC §3.1; the Auto tone is added by
+ * MODE_ROUTER_SPEC MR4 following the same rules — the three existing modes are untouched). Light
+ * mode pairs a pale background with a dark tone of the same hue; dark mode pairs a translucent
+ * background over the slate-800 container with a bright tone. Written as full literal class
+ * strings — Tailwind's JIT only picks up complete class names, not interpolated ones.
  */
-const MODE_TONE: Record<RetrievalMode, string> = {
+const MODE_TONE: Record<RequestedRetrieval, string> = {
+  auto: "bg-violet-100 text-violet-800 dark:bg-violet-500/20 dark:text-violet-200",
   hybrid: "bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-200",
   agentic_fast: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-200",
   agentic_deep: "bg-sky-100 text-sky-800 dark:bg-sky-500/20 dark:text-sky-200",

@@ -19,6 +19,9 @@ __all__ = [
     "RETRIEVAL_AGENTIC_FAST",
     "RETRIEVAL_AGENTIC_DEEP",
     "RETRIEVAL_MODES",
+    "RETRIEVAL_AUTO",
+    "RoutingDecision",
+    "ModeRouter",
     "SearchLogCallback",
 ]
 
@@ -26,6 +29,42 @@ RETRIEVAL_HYBRID = "hybrid"
 RETRIEVAL_AGENTIC_FAST = "agentic_fast"
 RETRIEVAL_AGENTIC_DEEP = "agentic_deep"
 RETRIEVAL_MODES = (RETRIEVAL_HYBRID, RETRIEVAL_AGENTIC_FAST, RETRIEVAL_AGENTIC_DEEP)
+
+# MODE_ROUTER_SPEC MR1：请求值 ``auto`` 表示由决策模型定档。它不是检索器，
+# 不得混入 ``RETRIEVAL_MODES``（该元组同时用于引擎校验与 capabilities 过滤），
+# 由 ChatEngine 在检索前解析为三档之一。
+RETRIEVAL_AUTO = "auto"
+
+
+@dataclass
+class RoutingDecision:
+    """决策模型的一次定档结果。
+
+    Attributes:
+        mode: 选中的检索模式，必须是 ``decide`` 收到的 ``candidates`` 之一。
+        confidence: 决策模型给出的置信度；后端不提供时为 ``None``。
+        probabilities: 各候选的模式概率；后端不提供时为 ``None``。
+    """
+
+    mode: str
+    confidence: float | None = None
+    probabilities: dict[str, float] | None = None
+
+
+@runtime_checkable
+class ModeRouter(Protocol):
+    """检索模式决策接口（MODE_ROUTER_SPEC MR1）。
+
+    约定：
+    - ``candidates`` 由装配层计算后注入（已注册检索器 ∩ 门控可用，与
+      ``compute_capabilities`` 同一口径）；返回的 ``RoutingDecision.mode``
+      必须属于 ``candidates``，实现不得自作主张。
+    - 决策失败（超时 / 不可达 / 非法输出 / 低置信度）由实现以异常表达，
+      ChatEngine 统一回退 ``fallback_retrieval``，不中断会话。
+    - 实现位于 ``libs/mode_router/``（MR2）；core/chat 保持零实现依赖。
+    """
+
+    def decide(self, query: str, candidates: tuple[str, ...]) -> RoutingDecision: ...
 
 
 #: 检索过程日志回调 ``(level, message, timestamp)``；timestamp 为 sidecar 侧 epoch 秒，可缺失。

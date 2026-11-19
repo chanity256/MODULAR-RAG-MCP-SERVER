@@ -4,7 +4,24 @@ export type RetrievalMode = "hybrid" | "agentic_fast" | "agentic_deep";
 
 export const RETRIEVAL_MODES: readonly RetrievalMode[] = ["hybrid", "agentic_fast", "agentic_deep"];
 
-export type ChatStage = "rewriting" | "retrieving" | "generating" | "retrying";
+/** What the client may request: the three real modes plus "auto" (server-side mode routing). */
+export type RequestedRetrieval = RetrievalMode | "auto";
+
+export type ChatStage = "routing" | "rewriting" | "retrieving" | "generating" | "retrying";
+
+/** `mode_routing` info from the engine (MODE_ROUTER_SPEC §3.2); present on auto turns only. */
+export interface RoutingInfo {
+  requested?: string;
+  decided?: string | null;
+  candidates?: string[];
+  backend?: string;
+  model?: string;
+  confidence?: number | null;
+  probabilities?: Record<string, number> | null;
+  fallback_reason?: string | null;
+  input_tokens?: number | null;
+  elapsed_ms?: number | null;
+}
 
 export type ChatErrorCode =
   | "AUTH"
@@ -36,7 +53,7 @@ export interface TokenUsage {
 export interface UserMessagePayload {
   message: string;
   session_id?: string;
-  retrieval?: RetrievalMode;
+  retrieval?: RequestedRetrieval;
   collection?: string;
   top_k?: number;
 }
@@ -61,13 +78,16 @@ export type DownstreamFrame =
       usage?: TokenUsage;
       trace_id?: string;
       cancelled?: boolean;
+      retrieval?: string;
+      routing?: RoutingInfo;
     }
   | { type: "error"; code: string; message: string };
 
 export interface ChatCapabilities {
   enabled: boolean;
   retrievals: RetrievalMode[];
-  default_retrieval: RetrievalMode;
+  default_retrieval: RequestedRetrieval;
+  auto_routing: boolean;
   agentic_enabled: boolean;
   allow_deep: boolean;
   progress_stream: boolean;
@@ -120,7 +140,9 @@ export interface ChatMessage {
   rewrittenQuery?: string;
   usage?: TokenUsage;
   traceId?: string;
+  /** Requested mode on send; the result frame overwrites it with the actually served mode. */
   retrieval?: string;
+  routing?: RoutingInfo;
   stage?: ChatStage | null;
   stageMessage?: string;
   logs: SearchLogEntry[];

@@ -146,6 +146,19 @@ chat:
   fallback_to_chat_only: false   # D6：默认检索失败即 error 帧，不降级纯聊天
   agentic_progress_stream: false # D4/SX5.3：默认同步 search()，true 走 search_stream
 
+# 检索模式路由器（可选节，MODE_ROUTER_SPEC §3.3；缺失走默认，非法值启动即报错）。
+# enabled=false 时零加载，Chat 行为与基线完全一致；true 需先提供 Cloudflare 凭据。
+mode_router:
+  enabled: false                 # true 才提供 auto 检索模式（Web UI 出现 Auto 选项）
+  backend: cloudflare_workers_ai # MR1 只接受 cloudflare_workers_ai；typesafe（MR6）/ openai_compatible（MR7）交付后开放
+  model: clef-flash              # Workers AI：clef | clef-flash（D2 终裁默认 clef-flash）
+  account_id: ${CLOUDFLARE_ACCOUNT_ID}  # 仅 cloudflare_workers_ai；从环境变量解析；enabled=true 时必须可解析
+  base_url: null                 # 可选覆盖（AI Gateway）；缺省按 account_id 拼接 Workers AI 端点
+  api_token: ${MODE_ROUTER_API_TOKEN}   # Workers AI API token；从环境变量解析，不落盘
+  timeout_s: 3                   # 决策发生在每轮检索之前，超时即回退；MR0.2 实测 clef-flash 最大约 1.0 s
+  min_confidence: null           # D8：低于该值回退 fallback_retrieval；null 不启用（D8 终裁默认 null）
+  fallback_retrieval: hybrid     # 决策失败 / 超时 / 输出非法 / 低置信度时的兜底模式
+
 # Web API 配置（可选节，WEBUI_CHAT_SPEC §7.1；缺失走默认，非法值启动即报错）
 api:
   enabled: false            # 只影响 scripts/start_api.py

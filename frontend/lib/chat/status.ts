@@ -1,6 +1,7 @@
 import type { ChatStage } from "./types";
 
 const LABELS: Record<ChatStage, string> = {
+  routing: "Choosing the retrieval mode",
   rewriting: "Rewriting the question",
   retrieving: "Searching the knowledge base",
   generating: "Generating the answer",

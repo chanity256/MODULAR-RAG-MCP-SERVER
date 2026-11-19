@@ -13,6 +13,13 @@ scripted LLM; the prompt text selects the behaviour:
 * ``FORCE_ERROR``  the LLM raises a 503 -> ``error{UPSTREAM}`` frame
 * anything else    a short markdown answer carrying a ``[1]`` citation marker
 
+Auto retrieval (MODE_ROUTER_SPEC MR5) runs through a keyword-driven scripted router
+injected into ``ChatServices``:
+
+* ``ROUTE_FAST``             routes to ``agentic_fast``
+* ``FORCE_ROUTING_FALLBACK`` the router raises ``unreachable`` -> falls back to ``hybrid``
+* anything else              routes to ``hybrid``
+
 ``POST /__e2e__/reset`` restores the seeded documents so specs stay independent and retryable.
 """
 
@@ -43,12 +50,13 @@ from api.chat_wiring import ChatServices  # noqa: E402
 from api.deps import ServiceContainer  # noqa: E402
 from api.tasks import TaskManager  # noqa: E402
 from core.chat import SessionStore  # noqa: E402
-from core.chat.retriever import ChatRetrievalResult, DeepDisabledError  # noqa: E402
-from core.settings import ApiSettings, ChatSettings, load_settings  # noqa: E402
+from core.chat.retriever import ChatRetrievalResult, DeepDisabledError, RoutingDecision  # noqa: E402
+from core.settings import ApiSettings, ChatSettings, ModeRouterSettings, load_settings  # noqa: E402
 from core.types import RetrievalResult  # noqa: E402
 from ingestion.document_manager import CollectionStats, DeleteResult, DocumentDetail, DocumentInfo  # noqa: E402
 from libs.llm.base_llm import BaseLLM, ChatResponse  # noqa: E402
 from libs.llm.openai_llm import LLMRequestError  # noqa: E402
+from libs.mode_router import ModeRouterError  # noqa: E402
 from observability.dashboard.services.chat_retrievers import HybridChatRetriever  # noqa: E402
 from observability.dashboard.services.config_service import ConfigService  # noqa: E402
 from observability.dashboard.services.ingestion_service import IngestionService, IngestionSummary  # noqa: E402
@@ -124,6 +132,26 @@ class FakeAgenticRetriever:
                  "text": "Sidecar evidence passage.", "score": 0.5}
             ],
             answer=f"{self._label} answer from the sidecar [1].",
+        )
+
+
+class ScriptedModeRouter:
+    """Keyword-driven stand-in for the mode router (MR5 auto flow, zero network)."""
+
+    backend_name = "scripted_e2e"
+    model = "clef-flash"
+    last_input_tokens = 271
+
+    def decide(self, query: str, candidates: tuple[str, ...]) -> RoutingDecision:
+        if "FORCE_ROUTING_FALLBACK" in query:
+            raise ModeRouterError("unreachable", "scripted router is down")
+        mode = "agentic_fast" if "ROUTE_FAST" in query else "hybrid"
+        if mode not in candidates:
+            mode = "hybrid"
+        return RoutingDecision(
+            mode=mode,
+            confidence=0.9 if mode == "agentic_fast" else 0.81,
+            probabilities={"hybrid": 0.81, "agentic_fast": 0.15, "agentic_deep": 0.04},
         )
 
 
@@ -401,6 +429,9 @@ def build_app(
         loaded,
         chat=chat_settings,
         agentic_search=replace(loaded.agentic_search, enabled=True, allow_deep=False),
+        # MR5: capabilities report auto_routing (router on + non-empty candidates); the
+        # decision itself is served by the scripted router injected right below.
+        mode_router=replace(loaded.mode_router, enabled=True),
         observability=replace(loaded.observability, log_file=str(traces_path)),
     )
     api_settings = ApiSettings(
@@ -425,6 +456,9 @@ def build_app(
         },
         llm_factory=lambda _settings: ScriptedLLM(),
     )
+    # Inject the scripted router before the first engine is built: ``_get_mode_router``
+    # reuses a non-None ``_mode_router``, so ``create_mode_router`` never runs here.
+    chat._mode_router = ScriptedModeRouter()  # e2e fixture: no real router without credentials
     container = ServiceContainer(
         settings,
         config_service=ConfigService(settings),

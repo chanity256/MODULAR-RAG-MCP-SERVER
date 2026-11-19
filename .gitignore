@@ -140,3 +140,7 @@ frontend/playwright-report/
 frontend/next-env.d.ts
 frontend/*.tsbuildinfo
 !frontend/lib/
+
+# 本地凭据文件（不得入库）：mode_router 决策模型凭据等
+.env-mode-router.local
+.env-*.local

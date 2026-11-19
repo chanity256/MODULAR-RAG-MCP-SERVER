@@ -2,9 +2,12 @@
 
 ``ChatEngine.run_turn`` 返回帧字典的生成器，帧顺序见 WEBUI_CHAT_SPEC §4.7::
 
-    session? -> status(rewriting)? -> status(retrieving) -> search_complete -> sources
-             -> status(generating) -> stream* -> result            （成功）
+    session? -> status(rewriting)? -> status(routing)? -> status(retrieving) -> search_complete
+             -> sources -> status(generating) -> stream* -> result            （成功）
     ... -> error                                                    （失败，终帧）
+
+``status(routing)`` 与 result 帧的 ``routing`` 对象仅在 auto 轮次出现
+（MODE_ROUTER_SPEC MR3，只增不改）。
 
 要点：
 - 重试窗口止于首个 ``stream`` 帧：此后异常不重试，直接 ``error`` 终帧并保存已生成部分。
@@ -23,7 +26,7 @@ import threading
 import time
 import urllib.error
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Mapping
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Mapping, Sequence
 
 import httpx
 
@@ -32,11 +35,13 @@ from core.chat.context import ContextProcessor
 from core.chat.history import build_history
 from core.chat.progress import SearchLogFramer
 from core.chat.retriever import (
+    RETRIEVAL_AUTO,
     RETRIEVAL_HYBRID,
     RETRIEVAL_MODES,
     ChatRetrievalResult,
     ChatRetriever,
     DeepDisabledError,
+    ModeRouter,
 )
 from core.chat.session_store import SessionNotFoundError, SessionStore
 from core.settings import ChatSettings
@@ -48,6 +53,9 @@ from libs.agentic_search.base_agentic_search import (
 )
 from libs.llm.base_llm import ChatMessage
 from libs.llm.openai_llm import LLMRequestError
+# ModeRouterError 延迟到 _route 内导入：libs.mode_router.base_mode_router 反向依赖
+# core.chat.retriever（RoutingDecision），模块级互相导入会在「先 import libs.mode_router」
+# 的入口（如 scripts/eval_mode_router.py）触发循环导入。
 
 if TYPE_CHECKING:
     from core.trace.trace_context import TraceContext
@@ -164,6 +172,8 @@ class _TurnState:
     cancelled: bool = False
     finalized: bool = False
     terminal: dict[str, Any] | None = None
+    # auto 轮次的 mode_routing 信息（``_route`` 产出；非 auto 轮次为 None）。
+    routing: dict[str, Any] | None = None
 
 
 class ChatEngine:
@@ -178,6 +188,11 @@ class ChatEngine:
         trace_factory: ``metadata -> TraceContext``；缺省直接构造 query trace。
         persist_trace: 落盘回调；``None`` 表示不落盘（离线/测试）。失败只记日志，不影响本轮。
         sleep / retry_interval_s: 重试间隔（``sleep`` 可注入，测试免等待）。
+        mode_router: 检索模式决策器（MODE_ROUTER_SPEC MR3）；注入后才接受 ``retrieval="auto"``。
+            实例可跨轮共享（wiring 层持有一个懒建实例）。
+        auto_candidates: auto 的候选集，由装配层计算后注入（D4：已注册检索器 ∩ 门控可用）；
+            引擎不自行取 ``self._retrievers`` 的 keys。
+        auto_fallback: 决策失败 / 低置信度 / 候选外输出时的兜底模式；必须在候选集内。
     """
 
     def __init__(
@@ -193,6 +208,9 @@ class ChatEngine:
         persist_trace: Callable[[TraceContext], None] | None = None,
         sleep: Callable[[float], None] = time.sleep,
         retry_interval_s: float = 2.0,
+        mode_router: ModeRouter | None = None,
+        auto_candidates: Sequence[str] | None = None,
+        auto_fallback: str = RETRIEVAL_HYBRID,
     ) -> None:
         self._settings = settings or ChatSettings()
         self._retrievers = dict(retrievers)
@@ -209,6 +227,14 @@ class ChatEngine:
         self._persist_trace = persist_trace
         self._sleep = sleep
         self._retry_interval_s = retry_interval_s
+        self._mode_router = mode_router
+        self._auto_candidates = tuple(auto_candidates) if auto_candidates is not None else ()
+        self._auto_fallback = auto_fallback
+        if self._auto_candidates and self._auto_fallback not in self._auto_candidates:
+            raise ValueError(
+                f"auto_fallback {self._auto_fallback!r} is not in auto candidates "
+                f"{list(self._auto_candidates)}"
+            )
 
     @property
     def available_retrievals(self) -> tuple[str, ...]:
@@ -238,10 +264,17 @@ class ChatEngine:
         if not isinstance(message, str) or not message.strip():
             raise ValueError("message must be a non-empty string")
         mode = retrieval or self._settings.default_retrieval
-        if mode not in RETRIEVAL_MODES:
-            raise ValueError(f"retrieval must be one of {RETRIEVAL_MODES}, got {mode!r}")
-        if mode not in self._retrievers:
-            raise ValueError(f"retrieval mode {mode!r} is not available")
+        if mode == RETRIEVAL_AUTO:
+            # MODE_ROUTER_SPEC MR3：auto 仅在注入 router 且候选非空时合法（D4：候选由装配层注入）。
+            if self._mode_router is None:
+                raise ValueError("retrieval 'auto' requires a mode router (mode_router disabled or not injected)")
+            if not self._auto_candidates:
+                raise ValueError("retrieval 'auto' requires non-empty auto candidates")
+        else:
+            if mode not in RETRIEVAL_MODES:
+                raise ValueError(f"retrieval must be one of {RETRIEVAL_MODES}, got {mode!r}")
+            if mode not in self._retrievers:
+                raise ValueError(f"retrieval mode {mode!r} is not available")
         if top_k is not None and (isinstance(top_k, bool) or not isinstance(top_k, int) or top_k < 1):
             raise ValueError(f"top_k must be a positive integer, got {top_k!r}")
         if session_id is not None and not self._store.session_exists(session_id):
@@ -292,6 +325,12 @@ class ChatEngine:
                 return
 
             retrieved: ChatRetrievalResult | None = None
+            if mode == RETRIEVAL_AUTO:
+                # D5：改写后定档；决策期间同步阻塞至多 timeout_s，先发 routing 帧。
+                yield {"type": "status", "stage": "routing", "message": "正在选择检索模式"}
+                mode, state.routing = self._route(state, search_query)
+                state.retrieval = mode  # trace metadata / result 帧记实际模式
+                trace.metadata["retrieval"] = mode
             yield {"type": "status", "stage": "retrieving", "message": "正在检索知识库"}
             try:
                 retrieved = yield from self._retrieve(
@@ -359,6 +398,50 @@ class ChatEngine:
     # ------------------------------------------------------------------ #
     # 阶段实现
     # ------------------------------------------------------------------ #
+    def _route(self, state: _TurnState, search_query: str) -> tuple[str, dict[str, Any]]:
+        """auto 定档（MODE_ROUTER_SPEC MR3，D5）。
+
+        对路由器返回值做候选内复检（不信任实现）；``ModeRouterError`` 按其
+        ``reason`` 记 ``fallback_reason``，其余异常记 ``error``；任何失败都
+        回退 ``auto_fallback``，不中断会话。trace ``mode_routing`` 阶段不记
+        ``api_token`` / ``account_id``（§8）。
+        """
+        router = self._mode_router
+        assert router is not None  # run_turn 已保证 auto 只在注入 router 时进入
+        from libs.mode_router.base_mode_router import ModeRouterError  # 局部导入避免循环依赖
+        routing: dict[str, Any] = {
+            "requested": RETRIEVAL_AUTO,
+            "decided": None,
+            "candidates": list(self._auto_candidates),
+            "backend": getattr(router, "backend_name", None) or type(router).__name__,
+            "model": getattr(router, "model", None),
+            "confidence": None,
+            "probabilities": None,
+            "fallback_reason": None,
+            "input_tokens": None,
+        }
+        started = time.perf_counter()
+        mode = self._auto_fallback
+        try:
+            decision = router.decide(search_query, self._auto_candidates)
+            if decision.mode in self._auto_candidates:
+                mode = decision.mode
+                routing["decided"] = decision.mode
+                routing["confidence"] = decision.confidence
+                routing["probabilities"] = decision.probabilities
+            else:
+                routing["fallback_reason"] = "invalid_output"
+        except Exception as exc:  # noqa: BLE001 - 决策失败一律回退，不中断会话
+            routing["fallback_reason"] = exc.reason if isinstance(exc, ModeRouterError) else "error"
+            if not isinstance(exc, ModeRouterError):
+                logger.warning("mode router raised unexpectedly: %s", exc)
+        routing["input_tokens"] = getattr(router, "last_input_tokens", None)
+        routing["elapsed_ms"] = round((time.perf_counter() - started) * 1000, 3)
+        state.trace.record_stage("mode_routing", **routing)
+        if routing["fallback_reason"] is not None:
+            logger.warning("mode router fell back to %s (%s)", mode, routing["fallback_reason"])
+        return mode, routing
+
     def _prepare_history(
         self, prior: list[dict[str, Any]], question: str
     ) -> tuple[list[ChatMessage], dict[str, Any]]:
@@ -617,7 +700,10 @@ class ChatEngine:
                 "message_id": message_id,
                 "grounded": state.grounded,
                 "trace_id": trace.trace_id,
+                "retrieval": state.retrieval,  # MR3：实际使用的模式（只增字段）
             }
+            if state.routing is not None:
+                terminal["routing"] = state.routing  # 仅 auto 轮次出现（只增字段）
             if state.rewritten_query is not None:
                 terminal["rewritten_query"] = state.rewritten_query
             if state.usage is not None:
