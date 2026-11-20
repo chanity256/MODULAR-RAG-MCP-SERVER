@@ -2,6 +2,12 @@
 
 # 项目根锚定规格 (ROOT_ANCHOR_SPEC)
 
+> **📌 冻结记录**
+>
+> - 冻结时间：2026-11-20
+> - 完成概要：RA0–RA5 共 6 项任务全部收口（RA0 立项与 D1–D3 终裁：D1-a + D2-b + D3-a；RA1 `resolve_project_root()` + MCP 默认配置路径锚定；RA2 相对 `allowed_roots` 与预建基准按项目根；RA3 数据层相对路径 D2-b 全量锚定（`tasks_db` / `session_db` / `static_dir` 为使用点锚定）；RA4 文档撤销「须从仓库根启动」；RA5 真实 sidecar 仓库外启动冒烟通过——上传 → Agentic (fast) 命中 → 删除后不再命中，启动目录无 `data/`）。
+> - 遗留：无新遗留（agentic 按 collection 隔离仍留 [AR 台账候选 #2](../backlog/agentic-roots-followups_backlog.md)）。
+
 > 版本：0.2 — RA0 立项与 D1–D3 终裁已完成（D1-a + D2-b + D3-a，2026-11-20）
 >
 > 起源与决策依据：由 [backlog/agentic-roots-followups_backlog.md](../backlog/agentic-roots-followups_backlog.md) 候选 #1「相对 `allowed_roots` 改为按项目根解析」拆分移交（该台账留在 backlog/，#1 细节已移入本规格，原文见 git 历史）；台账源自 [14_AGENTIC_UPLOAD_ROOTS_SPEC_frozen.md](../frozen/14_AGENTIC_UPLOAD_ROOTS_SPEC_frozen.md) §2.2 Out of Scope。立项依据为会话内入口复现（2026-11-20，非文件来源，结果见 §1.2）
@@ -168,18 +174,18 @@ IngestionService(upload_dir=<项目根>/data/uploads) / Chroma / BM25 / SQLite  
 | RA2 | agentic 白名单与预建按项目根 | `ensure_local_roots` 默认基准用例通过；临时 CWD 下 PathGuard 根落在项目根、CWD 不新建 `data/`；既有 PathGuard 用例不变 | ✅ 已完成（2026-11-20）：`load_settings` 把相对 `allowed_roots` 锚定为 `<项目根>/...` 绝对路径（绝对原样、`~` 展开，D3-a 口径）；`ensure_local_roots` 默认基准改 `resolve_project_root()/data`；改写 `test_agentic_local_roots` 4 处（默认基准 2 例含「CWD 不新建 data/」+ 3 入口用例注入 `RAG_PROJECT_ROOT`，start_api 改显式 `--config`）、新增 `test_agentic_config` 3 例（相对锚定 / 绝对原样 / `~` 展开）；PathGuard 契约用例不变；全量禁网 2956 passed / 23 skipped / 1 xfailed，`check_redlines.py` OK。计划见 `.agents/plans/RA2.md` |
 | RA3 | 数据层相对路径按项目根（范围按 D2） | 配置规范化用例与 `start_api.py` 入口子进程用例通过；`RAG_LOG_ROOT` 优先级不变；经确认改写的既有测试在本行列明 | ✅ 已完成（2026-11-20）：`core.project_root.resolve_data_path()`（幂等；sqlite `:memory:` 哨兵原样返回）；`load_settings` 锚定 `vector_store.persist_path`；`tasks_db` / `session_db` / `static_dir` 改为**使用点锚定**（偏离 D3-a 字面：两字段各仅 1 个消费者，且 `test_api_security:153` / `test_chat_settings` 共 5 处 dataclass 整体等值断言会因字段绝对化破裂；落地行为等价，计划见 `.agents/plans/RA3.md`）；模块常量默认值（上传目录 / BM25 索引 / 摄取历史库 / 图片库）在构造函数默认处锚定，常量原样；`resolve_log_path` 回退基准 CWD → 项目根（`RAG_LOG_ROOT` 优先级不变）；改写 5 处既有测试（上传目录 ×2、BM25 默认路径、`static_dir`、log 回退 ×2）+ 2 个 e2e CLI 子进程文件注入 `RAG_PROJECT_ROOT`（原依赖 CWD 相对缺省存储）；新增 `resolve_data_path` 4 例 + `persist_path` 规范化 2 例 + 入口「数据路径落项目根、CWD 不新建 data/」1 例；全量禁网 2963 passed / 23 skipped / 1 xfailed，`check_redlines.py` OK |
 | RA4 | 文档同步 | USAGE_GUIDE §4.4 / §10.1、README 5.1 撤销「须从仓库根启动」并说明新语义与 `RAG_PROJECT_ROOT`；README §9 示例的 `cwd` 改为可选；`test_docs_links.py` 通过 | ✅ 已完成（2026-11-20）：USAGE_GUIDE §4.4「从仓库根启动」改写为「项目根锚定（RA 系列）」（相对白名单根按项目根解析、`RAG_PROJECT_ROOT` 优先否则按代码位置推导、启动目录不新建 `data/`、绝对路径与 `~` 原样生效）；§10.1 同款改写为「任意目录启动（RA 系列）」；README 5.1 白名单段落同步新语义；README §9 两处 MCP Client 示例移除 `cwd` 并补「`cwd` 可选 + `RAG_PROJECT_ROOT`」说明，FAQ「MCP 连接问题」同步；USAGE_GUIDE §2.5 补同款可选说明。`test_docs_links.py` / `test_spec_structure.py` 通过 |
-| RA5 | 门控真实冒烟 | `RAG_AGENTIC_INTEGRATION=1` 下从仓库外的目录启动 `start_api.py`，上传一份含唯一标记词的文档，Agentic (fast) 命中；删除后不再命中；启动目录无 `data/`；结果记入本表 | 未开始 |
+| RA5 | 门控真实冒烟 | `RAG_AGENTIC_INTEGRATION=1` 下从仓库外的目录启动 `start_api.py`，上传一份含唯一标记词的文档，Agentic (fast) 命中；删除后不再命中；启动目录无 `data/`；结果记入本表 | ✅ 已完成（2026-11-20）：真实冒烟通过——`mktemp -d` 临时目录（仓库外）以 `--force --manage-sidecar` 启动 `start_api.py`，sidecar 由编排器自动拉起并就绪（上游 `b314e11`）；`POST /uploads` + `POST /ingestions` 上传含唯一标记词 `RA5QUARKANCHOR7F3K` 的文档（1 file / 1 chunk）；Agentic (fast) 检索命中，citation 指向 `<项目根>/data/uploads/ra5_marker.md`（`is_error=false`，3.1s）；`DELETE /documents` 四存储清理（chroma 1 / bm25 1 / `source_file_removed: true`），复检 fast 检索不再引用标记文档（2 个 citation 均为既有语料，LLM 明确判定标记词不存在于所给文档，4.7s）；启动目录无 `data/`（仅 api.log 与本地上传副本）；SIGTERM 退出回收 sidecar，8584/8600 释放；CI 等价禁网全量 2963 passed / 23 skipped / 1 xfailed，`check_redlines.py` OK |
 
 > 进度备注：交付后在各任务下回填状态与关键实测数据；全部收口后本规格移入 `docs/frozen/` 并更新 MOC.md。
 
 ## 6. 验收清单
 
-- [ ] 从仓库外的任意目录启动 `start_api.py` / `query.py --agentic`，白名单与数据路径都落在项目根下，启动目录不新建 `data/`
-- [ ] 从仓库外的任意目录启动 MCP server，`agentic_search.enabled: true` 时 `tools/list` 含 `agentic_search`
-- [ ] 绝对路径配置与 `RAG_LOG_ROOT` 的行为不变；用户输入的 CLI / API 相对路径仍按 CWD 解析
-- [ ] 显式传白名单外的 `paths` 仍返回 `-32602`（既有 PathGuard 用例不变）
-- [ ] `pytest tests -q`、CI 等价禁网命令、`python scripts/check_redlines.py` 全绿
-- [ ] 回写完成（§7）
+- [x] 从仓库外的任意目录启动 `start_api.py` / `query.py --agentic`，白名单与数据路径都落在项目根下，启动目录不新建 `data/`（RA5 真实冒烟：仓库外目录启动，上传/白名单/存储均落项目根，启动目录无 `data/`）
+- [x] 从仓库外的任意目录启动 MCP server，`agentic_search.enabled: true` 时 `tools/list` 含 `agentic_search`（RA1 e2e MCP 子进程用例，离线套件常绿）
+- [x] 绝对路径配置与 `RAG_LOG_ROOT` 的行为不变；用户输入的 CLI / API 相对路径仍按 CWD 解析（RA1–RA3 既有契约用例未改）
+- [x] 显式传白名单外的 `paths` 仍返回 `-32602`（既有 PathGuard 用例不变）
+- [x] `pytest tests -q`、CI 等价禁网命令、`python scripts/check_redlines.py` 全绿（收口时 2963 passed / 23 skipped / 1 xfailed，redlines OK）
+- [x] 回写完成（§7）
 
 ## 7. 实现合入后的回写清单
 

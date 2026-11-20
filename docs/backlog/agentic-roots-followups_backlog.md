@@ -2,7 +2,7 @@
 
 > 起源：[14_AGENTIC_UPLOAD_ROOTS_SPEC_frozen.md](../frozen/14_AGENTIC_UPLOAD_ROOTS_SPEC_frozen.md) 收口遗留（其 §2.2 Out of Scope 明示「另立提案」的两项）。本台账只登记候选，不承诺排期；某项要推进时按单文件晋升另立提案或从台账拆分。
 >
-> 移交记录（2026-11-20）：候选 #1「相对 `allowed_roots` 改为按项目根解析」拆分移交 [specs/ROOT_ANCHOR_SPEC.md](../specs/ROOT_ANCHOR_SPEC.md)（RA 系列），细节已移入该规格，原文见 git 历史；本台账只剩候选 #2。
+> 移交记录（2026-11-20）：候选 #1「相对 `allowed_roots` 改为按项目根解析」拆分移交 [16_ROOT_ANCHOR_SPEC_frozen.md](../frozen/16_ROOT_ANCHOR_SPEC_frozen.md)（RA 系列，已收口冻结，2026-11-20），细节已移入该规格，原文见 git 历史；本台账只剩候选 #2。
 
 ## 明确不做（继承规格 Out of Scope，不再重议）
 
@@ -15,7 +15,7 @@
 
 ### 1. 相对 `allowed_roots` 改为按项目根解析（CWD 根治）——已移交
 
-已于 2026-11-20 拆分移交 [specs/ROOT_ANCHOR_SPEC.md](../specs/ROOT_ANCHOR_SPEC.md)，现状复现、三问与决策见该规格第 1 章。
+已于 2026-11-20 拆分移交 [16_ROOT_ANCHOR_SPEC_frozen.md](../frozen/16_ROOT_ANCHOR_SPEC_frozen.md)（RA 系列，已收口冻结），现状复现、三问与决策见该规格第 1 章；**已交付**（RA0–RA5 全部收口，RA5 真实 sidecar 仓库外启动冒烟通过，见规格 §5 任务表与冻结记录）。
 
 ### 2. agentic 检索按 collection 隔离
 
