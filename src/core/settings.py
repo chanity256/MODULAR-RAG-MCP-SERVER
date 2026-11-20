@@ -21,6 +21,8 @@ from typing import Any
 
 import yaml
 
+from core.project_root import resolve_project_root
+
 __all__ = [
     "ConfigError",
     "LLMConfig",
@@ -880,6 +882,19 @@ def _build_agentic_search(sec: dict[str, Any]) -> AgenticSearchConfig:
             "config field 'agentic_search.allowed_roots' must be non-empty when enabled=true"
         )
 
+    # 白名单按项目根锚定（ROOT_ANCHOR_SPEC RA2，D3-a）：相对根解析为
+    # ``<项目根>/...`` 的绝对路径，PathGuard / ensure_local_roots 收到的恒为
+    # 绝对根；绝对路径原样保留，``~`` 先展开。PathGuard 自身的相对输入
+    # 按 CWD 解析契约不变（用户显式传入的 paths 不在此列）。
+    project_root = resolve_project_root()
+    allowed_roots: list[str] = []
+    for raw_root in allowed_roots_raw:
+        expanded = Path(raw_root).expanduser()
+        if expanded.is_absolute():
+            allowed_roots.append(str(expanded.resolve()))
+        else:
+            allowed_roots.append(str((project_root / expanded).resolve()))
+
     known = {
         "enabled", "backend", "base_url", "api_token", "mode", "allow_deep",
         "timeout_s", "top_k_files", "max_loops", "max_token_budget",
@@ -902,7 +917,7 @@ def _build_agentic_search(sec: dict[str, Any]) -> AgenticSearchConfig:
         trigger=trigger,
         trigger_score_threshold=float(trigger_score_threshold),
         trigger_min_results=trigger_min_results,
-        allowed_roots=list(allowed_roots_raw),
+        allowed_roots=allowed_roots,
         denied_substrings=list(denied_raw),
         extra=_extra(sec, known),
     )
@@ -1180,8 +1195,6 @@ def load_settings(path: str | os.PathLike[str] | None = None) -> Settings:
         FileNotFoundError: 配置文件不存在时（由调用方决定是否转成 ConfigError）。
     """
     if path is None:
-        from core.project_root import resolve_project_root
-
         path = resolve_project_root() / "config" / "settings.yaml"
     p = Path(path)
     if not p.exists():

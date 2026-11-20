@@ -17,6 +17,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from core.project_root import resolve_project_root
+
 if __package__ in (None, ""):  # pragma: no cover - 直接运行兜底
     import sys
 
@@ -34,7 +36,9 @@ def ensure_local_roots(agentic: Any, base: Path | None = None) -> list[str]:
         agentic: ``AgenticSearchConfig``（或提供 ``enabled`` /
             ``allowed_roots`` / ``denied_substrings`` 属性的对象）。
             ``enabled`` 为 false 时不做任何事。
-        base: 视为「本项目管理的数据目录」的基准（缺省 ``<CWD>/data``）。
+        base: 视为「本项目管理的数据目录」的基准（缺省
+            ``<项目根>/data``，ROOT_ANCHOR_SPEC RA2；项目根由
+            ``core.project_root.resolve_project_root`` 解析，原为按 CWD）。
             只有解析后落在该基准之下的根才会被创建；测试经此注入临时目录。
 
     语义（spec §3）：
@@ -51,7 +55,9 @@ def ensure_local_roots(agentic: Any, base: Path | None = None) -> list[str]:
     if not roots:
         return []
     denied = [d for d in (getattr(agentic, "denied_substrings", []) or []) if d]
-    data_base = (base if base is not None else Path.cwd() / "data").resolve()
+    data_base = (
+        base if base is not None else resolve_project_root() / "data"
+    ).resolve()
     created: list[str] = []
     for raw in roots:
         if isinstance(raw, Path):
