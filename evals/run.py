@@ -52,6 +52,29 @@ DEFAULT_MIN_PASS_RATE = 0.9
 OVERLAY_PATHS = ("AGENTS.md", ".factory/skills", ".claude/skills", ".github/skills",
                  ".factory/hooks.json", ".factory/hooks")
 
+# EJR1 (EVALS_JUDGE_RELIABILITY_SPEC §3.2): fixture_commit 3d9559c predates SD3.7's /.factory/state/
+# gitignore line, so hook state written during a session (read_guard's reads-*.jsonl, test_guard's
+# fix_mode) would land in the fixture diff via snapshot_tree's `git add -A`. Appending the line
+# before the baseline snapshot makes it part of the baseline, not agent diff.
+STATE_IGNORE_LINE = "/.factory/state/"
+
+
+def ensure_state_ignored(fixture: Path) -> None:
+    """Append /.factory/state/ to the fixture's .gitignore exactly once (idempotent).
+
+    Byte-preserving: the real fixture's .gitignore is CRLF throughout (fixture_commit 3d9559c),
+    so the file is handled as bytes to keep every other line — and its line endings — untouched.
+    """
+    gitignore = fixture / ".gitignore"
+    data = gitignore.read_bytes() if gitignore.is_file() else b""
+    marker = STATE_IGNORE_LINE.encode("utf-8")
+    if any(line.strip() == marker for line in data.splitlines()):
+        return
+    nl = b"\r\n" if b"\r\n" in data else b"\n"
+    if data and not data.endswith(b"\n"):
+        data += nl
+    gitignore.write_bytes(data + marker + nl)
+
 
 def _listed_files(source: Path, rel: str) -> list[str] | None:
     """Non-ignored files under ``rel`` (tracked + untracked), or None when source is not a git checkout."""
@@ -116,6 +139,7 @@ def prepare_fixture(repo: Path, commit: str, dest: Path, overlay_from: Path | No
                    check=True, capture_output=True, text=True)
     if overlay_from is not None:
         overlay_steering(overlay_from, dest)
+    ensure_state_ignored(dest)
     if venv is not None and venv.exists() and not (dest / ".venv").exists():
         (dest / ".venv").symlink_to(venv.resolve())
     return check.snapshot_tree(dest)
