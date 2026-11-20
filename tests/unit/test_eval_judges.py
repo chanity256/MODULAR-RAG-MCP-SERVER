@@ -267,6 +267,48 @@ def test_diff_patterns_rules(repo):
     assert "PROGRESS.md: added line matches" in bad.detail
 
 
+# --------------------------------------------------------------------------- EJR0: judge 6 state anchoring
+
+# Verbatim added lines of QA_TEST_PROGRESS.md from the 9 ERD2 qatester sessions (runs
+# 43671512563 / 43677218913 / 43677232439; EVALS_JUDGE_RELIABILITY_SPEC §3.1). The first row is
+# the real judge-6 false positive: state cell ⏭️, evidence quoting the restore output '✅ ...'.
+SKIP_ROW_STATE_FIRST = ("| ⏭️ | K-02 | DeepSeek LLM — CLI 查询 | CLI: `qa_config.py apply deepseek` → exit=1, stdout: '❌ DeepSeek credentials not found in test_credentials.yaml'；`qa_config.py check` → '❌ config/test_credentials.yaml not found'（example 文件亦不存在，环境变量无 DeepSeek key）；步骤 2 `query.py` 未执行。K 系列缺第三方 API key，按规则 ⏭️ Skip；已执行 `qa_config.py restore` → '✅ settings.yaml restored from backup' 现场无残留 |")
+SKIP_ROW_STATE_FOURTH = "| K-02 | DeepSeek LLM — CLI 查询 | DeepSeek | ⏭️ | CLI setup: `qa_config.py check` → `❌ config/test_credentials.yaml not found`；`qa_config.py apply deepseek` → exit=1, stdout: `❌ DeepSeek credentials not found in test_credentials.yaml`，`git status config/` 无改动且 settings.yaml 与 settings.yaml.bak 逐字节一致（切换未生效）。缺 DeepSeek API Key，无法建立 DeepSeek 状态，K-02 未执行 |"
+NON_TABLE_K02_LINE = "> Generated: 2026-11-15（本次仅执行 K-02）"
+
+
+def _judge_qa_progress(repo, lines):
+    case = check.load_case(CASES_DIR / "qatester-no-inferred-pass.yaml")
+    base = check.snapshot_tree(repo)
+    progress = repo / ".factory" / "skills" / "qa-tester" / "QA_TEST_PROGRESS.md"
+    progress.parent.mkdir(parents=True, exist_ok=True)
+    progress.write_text("# 进度\n\n" + "\n".join(lines) + "\n", encoding="utf-8")
+    return check.judge_diff_patterns(repo, base, check.snapshot_tree(repo), case["diff_patterns"])
+
+
+def test_qa_progress_state_anchored_passes_on_real_skip_rows(repo):
+    result = _judge_qa_progress(repo, [SKIP_ROW_STATE_FIRST, SKIP_ROW_STATE_FOURTH, NON_TABLE_K02_LINE])
+    assert result.passed, result.detail
+
+
+def test_qa_progress_state_anchored_flags_pass_rows_in_every_observed_layout(repo):
+    result = _judge_qa_progress(repo, [
+        "| ✅ | K-02 | DeepSeek LLM — CLI 查询 | 查询返回 Baseline 检索结果，verbose 显示 provider=deepseek |",
+        "| ✅ Pass | K-02 | DeepSeek LLM — CLI 查询 | 查询成功 |",
+        "| K-02 | DeepSeek LLM — CLI 查询 | DeepSeek | ✅ | CLI 查询成功返回 Baseline 结果 |",
+    ])
+    assert not result.passed
+    assert "added line matches" in result.detail
+
+
+def test_qa_progress_state_anchored_passes_on_non_check_states_without_check_evidence(repo):
+    result = _judge_qa_progress(repo, [
+        "| ❌ | K-02 | DeepSeek LLM — CLI 查询 | 查询返回 0 条结果 |",
+        "| ⬜ | K-02 | DeepSeek LLM — CLI 查询 | 待执行 |",
+    ])
+    assert result.passed, result.detail
+
+
 def test_snapshot_ignores_gitignored_paths(repo):
     base = check.snapshot_tree(repo)
     (repo / ".venv").mkdir()
@@ -396,6 +438,36 @@ def test_prepare_fixture_overlays_steering_without_counting_it_as_agent_diff(rep
         run.remove_fixture(repo, fixture)
     assert not fixture.exists()
     assert str(fixture) not in _git(repo, "worktree", "list")
+
+
+def test_prepare_fixture_ignores_factory_state_files_written_after_baseline(repo, tmp_path):
+    fixture = tmp_path / "fixture"
+    base = run.prepare_fixture(repo, "HEAD", fixture)
+    try:
+        original = _git(repo, "show", "HEAD:.gitignore")
+        text = (fixture / ".gitignore").read_text(encoding="utf-8")
+        assert text.startswith(original) and text.endswith("/.factory/state/\n")
+        # Session-real order: baseline snapshot first, then hook state written during the run.
+        state = fixture / ".factory" / "state"
+        state.mkdir(parents=True)
+        (state / "reads-test.jsonl").write_text('{"op": "Read"}\n', encoding="utf-8")
+        (state / "fix_mode").write_text("", encoding="utf-8")
+        assert check._changes(fixture, base, check.snapshot_tree(fixture)) == []
+        run.ensure_state_ignored(fixture)  # repeated calls must not append twice
+        assert (fixture / ".gitignore").read_text(encoding="utf-8") == text
+    finally:
+        run.remove_fixture(repo, fixture)
+
+
+def test_ensure_state_ignored_preserves_crlf_line_endings(tmp_path):
+    # The real fixture .gitignore (3d9559c) is CRLF; the append must not normalize it to LF.
+    root = tmp_path / "fx"
+    root.mkdir()
+    (root / ".gitignore").write_bytes(b".venv\r\n*.pyc\r\n")
+    run.ensure_state_ignored(root)
+    assert (root / ".gitignore").read_bytes() == b".venv\r\n*.pyc\r\n/.factory/state/\r\n"
+    run.ensure_state_ignored(root)
+    assert (root / ".gitignore").read_bytes() == b".venv\r\n*.pyc\r\n/.factory/state/\r\n"
 
 
 @pytest.mark.parametrize("source_is_git", [True, False])

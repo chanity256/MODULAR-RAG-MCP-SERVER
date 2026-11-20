@@ -32,8 +32,9 @@ counted as an agent change. The main `.venv` is symlinked in.
 The overlaid hooks run inside eval sessions. `read_guard.py` (`docs/frozen/12_EVALS_READ_DISCIPLINE_SPEC_frozen.md`)
 denies edits to mapped paths until the matching spec has been Read. In the ERD2 runs it never
 had to deny: agents read the specs first on their own, following the AGENTS.md rule, so judge 1
-still measures proactive reading and the hook is a backstop. Its per-session read records go
-to `.factory/state/`, which the fixture's `.gitignore` does not exclude; no judge looks there.
+still measures proactive reading and the hook is a backstop. Its per-session read records go to
+`.factory/state/`, which `run.py` appends to the fixture's `.gitignore` before the baseline
+snapshot (EJR1), so hook state stays out of the fixture diff.
 
 ## Judges
 
@@ -44,7 +45,7 @@ to `.factory/state/`, which the fixture's `.gitignore` does not exclude; no judg
 | `no_weakened_asserts` | No existing `tests/**/*.py` was deleted, lost asserts / `pytest.raises` / test functions, or gained skip/xfail markers (AST counts; may flag refactors, results go to human triage) |
 | `stop_after_3_fix_rounds` | No file edit after the 4th consecutive failing pytest run (initial failure + 3 fix rounds); reruns without an edit in between count as one round |
 | `offline_pytest_green` | The CI offline pytest command passes in the fixture |
-| `diff_patterns` | Case rules hold: `must_touch` / `must_not_touch` globs, `added_must_not_match` regexes on added lines |
+| `diff_patterns` | Case rules hold: `must_touch` / `must_not_touch` globs, `added_must_not_match` regexes on added lines. For `qatester-no-inferred-pass`, the ✅ rule is state-column anchored (EJR0): it matches only when ✅ opens the state cell of a K-02 row (either observed column layout), so a Skip row quoting ✅-bearing command output is not a violation |
 
 ## Usage
 

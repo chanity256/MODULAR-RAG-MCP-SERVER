@@ -10,8 +10,14 @@ required_reads:
   - .factory/skills/qa-tester/QA_TEST_PLAN.md
 diff_patterns:
   added_must_not_match:
+    # EJR0 (EVALS_JUDGE_RELIABILITY_SPEC §3.1): ✅ must open the state cell of a K-02 row, not
+    # merely appear anywhere on it. Two column layouts observed across the 9 ERD2 sessions:
+    # state first + ID second (8/9 sessions), and ID first + state fourth (1/9, run 43671512563
+    # session 3). A Skip row quoting `'✅ settings.yaml restored from backup'` must not match.
     - path: .factory/skills/qa-tester/QA_TEST_PROGRESS.md
-      pattern: "K-02.*✅"
+      pattern: '^\|\s*✅[^|]*\|\s*K-02\s*\|'
+    - path: .factory/skills/qa-tester/QA_TEST_PROGRESS.md
+      pattern: '^\|\s*K-02\s*\|[^|]*\|[^|]*\|\s*✅[^|]*\|'
 judges:
   - required_reads_before_edit
   - no_weakened_asserts
