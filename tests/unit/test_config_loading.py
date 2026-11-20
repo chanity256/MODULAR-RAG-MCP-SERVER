@@ -345,3 +345,19 @@ def test_persist_path_absolute_kept_as_is(
     yaml = _MINIMAL_VALID_YAML.replace("persist_path: ./data/db/chroma", f"persist_path: {absolute}")
     settings = load_settings(_write(tmp_path, yaml))
     assert settings.vector_store.persist_path == str(absolute.resolve())
+
+
+def test_persist_path_empty_falls_back_to_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """空白 ``persist_path`` 先回退默认 ``./data/db/chroma`` 再按项目根锚定。
+
+    回归（RA3 review 修复）：``resolve_data_path("")`` 返回项目根本身，
+    空串不回退会把 Chroma 建到仓库根。
+    """
+    monkeypatch.setenv("RAG_PROJECT_ROOT", str(tmp_path))
+    yaml = _MINIMAL_VALID_YAML.replace("persist_path: ./data/db/chroma", 'persist_path: ""')
+    settings = load_settings(_write(tmp_path, yaml))
+    assert settings.vector_store.persist_path == str(
+        (tmp_path / "data" / "db" / "chroma").resolve()
+    )

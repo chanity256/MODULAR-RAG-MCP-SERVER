@@ -7,8 +7,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -25,8 +23,6 @@ from api.tasks import TaskManager
 from core.settings import ApiSettings, Settings, load_settings
 
 __all__ = ["SecurityHeadersMiddleware", "create_app"]
-
-_DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "config" / "settings.yaml"
 
 _SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -61,7 +57,7 @@ def create_app(
     """
     if api_settings is None:
         if settings is None:
-            settings = load_settings(_DEFAULT_CONFIG)
+            settings = load_settings()
         api_settings = settings.api
     token = validate_api_binding(api_settings.host, api_settings.api_token)
     container = services or ServiceContainer(settings)

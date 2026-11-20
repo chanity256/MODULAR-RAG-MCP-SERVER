@@ -544,7 +544,12 @@ def _build_vector_store(sec: dict[str, Any]) -> VectorStoreConfig:
     known = {"backend", "persist_path", "collection"}
     # persist_path 按项目根锚定（ROOT_ANCHOR_SPEC RA3）：相对路径解析为
     # <项目根>/...，绝对路径原样；设置交付即绝对，工厂与存储层不再按 CWD 解析。
-    persist_path = resolve_data_path(_opt(sec, "persist_path", "./data/db/chroma"))
+    # 空值 / 空白先回退默认再锚定（resolve_data_path("") 会返回项目根本身，
+    # 不能让 YAML 的 persist_path: "" 把 Chroma 建到仓库根）。
+    raw_persist = _opt(sec, "persist_path", "./data/db/chroma")
+    if not str(raw_persist).strip():
+        raw_persist = "./data/db/chroma"
+    persist_path = resolve_data_path(raw_persist)
     return VectorStoreConfig(
         backend=_require_field("vector_store", sec, "backend"),
         persist_path=str(persist_path),
@@ -885,18 +890,12 @@ def _build_agentic_search(sec: dict[str, Any]) -> AgenticSearchConfig:
             "config field 'agentic_search.allowed_roots' must be non-empty when enabled=true"
         )
 
-    # 白名单按项目根锚定（ROOT_ANCHOR_SPEC RA2，D3-a）：相对根解析为
-    # ``<项目根>/...`` 的绝对路径，PathGuard / ensure_local_roots 收到的恒为
-    # 绝对根；绝对路径原样保留，``~`` 先展开。PathGuard 自身的相对输入
-    # 按 CWD 解析契约不变（用户显式传入的 paths 不在此列）。
-    project_root = resolve_project_root()
-    allowed_roots: list[str] = []
-    for raw_root in allowed_roots_raw:
-        expanded = Path(raw_root).expanduser()
-        if expanded.is_absolute():
-            allowed_roots.append(str(expanded.resolve()))
-        else:
-            allowed_roots.append(str((project_root / expanded).resolve()))
+    # 白名单按项目根锚定（ROOT_ANCHOR_SPEC RA2，D3-a）：相对根经
+    # resolve_data_path 解析为 ``<项目根>/...`` 的绝对路径，PathGuard /
+    # ensure_local_roots 收到的恒为绝对根；绝对路径原样保留，``~`` 先展开。
+    # PathGuard 自身的相对输入按 CWD 解析契约不变（用户显式传入的 paths
+    # 不在此列）。
+    allowed_roots = [str(resolve_data_path(raw_root)) for raw_root in allowed_roots_raw]
 
     known = {
         "enabled", "backend", "base_url", "api_token", "mode", "allow_deep",

@@ -194,3 +194,5 @@ IngestionService(upload_dir=<项目根>/data/uploads) / Chroma / BM25 / SQLite  
 - `docs/backlog/agentic-roots-followups_backlog.md`：候选 #1 的移交记录补「已交付」
 - `docs/MOC.md` 与根目录 README 导航表：本规格状态
 - 本规格收口冻结时：按 docs-governance §2.4 分配编号；遗留事项若需推进，建派生台账
+- [x] `docs/frozen/07_LOGGING_SPEC_frozen.md`：§7.1 补相对日志路径回退基准改为项目根的偏差注记（RA3）（已完成，2026-11-20）
+- [x] `docs/frozen/14_AGENTIC_UPLOAD_ROOTS_SPEC_frozen.md`：补 `ensure_local_roots` 预建基准改为项目根的偏差注记（RA2）（已完成，2026-11-20）

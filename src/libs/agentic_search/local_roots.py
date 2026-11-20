@@ -17,12 +17,12 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from core.project_root import resolve_project_root
-
 if __package__ in (None, ""):  # pragma: no cover - 直接运行兜底
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from core.project_root import resolve_project_root
 
 __all__ = ["ensure_local_roots"]
 

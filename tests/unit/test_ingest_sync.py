@@ -365,6 +365,89 @@ def test_dry_run_writes_nothing(corpus, mode):
     assert "gone.pdf" in text
 
 
+class _SpyIntegrity:
+    """记录构造参数的 SQLiteIntegrityChecker 替身（dry-run 装配探测用）。"""
+
+    db_paths: list[object] = []
+
+    def __init__(self, db_path=None):
+        _SpyIntegrity.db_paths.append(db_path)
+
+
+class _NoStoreFactory:
+    @staticmethod
+    def create(settings):  # pragma: no cover - dry-run 存储缺失路径不应触达
+        raise AssertionError("VectorStoreFactory.create must not be called")
+
+
+def _dry_run_args():
+    return cli.parse_args(["--path", "x", "--sync", "--dry-run"])
+
+
+def _fake_dry_run_settings(tmp_path: Path):
+    # 只需 _resolve_dry_run_resources 读取的 vector_store 字段；
+    # persist 指向不存在的绝对路径 → 走 store=None 分支，零存储副作用。
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        vector_store=SimpleNamespace(
+            backend="chroma", persist_path=str(tmp_path / "nowhere" / "chroma")
+        )
+    )
+
+
+def test_dry_run_history_db_missing_at_project_root_uses_memory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """回归（RA3 review 修复）：存在性检查与 SQLiteIntegrityChecker 同锚点。
+
+    启动 CWD 恰好有 ``data/db/ingestion_history.db`` 而项目根没有时，
+    dry-run 必须选 ``:memory:``，不得在项目根真实创建历史库。
+    """
+    project_root = tmp_path / "proj"
+    cwd = tmp_path / "cwd"
+    (cwd / "data" / "db").mkdir(parents=True)
+    (cwd / "data" / "db" / "ingestion_history.db").write_bytes(b"")
+    monkeypatch.setenv("RAG_PROJECT_ROOT", str(project_root))
+    monkeypatch.chdir(cwd)
+    monkeypatch.setattr(
+        "libs.loader.file_integrity.SQLiteIntegrityChecker", _SpyIntegrity
+    )
+    monkeypatch.setattr("libs.vector_store.VectorStoreFactory", _NoStoreFactory)
+    _SpyIntegrity.db_paths = []
+
+    resources = cli._resolve_dry_run_resources(
+        _dry_run_args(), settings=_fake_dry_run_settings(tmp_path), emit=lambda _msg: None
+    )
+
+    assert _SpyIntegrity.db_paths == [":memory:"]
+    assert not (project_root / "data" / "db" / "ingestion_history.db").exists()
+    assert resources.pipeline is None and resources.bm25 is None
+
+
+def test_dry_run_history_db_existing_at_project_root_is_opened_readonly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """项目根已有历史库时，dry-run 打开锚定后的绝对路径（可读历史做对比）。"""
+    project_root = tmp_path / "proj"
+    history_db = project_root / "data" / "db" / "ingestion_history.db"
+    history_db.parent.mkdir(parents=True)
+    history_db.write_bytes(b"")
+    monkeypatch.setenv("RAG_PROJECT_ROOT", str(project_root))
+    monkeypatch.chdir(tmp_path)  # 非 project_root 的目录即可，验证不看 CWD
+    monkeypatch.setattr(
+        "libs.loader.file_integrity.SQLiteIntegrityChecker", _SpyIntegrity
+    )
+    monkeypatch.setattr("libs.vector_store.VectorStoreFactory", _NoStoreFactory)
+    _SpyIntegrity.db_paths = []
+
+    cli._resolve_dry_run_resources(
+        _dry_run_args(), settings=_fake_dry_run_settings(tmp_path), emit=lambda _msg: None
+    )
+
+    assert _SpyIntegrity.db_paths == [str(history_db.resolve())]
+
+
 # ---------------------------------------------------------------------------
 # main：--sync / --prune
 # ---------------------------------------------------------------------------
