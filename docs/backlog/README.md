@@ -25,7 +25,6 @@
 |------|-----------|
 | [OBSIDIAN_RAG_SPEC_backlog.md](OBSIDIAN_RAG_SPEC_backlog.md) | Obsidian Vault RAG 扩展规格（V 系列；M1/M2 Markdown 摄取已移交 INGESTION_ROBUSTNESS_SPEC 阶段 IR7，剩余 M3/M4 待排期） |
 | [sirchmunk-extension-followups_backlog.md](sirchmunk-extension-followups_backlog.md) | Sirchmunk SX 规格遗留事项台账：明确不做（llm_fallback 等 5 项；evolver 随 KE 系列收口，负结果已记回本台账）、实验负结果存档（编译 GX 不通过；复用经 KE2 补充数据后维持关闭）、已知缺陷与候选池（流式线程泄漏等 7 项） |
-| [evals-read-discipline-followups_backlog.md](evals-read-discipline-followups_backlog.md) | Agent evals 读纪律（ERD）规格遗留事项台账：明确不做 5 项；候选池 4 项（qatester 判据⑥误报、规则文字与 hook 效果未分离等） |
 | [agentic-roots-followups_backlog.md](agentic-roots-followups_backlog.md) | Agentic 检索覆盖上传目录（AR）规格遗留事项台账：明确不做 3 项（PathGuard 契约 / 上传目录迁移 / sidecar 配置）；候选池 2 项（相对 allowed_roots 按项目根解析、agentic 按 collection 隔离，均低优先级） |
 | [mode-router-followups_backlog.md](mode-router-followups_backlog.md) | 检索模式路由器（MR）规格遗留事项台账：#1 同一问题集合 auto 与人工三选一对比记表（延后）；#2 接入 Jev（已决议不接入，2026-11-19，仅留档）；#3 接入本地微调模型（待端点） |
 | [retrieval-trace-mining_backlog.md](retrieval-trace-mining_backlog.md) | 检索 Trace 挖掘管线提案（草案）：从 `logs/traces/` 与 `chat_sessions.db` 提取「问题 → 回答 → 所选检索模式」，作 MODE_ROUTER 标注集扩充 / 持续校准数据源；六个待研究问题未立项 |
