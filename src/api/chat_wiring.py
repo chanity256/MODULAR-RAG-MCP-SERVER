@@ -11,6 +11,7 @@ from functools import partial
 from typing import Any, Callable, Mapping
 
 from core.chat import ChatEngine, SessionStore
+from core.project_root import resolve_data_path
 from core.settings import ChatSettings, Settings
 from core.trace.persist import persist_trace
 from libs.mode_router import BaseModeRouter, create_mode_router
@@ -97,7 +98,8 @@ class ChatServices:
             if self._store is None:
                 if self._settings is None:
                     raise RuntimeError("chat session store requires settings or an injected SessionStore")
-                self._store = SessionStore(self._settings.chat.session_db)
+                # ROOT_ANCHOR_SPEC RA3：session_db 相对路径按项目根解析，不再按 CWD。
+                self._store = SessionStore(resolve_data_path(self._settings.chat.session_db))
             return self._store
 
     def new_engine(self) -> Any:

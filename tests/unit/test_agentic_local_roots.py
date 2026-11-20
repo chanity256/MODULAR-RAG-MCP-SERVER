@@ -119,11 +119,21 @@ class TestEnsureLocalRoots:
         assert created == []
         assert base.read_text(encoding="utf-8") == "not a dir"
 
-    def test_default_base_is_cwd_data(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_default_base_is_project_root_data(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """缺省基准为 ``<项目根>/data``（ROOT_ANCHOR_SPEC RA2，原为 CWD/data）。"""
+        monkeypatch.setenv("RAG_PROJECT_ROOT", str(tmp_path))
+        uploads = tmp_path / "data" / "uploads"
+        created = ensure_local_roots(_Config(allowed_roots=[str(uploads)]))
+        assert created == [str(uploads.resolve())]
+        assert uploads.is_dir()
+
+    def test_default_base_ignores_cwd(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """未设 ``RAG_PROJECT_ROOT`` 时基准是仓库根：CWD 下的相对根不在基准内，不建、不留 ``data/``。"""
+        monkeypatch.delenv("RAG_PROJECT_ROOT", raising=False)
         monkeypatch.chdir(tmp_path)
         created = ensure_local_roots(_Config(allowed_roots=["./data/uploads"]))
-        assert created == [str((tmp_path / "data" / "uploads").resolve())]
-        assert (tmp_path / "data" / "uploads").is_dir()
+        assert created == []
+        assert not (tmp_path / "data").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +196,9 @@ class TestEntryPointsEnsureLocalRoots:
         from mcp_server import server as mcp_server
 
         monkeypatch.chdir(tmp_path)
+        # RA1/RA2 锚定：默认配置路径与 allowed_roots 都按项目根解析，
+        # 注入 RAG_PROJECT_ROOT 使 fixture 目录充当项目根。
+        monkeypatch.setenv("RAG_PROJECT_ROOT", str(tmp_path))
         outside = tmp_path / "elsewhere"
         _write_repo_config(tmp_path, ["./data/uploads", str(outside / "docs")])
 
@@ -208,9 +221,12 @@ class TestEntryPointsEnsureLocalRoots:
         spec.loader.exec_module(module)
 
         monkeypatch.chdir(tmp_path)
-        _write_repo_config(tmp_path, ["./data/uploads"])  # api.enabled 缺省 false → 拒绝启动退出码 2
+        # RA1/RA2 锚定：显式 --config 指向 fixture 配置，RAG_PROJECT_ROOT 指向
+        # fixture 项目根（原实现靠真实仓库配置的相对根按 CWD 解析，锚定后失效）。
+        monkeypatch.setenv("RAG_PROJECT_ROOT", str(tmp_path))
+        config = _write_repo_config(tmp_path, ["./data/uploads"])  # api.enabled 缺省 false → 拒绝启动退出码 2
 
-        rc = module.main([])
+        rc = module.main(["--config", str(config)])
         assert rc == 2
         assert (tmp_path / "data" / "uploads").is_dir()  # 启动被拒前已预建
 
@@ -221,6 +237,8 @@ class TestEntryPointsEnsureLocalRoots:
         spec.loader.exec_module(module)
 
         monkeypatch.chdir(tmp_path)
+        # RA1/RA2 锚定：fixture 项目根经 RAG_PROJECT_ROOT 注入。
+        monkeypatch.setenv("RAG_PROJECT_ROOT", str(tmp_path))
         config = _write_repo_config(tmp_path, ["./data/uploads"])
 
         # build_agentic_retriever 打桩：证明 ensure 在后端构建**之前**执行
@@ -231,3 +249,21 @@ class TestEntryPointsEnsureLocalRoots:
         rc = module.main(["--query", "x", "--agentic", "--config", str(config)], out=lambda *_: None)
         assert rc == 2  # EXIT_USAGE：后端构建失败
         assert (tmp_path / "data" / "uploads").is_dir()
+
+    def test_data_paths_land_in_project_root_not_cwd(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """RA3 验收：入口加载的配置中数据路径都在项目根下，CWD 不新建 ``data/``。"""
+        from mcp_server import server as mcp_server
+
+        project_root = tmp_path / "proj"
+        cwd_dir = tmp_path / "cwd"
+        cwd_dir.mkdir()
+        (project_root / "config").mkdir(parents=True)
+        monkeypatch.setenv("RAG_PROJECT_ROOT", str(project_root))
+        monkeypatch.chdir(cwd_dir)
+        _write_repo_config(project_root, ["./data/uploads"])
+
+        rc = mcp_server.main(stdin=io.StringIO(""), stdout=io.StringIO())
+        assert rc == 0
+        assert (project_root / "data" / "uploads").is_dir()
+        # 数据路径全部落在项目根下（RA3），启动目录不新建 data/（RA2 预建基准 + RA3 锚定）
+        assert not (cwd_dir / "data").exists()

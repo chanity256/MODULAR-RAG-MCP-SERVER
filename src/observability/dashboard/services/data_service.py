@@ -11,6 +11,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from core.project_root import resolve_data_path
 from core.settings import Settings
 from ingestion.document_manager import (
     CollectionStats,
@@ -41,7 +42,8 @@ class DataService:
         self._manager = manager
         self._images = image_storage
         self._settings = settings
-        self._upload_dir = Path(upload_dir) if upload_dir is not None else DEFAULT_UPLOAD_DIR
+        # ROOT_ANCHOR_SPEC RA3：默认与显式相对 upload_dir 都按项目根锚定。
+        self._upload_dir = resolve_data_path(upload_dir) if upload_dir is not None else resolve_data_path(DEFAULT_UPLOAD_DIR)
 
     def _get_manager(self) -> DocumentManager:
         if self._manager is None:

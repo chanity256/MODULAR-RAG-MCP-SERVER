@@ -262,3 +262,102 @@ def test_main_ok_on_valid_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     monkeypatch.chdir(tmp_path)
     spec.loader.exec_module(module)
     assert module.main() == 0
+
+
+# ---------------------------------------------------------------------------
+# 默认配置路径按项目根锚定（ROOT_ANCHOR_SPEC RA1）
+# ---------------------------------------------------------------------------
+
+
+def test_default_config_path_anchored_to_project_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """缺省调用 ``load_settings()`` 读取 ``<项目根>/config/settings.yaml``，与 CWD 无关。
+
+    用 ``RAG_PROJECT_ROOT`` 把项目根指向 fixture 目录，再从另一个目录调用：
+    读取的必须是 fixture 项目根下的配置（而非进程 CWD 或真实仓库根）。
+    """
+    fixture_root = tmp_path / "fixture-root"
+    (fixture_root / "config").mkdir(parents=True)
+    fixture_yaml = _MINIMAL_VALID_YAML.replace(
+        "model: text-embedding-3-small", "model: fixture-anchor-model"
+    )
+    (fixture_root / "config" / "settings.yaml").write_text(fixture_yaml, encoding="utf-8")
+
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)  # CWD 与项目根分离
+    monkeypatch.setenv("RAG_PROJECT_ROOT", str(fixture_root))
+
+    settings = load_settings()
+    assert settings.embedding.model == "fixture-anchor-model"
+
+
+def test_default_config_path_env_override_missing_falls_back_to_repo_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """未设 ``RAG_PROJECT_ROOT`` 时，缺省读取真实仓库根下的配置（即使 CWD 在别处）。"""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("RAG_PROJECT_ROOT", raising=False)
+
+    settings = load_settings()
+    assert settings.embedding.model == "embedding-3"  # 仓库 config/settings.yaml 的字段值
+
+
+def test_explicit_relative_path_stays_cwd_relative(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """显式传入的相对路径仍按进程 CWD 解析（Out of Scope：CLI 用户输入路径语义不变）。"""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("RAG_PROJECT_ROOT", str(tmp_path / "unused-root"))
+    (tmp_path / "config").mkdir()
+    explicit_yaml = _MINIMAL_VALID_YAML.replace(
+        "model: text-embedding-3-small", "model: explicit-cwd-model"
+    )
+    (tmp_path / "config" / "settings.yaml").write_text(explicit_yaml, encoding="utf-8")
+
+    settings = load_settings("config/settings.yaml")
+    assert settings.embedding.model == "explicit-cwd-model"
+
+
+# ---------------------------------------------------------------------------
+# 数据路径按项目根锚定（ROOT_ANCHOR_SPEC RA3）
+# ---------------------------------------------------------------------------
+
+
+def test_persist_path_anchored_to_project_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """相对 ``vector_store.persist_path`` 规范化为 ``<项目根>/...`` 绝对路径。"""
+    monkeypatch.setenv("RAG_PROJECT_ROOT", str(tmp_path))
+    settings = load_settings(_write(tmp_path, _MINIMAL_VALID_YAML))
+    assert settings.vector_store.persist_path == str(
+        (tmp_path / "data" / "db" / "chroma").resolve()
+    )
+
+
+def test_persist_path_absolute_kept_as_is(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """绝对 ``persist_path`` 原样保留（不锚定到项目根）。"""
+    monkeypatch.setenv("RAG_PROJECT_ROOT", str(tmp_path / "unused-root"))
+    absolute = tmp_path / "elsewhere" / "chroma"
+    yaml = _MINIMAL_VALID_YAML.replace("persist_path: ./data/db/chroma", f"persist_path: {absolute}")
+    settings = load_settings(_write(tmp_path, yaml))
+    assert settings.vector_store.persist_path == str(absolute.resolve())
+
+
+def test_persist_path_empty_falls_back_to_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """空白 ``persist_path`` 先回退默认 ``./data/db/chroma`` 再按项目根锚定。
+
+    回归（RA3 review 修复）：``resolve_data_path("")`` 返回项目根本身，
+    空串不回退会把 Chroma 建到仓库根。
+    """
+    monkeypatch.setenv("RAG_PROJECT_ROOT", str(tmp_path))
+    yaml = _MINIMAL_VALID_YAML.replace("persist_path: ./data/db/chroma", 'persist_path: ""')
+    settings = load_settings(_write(tmp_path, yaml))
+    assert settings.vector_store.persist_path == str(
+        (tmp_path / "data" / "db" / "chroma").resolve()
+    )

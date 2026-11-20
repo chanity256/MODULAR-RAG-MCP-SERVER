@@ -140,7 +140,8 @@ class TestUploadSourceCleanup:
         assert result.source_file_removed is False
 
     def test_default_upload_dir_is_data_uploads(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.chdir(tmp_path)
+        # RA3：默认上传目录按项目根锚定，注入 RAG_PROJECT_ROOT 指向 tmp。
+        monkeypatch.setenv("RAG_PROJECT_ROOT", str(tmp_path))
         uploads = tmp_path / "data" / "uploads"
         uploads.mkdir(parents=True)
         source = uploads / "report.md"

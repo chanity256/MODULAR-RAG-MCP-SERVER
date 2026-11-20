@@ -79,7 +79,7 @@ def _write_settings(tmp_path: Path) -> Path:
     return config
 
 
-def _env() -> dict[str, str]:
+def _env(project_root: Path | None = None) -> dict[str, str]:
     env = dict(os.environ)
     for key in ("ZAI_API_KEY", "OPENAI_API_KEY", "AZURE_OPENAI_API_KEY"):
         env.pop(key, None)
@@ -89,14 +89,19 @@ def _env() -> dict[str, str]:
     env["no_proxy"] = ""
     env["ANONYMIZED_TELEMETRY"] = "False"
     env["PYTHONIOENCODING"] = "utf-8"
+    # ROOT_ANCHOR_SPEC RA3：默认数据路径（摄取历史 / BM25 索引等）按项目根锚定，
+    # 注入 RAG_PROJECT_ROOT 使子进程的缺省存储落在测试 tmp，而非真实仓库 data/。
+    if project_root is not None:
+        env["RAG_PROJECT_ROOT"] = str(project_root)
     return env
 
 
-def _run(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+def _run(args: list[str], cwd: Path, project_root: Path | None = None) -> subprocess.CompletedProcess[str]:
+    # 本文件的子进程一律以 tmp workspace 为项目根（缺省取 cwd），缺省存储落 tmp。
     return subprocess.run(
         [sys.executable, str(_SCRIPT), *args],
         cwd=str(cwd),
-        env=_env(),
+        env=_env(cwd if project_root is None else project_root),
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -151,7 +156,7 @@ def _chroma_records(tmp_path: Path, config: Path) -> list[dict]:
     result = subprocess.run(
         [sys.executable, "-c", _DUMP_SCRIPT, str(_REPO_ROOT / "src"), str(config)],
         cwd=str(tmp_path),
-        env=_env(),
+        env=_env(tmp_path),
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -204,7 +209,7 @@ def _seed_stores(tmp_path: Path, config: Path, unchanged: Path, deleted: Path, c
             collection,
         ],
         cwd=str(tmp_path),
-        env=_env(),
+        env=_env(tmp_path),
         capture_output=True,
         text=True,
         encoding="utf-8",

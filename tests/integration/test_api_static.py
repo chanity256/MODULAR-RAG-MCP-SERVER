@@ -152,8 +152,11 @@ class TestConfiguration:
         with pytest.raises(ConfigError, match="npm run build"):
             create_app(services=ServiceContainer(task_manager=manager), api_settings=settings)
 
-    def test_relative_static_dir_resolves_against_cwd(self, static_dir, manager, monkeypatch):
-        monkeypatch.chdir(static_dir.parent)
+    def test_relative_static_dir_anchored_to_project_root(self, static_dir, manager, monkeypatch):
+        """相对 static_dir 按项目根锚定（ROOT_ANCHOR_SPEC RA3，原按 CWD）。"""
+        # RA0 核查结果勘误：本用例原判「不改写」，但 D2-b 明确把 static_dir
+        # 纳入锚定范围（它不是 Out of Scope 的 CLI 用户输入路径）。
+        monkeypatch.setenv("RAG_PROJECT_ROOT", str(static_dir.parent))
         settings = ApiSettings(api_token=TOKEN, serve_ui=True, static_dir="./out")
         app = create_app(services=ServiceContainer(task_manager=manager), api_settings=settings)
         with TestClient(app) as c:

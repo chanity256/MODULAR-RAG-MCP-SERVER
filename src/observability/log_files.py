@@ -10,6 +10,8 @@ import re
 from datetime import date, timedelta
 from pathlib import Path
 
+from core.project_root import resolve_project_root
+
 __all__ = [
     "LOG_ROOT_ENV",
     "TRACE_FILE_PREFIX",
@@ -30,12 +32,13 @@ TRACE_FILE_SUFFIX = ".jsonl"
 
 
 def resolve_log_path(path: str | Path) -> Path:
-    """绝对路径原样返回；相对路径在设置了 ``RAG_LOG_ROOT`` 时相对它解析。"""
+    """绝对路径原样返回；相对路径在设置了 ``RAG_LOG_ROOT`` 时相对它解析，
+    未设置时按项目根锚定（ROOT_ANCHOR_SPEC RA3，原为相对 CWD）。"""
     candidate = Path(path)
     if candidate.is_absolute():
         return candidate
     root = os.environ.get(LOG_ROOT_ENV, "").strip()
-    return Path(root) / candidate if root else candidate
+    return Path(root) / candidate if root else resolve_project_root() / candidate
 
 
 def is_single_file(path: str | Path) -> bool:

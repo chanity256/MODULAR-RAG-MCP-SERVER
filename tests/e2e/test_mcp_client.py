@@ -119,13 +119,18 @@ def server(tmp_path: Path):
     _seed_workspace(tmp_path)
     env = dict(os.environ)
     env["PYTHONPATH"] = str(SRC_DIR) + os.pathsep + env.get("PYTHONPATH", "")
+    # ROOT_ANCHOR_SPEC RA1：默认配置路径按项目根锚定，注入 RAG_PROJECT_ROOT
+    # 指向 fixture workspace（不再依赖子进程 CWD 相对 config/settings.yaml）。
+    env["RAG_PROJECT_ROOT"] = str(tmp_path)
     proc = subprocess.Popen(
         [sys.executable, "-m", "mcp_server.server"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         env=env,
-        cwd=str(tmp_path),  # load_settings() 读 cwd 相对 config/settings.yaml
+        # ROOT_ANCHOR_SPEC RA1：默认配置路径按项目根锚定，注入 RAG_PROJECT_ROOT
+        # 指向 fixture workspace（不再依赖子进程 CWD 相对 config/settings.yaml）。
+        cwd=str(tmp_path),
         text=True,
     )
     yield proc

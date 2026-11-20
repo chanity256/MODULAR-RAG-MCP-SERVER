@@ -7,8 +7,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -20,12 +18,11 @@ from api.routes import build_v1_router, build_v1_ws_router
 from api.routes import health as health_routes
 from api.security import validate_api_binding
 from api.static import install_static_ui
+from core.project_root import resolve_data_path
 from api.tasks import TaskManager
 from core.settings import ApiSettings, Settings, load_settings
 
 __all__ = ["SecurityHeadersMiddleware", "create_app"]
-
-_DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "config" / "settings.yaml"
 
 _SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -60,7 +57,7 @@ def create_app(
     """
     if api_settings is None:
         if settings is None:
-            settings = load_settings(_DEFAULT_CONFIG)
+            settings = load_settings()
         api_settings = settings.api
     token = validate_api_binding(api_settings.host, api_settings.api_token)
     container = services or ServiceContainer(settings)
@@ -73,8 +70,12 @@ def create_app(
     app.state.container = container
     app.state.api_token = token
     app.state.api_settings = api_settings
-    # TaskManager 首次访问才建库/起线程池，保持 create_app 零 IO。
-    app.state.task_manager = getattr(container, "task_manager", None) or TaskManager(api_settings.tasks_db)
+    # TaskManager 首次访问才建库/起线程池，保持 create_app 零 IO（锚定是纯计算，
+    # ROOT_ANCHOR_SPEC RA3：tasks_db 相对路径按项目根解析，不再按 CWD）。
+    app.state.task_manager = (
+        getattr(container, "task_manager", None)
+        or TaskManager(resolve_data_path(api_settings.tasks_db))
+    )
 
     # add_middleware 后加者在外层：错误转换最内，CORS 最外，使所有响应（含 500）都带头。
     install_error_handlers(app)

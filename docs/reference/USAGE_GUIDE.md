@@ -158,6 +158,8 @@ PYTHONPATH=src python -m mcp_server.server
 
 Claude Desktop 同理，配置块为 `mcpServers`。
 
+`cwd` 为可选：server 按代码位置推导「项目根」，从任意目录启动都能读到仓库配置（数据在仓库之外时设 `RAG_PROJECT_ROOT`，见 4.4）；`PYTHONPATH` 仍须指向仓库 `src/` 绝对路径。
+
 ### 2.6 Web UI 与评估
 
 主界面是 Web UI（FastAPI + Next 静态导出，含 Chat 与七个管理页面），完整说明见[第 10 章](#10-web-ui-与-chat)：
@@ -295,7 +297,7 @@ agentic_search:
 
 - **隐私提示**：`./data/uploads` 在白名单内时，agentic 检索（MCP 工具、Chat `agentic_fast` / `agentic_deep`、第三路）会把命中上传文件的内容经 sidecar 发给外部 LLM；只想让上传文件留在本地索引，就从 `allowed_roots` 移除该行（`agentic_search.enabled: false` 时完全不外发）。
 - **目录预建**：进程入口（`start_api.py` / MCP server / `query.py --agentic`）会自动预建位于 `data/` 之下的白名单根（如 `data/uploads`）；`data/` 之外的根仍须自行创建，否则 PathGuard fail-closed 拒绝（`allowed root does not exist`）。
-- **从仓库根启动**：白名单根按启动进程的 CWD 解析（`./data/...`），须从仓库根启动主项目。
+- **项目根锚定（RA 系列）**：白名单相对根（`./data/...`）不再按启动目录 CWD 解析，而是按「项目根」解析——优先取环境变量 `RAG_PROJECT_ROOT`，未设置时按代码位置推导（即本仓库根）。因此可从任意目录启动主项目，启动目录不会被新建出 `data/`；数据部署在仓库之外时，设 `RAG_PROJECT_ROOT` 指向该目录即可。白名单写绝对路径（含 `~` 展开）则原样生效。
 - **删除联动**：经 Web UI 删除文档时，源文件若在上传目录内且不再被任何 collection 引用，会随四存储删除一并清理；删除响应新增 `source_file_removed` 字段。
 
 ---
@@ -436,7 +438,7 @@ python scripts/start_api.py --serve-ui
 - Chat 复用 `settings.yaml` 的 `llm:` 配置，hybrid 检索要求已摄取数据（第 2.2 节或 Ingestion Manager 页）。
 - **上传文件与 agentic 检索（AR1）**：上传落盘 `data/uploads/`，该目录默认已在 `agentic_search.allowed_roots` 白名单内——Agentic 模式可检索上传文件，命中内容会经 sidecar 发给外部 LLM（隐私边界见 4.4）；从白名单移除 `./data/uploads` 可关闭外发。
 - **删除联动（AR2）**：Ingestion Manager 或 `DELETE /documents/{id}` 删除上传文档时，源文件在上传目录内且无其他 collection 引用会一并删除（响应 `source_file_removed`）。
-- **从仓库根启动**：`start_api.py` 预建 `data/` 下白名单根、白名单按 CWD 解析，均要求从仓库根启动（4.4）。
+- **任意目录启动（RA 系列）**：`start_api.py` 预建 `data/` 下白名单根、白名单相对根与各数据路径均按「项目根」（`RAG_PROJECT_ROOT` 优先、否则按代码位置推导）解析，不再要求从仓库根启动，启动目录不会新建 `data/`（4.4）。
 
 **前端开发模式**（热更新，前后端分开启动）：
 

@@ -21,6 +21,8 @@ from typing import Any
 
 import yaml
 
+from core.project_root import resolve_data_path, resolve_project_root
+
 __all__ = [
     "ConfigError",
     "LLMConfig",
@@ -540,9 +542,17 @@ def _build_vision_llm(sec: dict[str, Any]) -> VisionLLMConfig:
 
 def _build_vector_store(sec: dict[str, Any]) -> VectorStoreConfig:
     known = {"backend", "persist_path", "collection"}
+    # persist_path 按项目根锚定（ROOT_ANCHOR_SPEC RA3）：相对路径解析为
+    # <项目根>/...，绝对路径原样；设置交付即绝对，工厂与存储层不再按 CWD 解析。
+    # 空值 / 空白先回退默认再锚定（resolve_data_path("") 会返回项目根本身，
+    # 不能让 YAML 的 persist_path: "" 把 Chroma 建到仓库根）。
+    raw_persist = _opt(sec, "persist_path", "./data/db/chroma")
+    if not str(raw_persist).strip():
+        raw_persist = "./data/db/chroma"
+    persist_path = resolve_data_path(raw_persist)
     return VectorStoreConfig(
         backend=_require_field("vector_store", sec, "backend"),
-        persist_path=_opt(sec, "persist_path", "./data/db/chroma"),
+        persist_path=str(persist_path),
         collection=_opt(sec, "collection"),
         extra=_extra(sec, known),
     )
@@ -880,6 +890,13 @@ def _build_agentic_search(sec: dict[str, Any]) -> AgenticSearchConfig:
             "config field 'agentic_search.allowed_roots' must be non-empty when enabled=true"
         )
 
+    # 白名单按项目根锚定（ROOT_ANCHOR_SPEC RA2，D3-a）：相对根经
+    # resolve_data_path 解析为 ``<项目根>/...`` 的绝对路径，PathGuard /
+    # ensure_local_roots 收到的恒为绝对根；绝对路径原样保留，``~`` 先展开。
+    # PathGuard 自身的相对输入按 CWD 解析契约不变（用户显式传入的 paths
+    # 不在此列）。
+    allowed_roots = [str(resolve_data_path(raw_root)) for raw_root in allowed_roots_raw]
+
     known = {
         "enabled", "backend", "base_url", "api_token", "mode", "allow_deep",
         "timeout_s", "top_k_files", "max_loops", "max_token_budget",
@@ -902,7 +919,7 @@ def _build_agentic_search(sec: dict[str, Any]) -> AgenticSearchConfig:
         trigger=trigger,
         trigger_score_threshold=float(trigger_score_threshold),
         trigger_min_results=trigger_min_results,
-        allowed_roots=list(allowed_roots_raw),
+        allowed_roots=allowed_roots,
         denied_substrings=list(denied_raw),
         extra=_extra(sec, known),
     )
@@ -1162,11 +1179,15 @@ def validate_settings(settings: Settings) -> None:
         )
 
 
-def load_settings(path: str | os.PathLike[str] = "config/settings.yaml") -> Settings:
+def load_settings(path: str | os.PathLike[str] | None = None) -> Settings:
     """读取 YAML -> 解析为 Settings -> 校验必填字段。
 
     Args:
-        path: 配置文件路径，默认 ``config/settings.yaml``。
+        path: 配置文件路径。缺省（``None``）时按项目根锚定取
+            ``<项目根>/config/settings.yaml``（ROOT_ANCHOR_SPEC RA1，
+            项目根由 :func:`core.project_root.resolve_project_root` 解析，
+            ``RAG_PROJECT_ROOT`` 可覆盖）；**显式传入的相对路径仍按进程
+            CWD 解析**（CLI 用户输入路径的既有语义，Out of Scope 不改）。
 
     Returns:
         ``Settings`` 对象。
@@ -1175,6 +1196,8 @@ def load_settings(path: str | os.PathLike[str] = "config/settings.yaml") -> Sett
         ConfigError: 配置文件缺失、不可解析或缺少必填字段时。
         FileNotFoundError: 配置文件不存在时（由调用方决定是否转成 ConfigError）。
     """
+    if path is None:
+        path = resolve_project_root() / "config" / "settings.yaml"
     p = Path(path)
     if not p.exists():
         raise ConfigError(f"config file not found: {p}")

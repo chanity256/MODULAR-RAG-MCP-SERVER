@@ -251,8 +251,10 @@ def test_default_indexer_without_file_starts_empty(tmp_path, monkeypatch):
 
 
 def test_default_indexer_loads_persisted_file(tmp_path, monkeypatch):
-    """默认构造自动加载 data/db/bm25/index.json（与 C14 Pipeline 同一路径）。"""
+    """默认构造自动加载 <项目根>/data/db/bm25/index.json（与 C14 Pipeline 同一路径）。"""
     monkeypatch.chdir(tmp_path)
+    # RA3：默认索引路径按项目根锚定，注入 RAG_PROJECT_ROOT 指向 tmp。
+    monkeypatch.setenv("RAG_PROJECT_ROOT", str(tmp_path))
     indexer = BM25Indexer(index_path=tmp_path / "data" / "db" / "bm25" / "index.json")
     indexer.build(
         [

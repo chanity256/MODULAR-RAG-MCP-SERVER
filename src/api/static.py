@@ -24,6 +24,8 @@ from starlette.responses import Response
 from starlette.staticfiles import StaticFiles
 from starlette.types import Scope
 
+from core.project_root import resolve_data_path
+
 from core.settings import ApiSettings, ConfigError
 
 __all__ = ["SPAStaticFiles", "install_static_ui", "resolve_static_dir"]
@@ -61,10 +63,11 @@ class SPAStaticFiles(StaticFiles):
 
 
 def resolve_static_dir(api_settings: ApiSettings) -> Path:
-    """解析并校验静态目录；``serve_ui`` 开启时缺目录/缺 index.html 即 fail-fast。"""
-    directory = Path(api_settings.static_dir).expanduser()
-    if not directory.is_absolute():
-        directory = Path.cwd() / directory
+    """解析并校验静态目录；``serve_ui`` 开启时缺目录/缺 index.html 即 fail-fast。
+
+    相对 ``static_dir`` 按项目根锚定（ROOT_ANCHOR_SPEC RA3），不再按 CWD。
+    """
+    directory = resolve_data_path(api_settings.static_dir)
     if not (directory / "index.html").is_file():
         raise ConfigError(
             f"api.serve_ui is true but static_dir {str(directory)!r} has no index.html; "

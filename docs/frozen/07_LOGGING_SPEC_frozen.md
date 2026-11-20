@@ -95,7 +95,7 @@
 
 默认值由 `./logs/traces.jsonl` 改为 `./logs/traces`。`persist_trace(trace, log_file=...)` 与 `TraceService(traces_path)` 签名不变，两种形态都支持。
 
-**相对路径解析**：日志相关的相对路径（`log_file`、`app_log_dir`）若设置了环境变量 `RAG_LOG_ROOT`，相对它解析；否则相对 cwd（旧行为）。绝对路径原样使用。
+**相对路径解析**：日志相关的相对路径（`log_file`、`app_log_dir`）若设置了环境变量 `RAG_LOG_ROOT`，相对它解析；否则相对 cwd（旧行为）。绝对路径原样使用。（RA3 起回退项目根，见 7.1）
 
 ### 3.2 模块：`observability/log_files.py`（新增）
 
@@ -177,7 +177,7 @@ flowchart LR
 | 对象 | 用例 |
 |---|---|
 | 测试隔离 | `tests/conftest.py` session 级 autouse fixture 设置 `RAG_LOG_ROOT`；回归：默认配置下 `persist_trace` 写入 `RAG_LOG_ROOT` 而非 cwd；全量测试前后仓库 `logs/` 快照不变（人工核对，记入收口记录） |
-| `log_files` | 相对 / 绝对路径解析、env 未设回落 cwd；`daily_path` 命名；`cleanup_expired` 边界（恰好 N 天保留、N+1 天删除、`0` 不删、不匹配的文件不碰、删除失败不抛） |
+| `log_files` | 相对 / 绝对路径解析、env 未设回落 cwd（RA3 起回退项目根，见 7.1）；`daily_path` 命名；`cleanup_expired` 边界（恰好 N 天保留、N+1 天删除、`0` 不删、不匹配的文件不碰、删除失败不抛） |
 | `persist_trace` | 单文件模式回归（既有用例）；目录模式写当天文件、跨日写不同文件 |
 | `TraceService` | 目录模式合并多日文件且按 `started_at` 倒序；历史文件不重解析（解析计数）；删除文件后缓存移除；单文件模式回归（既有用例） |
 | settings | 默认值（`./logs/traces`、`./logs/app`、30）；`retention_days` 非负整数校验、`log_level` 枚举校验（非法值 `ConfigError`） |
@@ -232,6 +232,7 @@ observability:
 - **迁移判定补充**（LG6）：除 3.7 的 ingestion 规则外，`trace_type=query` 但无 `metadata.query` 且首阶段为 `integrity` 的记录也按测试记录剔除（测试向 pipeline 注入默认 query 类型 trace 所致，真实查询不会出现）；同一源文件内重复的 `trace_id` 只保留首条（计 `duplicates`）。
 - **真实文件 dry-run**（`logs/traces.jsonl`，45 MB）：total=16562、kept=595、dropped_test=15767、invalid=0、duplicates=200、already_present=0；保留记录分布在 8-18、10-05、10-06、10-07、10-13、10-14、10-15 七天。经用户确认后正式执行，结果与 dry-run 一致：生成 7 个日文件共 595 行（约 0.5 MB），原文件保留为 `logs/traces.jsonl.migrated`；TraceService 读取全部 595 条耗时约 5 ms（迁移前冷加载 45 MB 约 0.45 s）。`traces-2026-08-18.jsonl` 已超出 30 天保留期，下次进程入口启动时会被清理（原始记录仍在 `.migrated` 备份中）。
 - **测试隔离核验**：LG1 起每次全量测试前后对仓库 `logs/` 做文件快照比对，均无变化。最终计数 2451 passed / 11 skipped（AGENTS.md 中 2403 为立项前基线）。
+- **相对日志路径回退基准改为项目根**（RA3，依据 ROOT_ANCHOR_SPEC（16 号），2026-11-20）：`resolve_log_path` 在 `RAG_LOG_ROOT` 未设置时的回退基准由 cwd 改为项目根（`RAG_PROJECT_ROOT` 优先、否则由代码位置推导；`RAG_LOG_ROOT` 优先级不变）。原文中的「相对 cwd（旧行为）」「env 未设回落 cwd」为冻结时旧契约，以本条为准。
 
 ---
 

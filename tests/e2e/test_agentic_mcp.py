@@ -69,6 +69,10 @@ def server(tmp_path: Path):
     (tmp_path / "config" / "settings.yaml").write_text(_SETTINGS_YAML, encoding="utf-8")
     env = dict(os.environ)
     env["PYTHONPATH"] = str(SRC_DIR) + os.pathsep + env.get("PYTHONPATH", "")
+    # ROOT_ANCHOR_SPEC RA1：默认配置路径按项目根锚定（不再按子进程 CWD），
+    # 注入 RAG_PROJECT_ROOT 使 server 读取本 fixture 的 settings.yaml，
+    # 而非真实仓库配置（其 agentic base_url 指向真实 sidecar）。
+    env["RAG_PROJECT_ROOT"] = str(tmp_path)
     # stderr 写文件而非 PIPE：无人读取的管道写满后子进程会阻塞，进而让 stdout 读取永久挂起。
     stderr_file = (tmp_path / "server.stderr.log").open("w", encoding="utf-8")
     proc = subprocess.Popen(
