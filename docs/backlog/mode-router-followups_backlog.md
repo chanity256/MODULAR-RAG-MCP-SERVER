@@ -17,8 +17,9 @@
 - **执行口径建议**：标注集每档一题（共 3 题，即 MR5 门控同款）× 4 模式（auto / hybrid / agentic_fast / agentic_deep），记录每轮端到端延迟、LLM token、答案质量（用户判卷）；可扩至每档 3–5 题。凭据经 gitignored `.env-mode-router.local` 注入。
 - **优先级**：中（影响是否把 `chat.default_retrieval` 设为 `auto` 的使用决策，不阻塞任何已交付功能）。
 
-### 2. 接入 Jev（`typesafe` 后端，原 MR6）
+### 2. 接入 Jev（`typesafe` 后端，原 MR6）— 已决议不接入（2026-11-19）
 
+- **决议**：用户决定后续不再接入 Jev / `typesafe` 后端，本项移出候选池、不再排期，以下条目仅留档。
 - **现状**：规格 §3.6 已定契约（直连 `https://api.typesafe.ai/v1/systemone`、无外层包装、固定版本号不用 `jev-latest`）；`backend` 校验仍只接受 `cloudflare_workers_ai`。
 - **前置**：用户提供 TypeSafe API key 与固定的模型版本号。
 - **口径**：按原 MR6 行验收——开放 `typesafe`；组件用例（URL 与无包装响应解析）；同一标注集跑 MR0.2 同口径基线，与 Clef 并表（结果记本台账）。实测确认 Clef 与 Jev 的请求 / 响应只在端点、鉴权与外层包装上不同。

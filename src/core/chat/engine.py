@@ -331,6 +331,12 @@ class ChatEngine:
                 mode, state.routing = self._route(state, search_query)
                 state.retrieval = mode  # trace metadata / result 帧记实际模式
                 trace.metadata["retrieval"] = mode
+                # 决策可能阻塞至多 timeout_s，期间到达的 cancel 不能等到检索后才生效
+                #（否则会照常调用检索器，包括昂贵的 deep）；droid-review PR #21 P1。
+                if cancelled():
+                    state.cancelled = True
+                    yield self._finalize(state)
+                    return
             yield {"type": "status", "stage": "retrieving", "message": "正在检索知识库"}
             try:
                 retrieved = yield from self._retrieve(

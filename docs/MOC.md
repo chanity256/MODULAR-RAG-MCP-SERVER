@@ -125,7 +125,7 @@ docs/ 文档分两类：
 | [evals-read-discipline-followups_backlog.md](backlog/evals-read-discipline-followups_backlog.md) | Agent evals 读纪律（ERD）规格遗留事项台账：明确不做 5 项（放宽判据①、照抄用例 required_reads 等）；候选池 4 项（qatester 判据⑥模式过宽误报、规则文字与 hook 的效果未分离、redline 用例归 SD、fixture `.gitignore` 缺 `.factory/state/`） |
 | [agentic-roots-followups_backlog.md](backlog/agentic-roots-followups_backlog.md) | Agentic 检索覆盖上传目录（AR）规格遗留事项台账：明确不做 3 项（PathGuard 契约 / 上传目录迁移 / sidecar 配置）；候选池 2 项（相对 allowed_roots 按项目根解析、agentic 按 collection 隔离，均低优先级） |
 | [retrieval-trace-mining_backlog.md](backlog/retrieval-trace-mining_backlog.md) | 检索 Trace 挖掘管线提案（草案，未立项）：从 `logs/traces/` 与 `chat_sessions.db` 提取「问题 → 回答 → 所选检索模式」作 MODE_ROUTER 标注集扩充 / 持续校准数据源；已核实 trace 与会话库各自的数据现状，六个待研究问题（手选 vs 默认区分、弱标注口径、跨库 join、隐私、模式命名映射、时机依赖 MR0.2 门槛） |
-| [mode-router-followups_backlog.md](backlog/mode-router-followups_backlog.md) | 检索模式路由器遗留事项台账（MR 规格冻结遗留）：#1 同一问题集合 auto 与人工三选一的质量 / 延迟 / 成本对比记表（用户决议延后）；#2 接入 Jev（`typesafe` 后端，原 MR6，待 TypeSafe API key）；#3 接入本地微调模型（`openai_compatible` 后端，原 MR7，待端点） |
+| [mode-router-followups_backlog.md](backlog/mode-router-followups_backlog.md) | 检索模式路由器遗留事项台账（MR 规格冻结遗留）：#1 同一问题集合 auto 与人工三选一的质量 / 延迟 / 成本对比记表（用户决议延后）；#2 接入 Jev（`typesafe` 后端，原 MR6，用户决议不接入，2026-11-19，仅留档）；#3 接入本地微调模型（`openai_compatible` 后端，原 MR7，待端点） |
 
 ## reference/ — 使用参考
 
