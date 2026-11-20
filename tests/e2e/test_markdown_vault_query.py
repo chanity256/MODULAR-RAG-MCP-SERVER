@@ -198,8 +198,10 @@ def _run_query_cli(workspace: Path, query: str) -> subprocess.CompletedProcess[s
             "--config",
             str(workspace / "config" / "settings.yaml"),
         ],
-        cwd=str(workspace),  # BM25 默认 data/db/bm25/index.json 相对 cwd 命中
-        env=_env(),
+        cwd=str(workspace),
+        # RA3：BM25/Chroma 等缺省数据路径按项目根锚定，注入 RAG_PROJECT_ROOT
+        # 指向 workspace（原依赖相对 CWD 命中）。
+        env={**_env(), "RAG_PROJECT_ROOT": str(workspace)},
         capture_output=True,
         text=True,
         encoding="utf-8",

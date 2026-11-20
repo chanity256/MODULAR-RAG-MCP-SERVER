@@ -21,7 +21,7 @@ from typing import Any
 
 import yaml
 
-from core.project_root import resolve_project_root
+from core.project_root import resolve_data_path, resolve_project_root
 
 __all__ = [
     "ConfigError",
@@ -542,9 +542,12 @@ def _build_vision_llm(sec: dict[str, Any]) -> VisionLLMConfig:
 
 def _build_vector_store(sec: dict[str, Any]) -> VectorStoreConfig:
     known = {"backend", "persist_path", "collection"}
+    # persist_path 按项目根锚定（ROOT_ANCHOR_SPEC RA3）：相对路径解析为
+    # <项目根>/...，绝对路径原样；设置交付即绝对，工厂与存储层不再按 CWD 解析。
+    persist_path = resolve_data_path(_opt(sec, "persist_path", "./data/db/chroma"))
     return VectorStoreConfig(
         backend=_require_field("vector_store", sec, "backend"),
-        persist_path=_opt(sec, "persist_path", "./data/db/chroma"),
+        persist_path=str(persist_path),
         collection=_opt(sec, "collection"),
         extra=_extra(sec, known),
     )

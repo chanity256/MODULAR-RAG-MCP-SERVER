@@ -76,8 +76,10 @@ class TestSaveUploads:
         assert dest == tmp_path / "up" / "escape.txt"
         assert not (tmp_path / "escape.txt").exists()
 
-    def test_default_upload_dir(self):
-        assert IngestionService().upload_dir == Path("data/uploads")
+    def test_default_upload_dir(self, tmp_path, monkeypatch):
+        """默认上传目录按项目根锚定（ROOT_ANCHOR_SPEC RA3，原为 CWD 相对）。"""
+        monkeypatch.setenv("RAG_PROJECT_ROOT", str(tmp_path))
+        assert IngestionService().upload_dir == (tmp_path / "data" / "uploads").resolve()
 
 
 class TestIngest:

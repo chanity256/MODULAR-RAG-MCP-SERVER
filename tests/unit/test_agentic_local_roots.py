@@ -249,3 +249,21 @@ class TestEntryPointsEnsureLocalRoots:
         rc = module.main(["--query", "x", "--agentic", "--config", str(config)], out=lambda *_: None)
         assert rc == 2  # EXIT_USAGE：后端构建失败
         assert (tmp_path / "data" / "uploads").is_dir()
+
+    def test_data_paths_land_in_project_root_not_cwd(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """RA3 验收：入口加载的配置中数据路径都在项目根下，CWD 不新建 ``data/``。"""
+        from mcp_server import server as mcp_server
+
+        project_root = tmp_path / "proj"
+        cwd_dir = tmp_path / "cwd"
+        cwd_dir.mkdir()
+        (project_root / "config").mkdir(parents=True)
+        monkeypatch.setenv("RAG_PROJECT_ROOT", str(project_root))
+        monkeypatch.chdir(cwd_dir)
+        _write_repo_config(project_root, ["./data/uploads"])
+
+        rc = mcp_server.main(stdin=io.StringIO(""), stdout=io.StringIO())
+        assert rc == 0
+        assert (project_root / "data" / "uploads").is_dir()
+        # 数据路径全部落在项目根下（RA3），启动目录不新建 data/（RA2 预建基准 + RA3 锚定）
+        assert not (cwd_dir / "data").exists()

@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from core.project_root import PROJECT_ROOT_ENV, resolve_project_root
+from core.project_root import PROJECT_ROOT_ENV, resolve_data_path, resolve_project_root
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -67,3 +67,36 @@ def test_no_directories_created(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     monkeypatch.delenv(PROJECT_ROOT_ENV, raising=False)
     resolve_project_root()
     assert list(tmp_path.iterdir()) == []
+
+
+# ---------------------------------------------------------------------------
+# resolve_data_path（ROOT_ANCHOR_SPEC RA3）
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_data_path_anchors_relative(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """相对数据路径解析为 ``<项目根>/<path>``。"""
+    monkeypatch.setenv(PROJECT_ROOT_ENV, str(tmp_path))
+    assert resolve_data_path("data/db/chroma") == (tmp_path / "data" / "db" / "chroma").resolve()
+
+
+def test_resolve_data_path_keeps_absolute(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """绝对数据路径原样保留（不锚定到项目根）。"""
+    monkeypatch.setenv(PROJECT_ROOT_ENV, str(tmp_path / "unused"))
+    target = tmp_path / "elsewhere" / "x.db"
+    assert resolve_data_path(target) == target.resolve()
+
+
+def test_resolve_data_path_expands_tilde(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``~`` 开头先展开用户目录。"""
+    monkeypatch.setenv(PROJECT_ROOT_ENV, "/unused")
+    resolved = resolve_data_path("~/rag-data/x.db")
+    assert "~" not in str(resolved)
+    assert resolved.is_absolute()
+
+
+def test_resolve_data_path_is_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """幂等：对已锚定的绝对路径重复调用结果不变。"""
+    monkeypatch.setenv(PROJECT_ROOT_ENV, str(tmp_path))
+    once = resolve_data_path("data/uploads")
+    assert resolve_data_path(once) == once

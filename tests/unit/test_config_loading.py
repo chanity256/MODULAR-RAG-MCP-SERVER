@@ -318,3 +318,30 @@ def test_explicit_relative_path_stays_cwd_relative(
 
     settings = load_settings("config/settings.yaml")
     assert settings.embedding.model == "explicit-cwd-model"
+
+
+# ---------------------------------------------------------------------------
+# 数据路径按项目根锚定（ROOT_ANCHOR_SPEC RA3）
+# ---------------------------------------------------------------------------
+
+
+def test_persist_path_anchored_to_project_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """相对 ``vector_store.persist_path`` 规范化为 ``<项目根>/...`` 绝对路径。"""
+    monkeypatch.setenv("RAG_PROJECT_ROOT", str(tmp_path))
+    settings = load_settings(_write(tmp_path, _MINIMAL_VALID_YAML))
+    assert settings.vector_store.persist_path == str(
+        (tmp_path / "data" / "db" / "chroma").resolve()
+    )
+
+
+def test_persist_path_absolute_kept_as_is(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """绝对 ``persist_path`` 原样保留（不锚定到项目根）。"""
+    monkeypatch.setenv("RAG_PROJECT_ROOT", str(tmp_path / "unused-root"))
+    absolute = tmp_path / "elsewhere" / "chroma"
+    yaml = _MINIMAL_VALID_YAML.replace("persist_path: ./data/db/chroma", f"persist_path: {absolute}")
+    settings = load_settings(_write(tmp_path, yaml))
+    assert settings.vector_store.persist_path == str(absolute.resolve())

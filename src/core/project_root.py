@@ -16,7 +16,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-__all__ = ["PROJECT_ROOT_ENV", "resolve_project_root"]
+__all__ = ["PROJECT_ROOT_ENV", "resolve_data_path", "resolve_project_root"]
 
 PROJECT_ROOT_ENV = "RAG_PROJECT_ROOT"
 
@@ -31,3 +31,18 @@ def resolve_project_root() -> Path:
     if override:
         return Path(override).expanduser().resolve()
     return Path(__file__).resolve().parents[2]
+
+
+def resolve_data_path(path: str | Path) -> Path:
+    """把相对数据路径按项目根锚定为绝对路径（ROOT_ANCHOR_SPEC RA3）。
+
+    绝对路径原样保留（仅 ``~`` 展开与规范化）；相对路径解析为
+    ``<项目根>/<path>``。幂等：对已锚定的绝对路径重复调用结果不变。
+    sqlite 的 ``:memory:`` 哨兵不是文件路径，原样返回。
+    """
+    candidate = Path(path).expanduser()
+    if candidate.is_absolute():
+        return candidate.resolve()
+    if str(path) == ":memory:":
+        return candidate
+    return (resolve_project_root() / candidate).resolve()

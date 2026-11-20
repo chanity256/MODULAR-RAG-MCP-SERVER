@@ -10,6 +10,7 @@ from core.settings import ObservabilityConfig
 from core.trace.persist import persist_trace
 from core.trace.trace_context import TRACE_TYPE_INGESTION, TraceContext
 from observability.log_files import LOG_ROOT_ENV, cleanup_expired, resolve_log_path, trace_target
+from core.project_root import resolve_project_root
 
 
 class TestResolveLogPath:
@@ -22,13 +23,19 @@ class TestResolveLogPath:
         target = tmp_path / "elsewhere" / "t.jsonl"
         assert resolve_log_path(target) == target
 
-    def test_without_log_root_falls_back_to_cwd_relative(self, monkeypatch):
+    def test_without_log_root_falls_back_to_project_root(self, monkeypatch):
+        """未设 ``RAG_LOG_ROOT`` 时相对日志路径按项目根锚定（RA3，原为相对 CWD）。"""
         monkeypatch.delenv(LOG_ROOT_ENV, raising=False)
-        assert resolve_log_path("logs/traces.jsonl") == Path("logs/traces.jsonl")
+        resolved = resolve_log_path("logs/traces.jsonl")
+        assert resolved.is_absolute()
+        assert resolved == resolve_project_root() / "logs" / "traces.jsonl"
 
     def test_blank_log_root_is_ignored(self, monkeypatch):
+        """``RAG_LOG_ROOT`` 为空白时同样回退项目根锚定。"""
         monkeypatch.setenv(LOG_ROOT_ENV, "  ")
-        assert resolve_log_path("logs/x.jsonl") == Path("logs/x.jsonl")
+        resolved = resolve_log_path("logs/x.jsonl")
+        assert resolved.is_absolute()
+        assert resolved == resolve_project_root() / "logs" / "x.jsonl"
 
 
 class TestCleanupExpired:
