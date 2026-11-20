@@ -1,8 +1,8 @@
-<!-- 规格定位：让主项目的相对数据路径按项目根解析而非按启动进程 CWD 解析，使任意目录启动的入口行为一致。基线：AR 系列已收口冻结（14 号规格），本规格承接其派生台账候选 #1。与既有规格的关系：既有链路的路径解析调整，不改 PathGuard 契约（S1.3），不改 sidecar。 -->
+<!-- 规格定位：让主项目的相对数据路径按项目根解析而非按启动进程 CWD 解析，使任意目录启动的入口行为一致。基线：AR 系列已收口冻结（14 号规格），本规格承接其派生台账候选 #1。与既有规格的关系：既有链路的路径解析调整，不改 PathGuard 契约（S1.3），不改 sidecar。RA0 已终裁：D1-a + D2-b + D3-a。 -->
 
 # 项目根锚定规格 (ROOT_ANCHOR_SPEC)
 
-> 版本：0.1 — 由遗留台账候选项立项为可执行规格（决策 D1–D3 待 RA0 终裁）
+> 版本：0.2 — RA0 立项与 D1–D3 终裁已完成（D1-a + D2-b + D3-a，2026-11-20）
 >
 > 起源与决策依据：由 [backlog/agentic-roots-followups_backlog.md](../backlog/agentic-roots-followups_backlog.md) 候选 #1「相对 `allowed_roots` 改为按项目根解析」拆分移交（该台账留在 backlog/，#1 细节已移入本规格，原文见 git 历史）；台账源自 [14_AGENTIC_UPLOAD_ROOTS_SPEC_frozen.md](../frozen/14_AGENTIC_UPLOAD_ROOTS_SPEC_frozen.md) §2.2 Out of Scope。立项依据为会话内入口复现（2026-11-20，非文件来源，结果见 §1.2）
 >
@@ -32,8 +32,8 @@
 |------|------|
 | 要解决什么问题？ | 从仓库根以外的目录启动时，入口不报错，但 agentic 检索静默失效：`start_api.py` / `query.py --agentic` 在启动目录下新建空的 `data/` 并检索它；MCP server 读不到配置，`agentic_search` 工具直接消失 |
 | 定位是什么？ | 既有链路的路径解析调整：引入「项目根」锚点，配置中的相对数据路径按它解析；不改 PathGuard 契约，不改 sidecar |
-| 实施范围（拟定） | RA0 立项与终裁；RA1–RA4 为承诺任务（RA3 的覆盖面取决于 D2）；RA5 为门控任务（需 sidecar 与 `RAG_AGENTIC_INTEGRATION=1`） |
-| 主要代价 | 相对路径语义从「按 CWD」变为「按项目根」，部分以 `monkeypatch.chdir` 隔离数据目录的既有测试需要改写（须经用户确认，见 §4）；文档里「须从仓库根启动」的约定随之撤销 |
+| 实施范围（已终裁） | RA0 立项与终裁（已完成，2026-11-20）；RA1–RA4 为承诺任务（RA3 按 D2-b 覆盖全部相对数据路径）；RA5 为门控任务（需 sidecar 与 `RAG_AGENTIC_INTEGRATION=1`） |
+| 主要代价 | 相对路径语义从「按 CWD」变为「按项目根」，约 11 处既有测试断言需改写（已获用户批准，见 §4「RA0 核查结果」）；文档里「须从仓库根启动」的约定随之撤销 |
 
 ### 1.2 背景与现状
 
@@ -74,6 +74,8 @@
 
 日志目录的特殊约束（适用于任何 D1 方案）：`RAG_LOG_ROOT` 已设置时优先级不变，测试依赖它隔离仓库 `logs/`（LG 规格）。
 
+> **终裁记录（2026-11-20，RA0，用户会话确认）**：D1-a + D2-b + D3-a；同时批准 §4 核查出的既有测试断言改写（清单见 §4「RA0 核查结果」）。§3 即按终裁方案绘制，无需改写。
+
 ## 2. 核心目标与范围
 
 ### 2.1 In Scope
@@ -98,7 +100,7 @@
 
 ## 3. 技术选型与模块设计
 
-以下按推荐方案（D1-a + D2-b + D3-a）绘制，RA0 终裁不同时同步改写本节。
+以下按终裁方案（D1-a + D2-b + D3-a，2026-11-20）绘制。
 
 ```
 任意 CWD 启动入口（start_api.py / mcp_server.server / query.py --agentic）
@@ -137,18 +139,29 @@ IngestionService(upload_dir=<项目根>/data/uploads) / Chroma / BM25 / SQLite  
 - **既有测试语义**（不得破坏）：
   - `tests/unit/test_agentic_path_guard.py`：根不存在即抛 `PathGuardError("... does not exist")`；根外路径与符号链接逃逸被拒。
   - `tests/unit/test_agentic_tool.py::test_default_paths_from_allowed_roots`：不传 `paths` 时默认用 `allowed_roots`。
-  - `tests/unit/test_ingestion_service.py::test_default_upload_dir`：上传目录默认仍为项目下的 `data/uploads`（断言值是否需随绝对化调整，RA0 核查）。
+  - `tests/unit/test_ingestion_service.py::test_default_upload_dir`：上传目录默认仍为项目下的 `data/uploads`（RA0 已核查：D3-a 绝对化后按批准改写为断言锚定后的绝对路径，见下文「RA0 核查结果」）。
   - LG 规格：`RAG_LOG_ROOT` 隔离测试日志的语义不变。
   - `src/api/app.py` 的 `create_app` 零 IO。
   - MCP server 读不到配置时按禁用处理，`tools/list` 维持 3 个工具。
   - 全量 `pytest tests -q` 与 CI 等价禁网命令保持全绿；`python scripts/check_redlines.py` 通过。
-- **需在 RA0 逐一核查的 CWD 相关测试**（使用 `monkeypatch.chdir`，可能编码了「按 CWD 解析」的语义；改写既有断言须经用户确认）：`test_agentic_local_roots.py`（123 / 188 / 210 / 223 行，其中 `test_default_base_is_cwd_data` 直接锁定旧语义）、`test_agentic_path_guard.py:69`、`test_config_loading.py:241 / 262`、`test_evaluation_service.py:26 / 141`、`test_sparse_retriever.py:248 / 255`、`test_upload_source_cleanup.py:143`、`test_query_service.py:181`、`test_answer_generator.py:171`、`test_composite_evaluator.py:60`、`test_evaluate_entry.py:178 / 190`、`tests/integration/test_api_static.py:156`、`tests/integration/test_agentic_http.py:87`。其中多数以 chdir 把数据目录隔离到临时区，锚定后这种隔离会失效，需改为显式注入路径或 `RAG_PROJECT_ROOT`。
+- **RA0 核查清单（已完成，以 2026-11-20 核查结果为准）**：原待核查的 13 处 CWD 相关测试（使用 `monkeypatch.chdir`，可能编码「按 CWD 解析」语义；改写既有断言已经用户批准）已逐一核查完毕，分类与处置见下文「RA0 核查结果」表，该表为本节权威口径，此处不再重复罗列。
+
+**RA0 核查结果（2026-11-20，逐行读源码核验；改写已获用户批准）**：
+
+| 类别 | 判定 | 测试 | 处置 |
+|------|------|------|------|
+| 锁定 CWD 语义 | 需改写为项目根语义（不放松断言强度） | `test_agentic_local_roots.py:123 / 188 / 210 / 223`（默认基准 = CWD/data，4 处入口预建）、`test_sparse_retriever.py:255`（BM25 默认索引路径按 CWD）、`test_upload_source_cleanup.py:143`（默认上传目录按 CWD） | RA2 / RA3 中改写 |
+| 断言原始相对字符串 | 需改写为断言锚定后的绝对路径（D3-a 影响） | `test_ingestion_service.py:80`（`upload_dir == Path("data/uploads")`）、`test_api_security.py:141`（`tasks_db` 原始串）、`test_chat_settings.py:49`（`session_db` 原始串）、`test_file_integrity.py:155`（`DEFAULT_DB_PATH`）、`test_image_storage.py:337-338`（两个 DEFAULT 常量） | RA3 中改写 |
+| chdir 仅隔离数据目录 | 锚定后隔离失效但断言仍通过，暂不动 | `test_config_loading.py:241 / 262`、`test_evaluation_service.py:26`、`test_sparse_retriever.py:248`、`test_query_service.py:181`、`test_composite_evaluator.py:60`、`test_evaluate_entry.py:178 / 190` | 不改写；其中落在真实仓库数据路径上的写行为由 RA3 的入口子进程测试接管兜底 |
+| 不受影响 | 断言的是 Out of Scope 契约 | `test_agentic_path_guard.py:69`（PathGuard 用户输入相对路径按 CWD，契约不变）、`test_evaluation_service.py:141`（测试集路径先 CWD 再仓库根，规则不变）、`test_answer_generator.py:171`（prompt 加载与 CWD 无关，正是目标语义）、`tests/integration/test_api_static.py:156`（`static_dir` CLI 语义按 CWD）、`tests/integration/test_agentic_http.py:87`（sidecar 侧证据解析，03 号规格 §4.6 契约） | 不改写 |
+
+补充发现：`tests/e2e/test_chat_real_integration.py:100` 与 `tests/e2e/test_chat_agentic_real_integration.py:55`（均为门控用例）已主动 `chdir(PROJECT_ROOT)` 编码目标语义，锚定落地后可简化；`test_evaluation_service.py:141` 的断言原归类于待核查清单，核查确认其锁定的是 Out of Scope 的既有规则，不改写。
 
 ## 5. 任务排期与进度
 
 | 编号 | 任务 | 验收标准 | 状态 |
 |------|------|----------|------|
-| RA0 | 立项与决策终裁 | D1–D3 终裁记入 §1.3；§4 的 CWD 相关测试逐一分类并记入本行；MOC、backlog/README、README 导航同步；`test_docs_links.py` 与 `test_spec_structure.py` 通过 | 进行中（2026-11-20 立项，D1–D3 待终裁） |
+| RA0 | 立项与决策终裁 | D1–D3 终裁记入 §1.3；§4 的 CWD 相关测试逐一分类并记入本行；MOC、backlog/README、README 导航同步；`test_docs_links.py` 与 `test_spec_structure.py` 通过 | ✅ 已完成（2026-11-20）：终裁 D1-a + D2-b + D3-a + 批准改写（见 §1.3 终裁记录与 §4「RA0 核查结果」）；MOC / backlog README / README 导航随立项提交（`7630b86`）同步，本轮随终裁更新状态描述；两 drift guard 测试 18/18 通过 |
 | RA1 | 项目根解析 + MCP 默认配置路径锚定 | §4 中项目根解析用例与 MCP 入口子进程用例通过；读不到配置时仍按禁用处理 | 未开始 |
 | RA2 | agentic 白名单与预建按项目根 | `ensure_local_roots` 默认基准用例通过；临时 CWD 下 PathGuard 根落在项目根、CWD 不新建 `data/`；既有 PathGuard 用例不变 | 未开始 |
 | RA3 | 数据层相对路径按项目根（范围按 D2） | 配置规范化用例与 `start_api.py` 入口子进程用例通过；`RAG_LOG_ROOT` 优先级不变；经确认改写的既有测试在本行列明 | 未开始 |
