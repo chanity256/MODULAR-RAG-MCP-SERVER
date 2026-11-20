@@ -1162,11 +1162,15 @@ def validate_settings(settings: Settings) -> None:
         )
 
 
-def load_settings(path: str | os.PathLike[str] = "config/settings.yaml") -> Settings:
+def load_settings(path: str | os.PathLike[str] | None = None) -> Settings:
     """读取 YAML -> 解析为 Settings -> 校验必填字段。
 
     Args:
-        path: 配置文件路径，默认 ``config/settings.yaml``。
+        path: 配置文件路径。缺省（``None``）时按项目根锚定取
+            ``<项目根>/config/settings.yaml``（ROOT_ANCHOR_SPEC RA1，
+            项目根由 :func:`core.project_root.resolve_project_root` 解析，
+            ``RAG_PROJECT_ROOT`` 可覆盖）；**显式传入的相对路径仍按进程
+            CWD 解析**（CLI 用户输入路径的既有语义，Out of Scope 不改）。
 
     Returns:
         ``Settings`` 对象。
@@ -1175,6 +1179,10 @@ def load_settings(path: str | os.PathLike[str] = "config/settings.yaml") -> Sett
         ConfigError: 配置文件缺失、不可解析或缺少必填字段时。
         FileNotFoundError: 配置文件不存在时（由调用方决定是否转成 ConfigError）。
     """
+    if path is None:
+        from core.project_root import resolve_project_root
+
+        path = resolve_project_root() / "config" / "settings.yaml"
     p = Path(path)
     if not p.exists():
         raise ConfigError(f"config file not found: {p}")

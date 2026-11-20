@@ -263,13 +263,16 @@ def test_mcp_query_knowledge_hub_cites_note_path(vault_workspace):
     workspace = vault_workspace
     env = _env()
     env["PYTHONPATH"] = str(_SRC_DIR) + os.pathsep + env.get("PYTHONPATH", "")
+    # ROOT_ANCHOR_SPEC RA1：默认配置路径按项目根锚定，注入 RAG_PROJECT_ROOT
+    # 指向 fixture workspace（不再依赖子进程 CWD 相对 config/settings.yaml）。
+    env["RAG_PROJECT_ROOT"] = str(workspace)
     proc = subprocess.Popen(
         [sys.executable, "-m", "mcp_server.server"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         env=env,
-        cwd=str(workspace),  # load_settings() 读 cwd 相对 config/settings.yaml
+        cwd=str(workspace),
         text=True,
     )
     try:

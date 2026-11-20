@@ -162,7 +162,7 @@ IngestionService(upload_dir=<项目根>/data/uploads) / Chroma / BM25 / SQLite  
 | 编号 | 任务 | 验收标准 | 状态 |
 |------|------|----------|------|
 | RA0 | 立项与决策终裁 | D1–D3 终裁记入 §1.3；§4 的 CWD 相关测试逐一分类并记入本行；MOC、backlog/README、README 导航同步；`test_docs_links.py` 与 `test_spec_structure.py` 通过 | ✅ 已完成（2026-11-20）：终裁 D1-a + D2-b + D3-a + 批准改写（见 §1.3 终裁记录与 §4「RA0 核查结果」）；MOC / backlog README / README 导航随立项提交（`7630b86`）同步，本轮随终裁更新状态描述；两 drift guard 测试 18/18 通过 |
-| RA1 | 项目根解析 + MCP 默认配置路径锚定 | §4 中项目根解析用例与 MCP 入口子进程用例通过；读不到配置时仍按禁用处理 | 未开始 |
+| RA1 | 项目根解析 + MCP 默认配置路径锚定 | §4 中项目根解析用例与 MCP 入口子进程用例通过；读不到配置时仍按禁用处理 | ✅ 已完成（2026-11-20）：`src/core/project_root.py` 提供 `resolve_project_root()`（`RAG_PROJECT_ROOT` 优先、空串视为未设置、纯计算不建目录）；`load_settings()` 默认路径改惰性锚定（`path=None` 哨兵，显式传入路径仍按 CWD）；新增单测 10 个（`test_project_root.py` 7 个 + `test_config_loading.py` 3 个）；3 个 e2e MCP 子进程 fixture 注入 `RAG_PROJECT_ROOT`（原依赖 CWD 相对配置）；全量禁网 2952 passed / 23 skipped / 1 xfailed，`check_redlines.py` OK。计划见 `.agents/plans/RA1.md` |
 | RA2 | agentic 白名单与预建按项目根 | `ensure_local_roots` 默认基准用例通过；临时 CWD 下 PathGuard 根落在项目根、CWD 不新建 `data/`；既有 PathGuard 用例不变 | 未开始 |
 | RA3 | 数据层相对路径按项目根（范围按 D2） | 配置规范化用例与 `start_api.py` 入口子进程用例通过；`RAG_LOG_ROOT` 优先级不变；经确认改写的既有测试在本行列明 | 未开始 |
 | RA4 | 文档同步 | USAGE_GUIDE §4.4 / §10.1、README 5.1 撤销「须从仓库根启动」并说明新语义与 `RAG_PROJECT_ROOT`；README §9 示例的 `cwd` 改为可选；`test_docs_links.py` 通过 | 未开始 |
