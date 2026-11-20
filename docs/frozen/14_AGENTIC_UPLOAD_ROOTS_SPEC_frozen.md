@@ -96,7 +96,7 @@
 ```
 进程入口（start_api.py / mcp_server.server / query.py --agentic）
    │  load_settings()
-   │  ensure_local_roots(agentic_search)   ← AR1 新增：仅预建 <CWD>/data/ 下的白名单根
+   │  ensure_local_roots(agentic_search)   ← AR1 新增：仅预建 <CWD>/data/ 下的白名单根（RA2 起预建基准为项目根，见 7.1）
    ▼
 AgenticSearchTool / HybridSearch 第三路
    │  PathGuard(allowed_roots=[./data/documents, ./data/uploads])   ← 契约不变
@@ -113,7 +113,7 @@ Web UI 删除：DELETE /documents/{id}
 
 模块设计要点：
 
-- **`ensure_local_roots`**（AR1）：输入 `AgenticSearchConfig`；`enabled` 为 false 时不做任何事。对每个根按 PathGuard 相同方式解析（`Path(raw).expanduser().resolve()`），只有解析结果位于 `<CWD>/data/` 之下、且不命中 `denied_substrings` 时才建目录；其他根不碰，仍由 PathGuard 按原契约报错。放在 `src/libs/agentic_search/` 下，与 PathGuard 同包，不 import sirchmunk。
+- **`ensure_local_roots`**（AR1）：输入 `AgenticSearchConfig`；`enabled` 为 false 时不做任何事。对每个根按 PathGuard 相同方式解析（`Path(raw).expanduser().resolve()`），只有解析结果位于 `<CWD>/data/` 之下、且不命中 `denied_substrings` 时才建目录；其他根不碰，仍由 PathGuard 按原契约报错。放在 `src/libs/agentic_search/` 下，与 PathGuard 同包，不 import sirchmunk。（RA2 起预建基准为项目根，见 7.1）
 - **调用点**：只在进程入口调用，不放进 `create_app`（`src/api/app.py` 保持零 IO）与 PathGuard 构造函数（守卫不产生副作用）。
 - **删除联动**（AR2）：在 API 删除路由或其服务层完成四存储删除后执行；判断「是否仍被引用」以 Chroma 中同 `source_path` 的其他 collection 记录为准。文件删除失败只记 warning 并在响应中如实返回，不回滚已完成的存储删除。
 
@@ -168,6 +168,10 @@ Web UI 删除：DELETE /documents/{id}
 - `README.md` 5.1：`allowed_roots` 示例与说明
 - `docs/MOC.md` 与根目录 README 导航表：本规格状态
 - 本规格收口冻结时：按 docs-governance §2.4 分配编号；遗留事项（如 CWD 解析根治、collection 隔离）若要推进，建派生台账
+
+### 7.1 实现偏差（RA2 修订）
+
+- **`ensure_local_roots` 预建基准改为项目根**（RA2，依据 ROOT_ANCHOR_SPEC（16 号），2026-11-20）：冻结时本文档写的是「仅预建 `<CWD>/data/` 下的白名单根」（按进程 CWD 解析）；RA2 已把默认基准改为 `<项目根>/data`（`RAG_PROJECT_ROOT` 优先、否则由代码位置推导），相对 `allowed_roots` 亦在 `load_settings` 锚定为项目根下的绝对路径（绝对路径原样）。原文 §3 的 `<CWD>/data/` 表述为冻结时旧契约，以本条为准；PathGuard 收到的是锚定后的绝对根，契约不变。本文档 §2.2「相对 `allowed_roots` 改为按项目根解析……另立提案」一项即由该提案（ROOT_ANCHOR_SPEC）交付收口。
 
 ## 8. 隐私注记
 

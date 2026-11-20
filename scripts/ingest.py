@@ -64,6 +64,7 @@ _SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
+from core.project_root import resolve_data_path  # noqa: E402
 from core.settings import (  # noqa: E402
     ConfigError,
     Settings,
@@ -1069,7 +1070,13 @@ def _resolve_dry_run_resources(
     from libs.vector_store import VectorStoreFactory
 
     try:
-        history_db = DEFAULT_DB_PATH if Path(DEFAULT_DB_PATH).is_file() else ":memory:"
+        # 存在性检查与 SQLiteIntegrityChecker 同一锚点（RA3）：相对
+        # DEFAULT_DB_PATH 按项目根解析后再判存在；否则启动 CWD 恰好有同名
+        # 文件时，会把项目根的历史库当存在而真实打开（mkdir + connect）。
+        anchored_history_db = resolve_data_path(DEFAULT_DB_PATH)
+        history_db = (
+            str(anchored_history_db) if anchored_history_db.is_file() else ":memory:"
+        )
         integrity = SQLiteIntegrityChecker(history_db)
         vs = settings.vector_store
         persist = vs.persist_path or "./data/db/chroma"

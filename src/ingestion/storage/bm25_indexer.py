@@ -44,6 +44,8 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from core.project_root import resolve_data_path
 from typing import Any, Sequence
 
 from core.settings import Settings
@@ -227,7 +229,10 @@ class BM25Indexer:
         b: float = DEFAULT_B,
     ) -> None:
         self._settings = settings
-        self._index_path = Path(index_path) if index_path is not None else Path(DEFAULT_INDEX_PATH)
+        # ROOT_ANCHOR_SPEC RA3：默认与显式相对索引路径都按项目根锚定。
+        self._index_path = (
+            resolve_data_path(index_path) if index_path is not None else resolve_data_path(DEFAULT_INDEX_PATH)
+        )
         self._index = BM25Index(k1=k1, b=b)  # __post_init__ 校验 k1/b
         self._docs: dict[str, SparseDocStats] = {}
         self._logger = get_logger("modular-rag.ingestion.bm25_indexer")

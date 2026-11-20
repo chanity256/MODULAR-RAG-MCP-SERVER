@@ -45,6 +45,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from core.project_root import resolve_data_path
+
 from core.trace.trace_context import TraceContext
 from observability.logger import get_logger
 
@@ -156,11 +158,12 @@ class ImageStorage:
 
     def __init__(
         self,
-        images_root: str = DEFAULT_IMAGES_ROOT,
-        db_path: str = DEFAULT_DB_PATH,
+        images_root: str | None = None,
+        db_path: str | None = None,
     ) -> None:
-        self._images_root = Path(images_root)
-        self._db_path = Path(db_path)
+        # ROOT_ANCHOR_SPEC RA3：默认与显式相对路径都按项目根锚定。
+        self._images_root = resolve_data_path(images_root) if images_root is not None else resolve_data_path(DEFAULT_IMAGES_ROOT)
+        self._db_path = resolve_data_path(db_path) if db_path is not None else resolve_data_path(DEFAULT_DB_PATH)
         self._images_root.mkdir(parents=True, exist_ok=True)
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()

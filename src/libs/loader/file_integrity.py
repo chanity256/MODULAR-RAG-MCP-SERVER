@@ -24,6 +24,8 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
+from core.project_root import resolve_data_path
+
 __all__ = [
     "FileIntegrityChecker",
     "SQLiteIntegrityChecker",
@@ -195,8 +197,9 @@ class SQLiteIntegrityChecker(FileIntegrityChecker):
             父目录不存在时自动创建。
     """
 
-    def __init__(self, db_path: str = DEFAULT_DB_PATH) -> None:
-        self._db_path = Path(db_path)
+    def __init__(self, db_path: str | Path | None = None) -> None:
+        # ROOT_ANCHOR_SPEC RA3：默认与显式相对 db_path 都按项目根锚定。
+        self._db_path = resolve_data_path(db_path) if db_path is not None else resolve_data_path(DEFAULT_DB_PATH)
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)

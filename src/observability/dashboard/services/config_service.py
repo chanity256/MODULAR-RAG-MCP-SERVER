@@ -6,11 +6,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from core.project_root import resolve_project_root
 from core.settings import Settings, load_settings
 
 __all__ = ["ComponentCard", "ConfigService"]
 
-_DEFAULT_CONFIG = Path(__file__).resolve().parents[4] / "config" / "settings.yaml"
+_DEFAULT_CONFIG = resolve_project_root() / "config" / "settings.yaml"
 
 
 @dataclass(frozen=True)

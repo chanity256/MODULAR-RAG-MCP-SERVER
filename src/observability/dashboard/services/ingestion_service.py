@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from core.project_root import resolve_data_path
 from typing import Any, Callable, Iterable
 
 __all__ = [
@@ -89,7 +91,8 @@ class IngestionService:
         settings: Any | None = None,
     ) -> None:
         self._settings = settings
-        self._upload_dir = Path(upload_dir) if upload_dir is not None else DEFAULT_UPLOAD_DIR
+        # ROOT_ANCHOR_SPEC RA3：默认与显式相对 upload_dir 都按项目根锚定。
+        self._upload_dir = resolve_data_path(upload_dir) if upload_dir is not None else resolve_data_path(DEFAULT_UPLOAD_DIR)
         self._pipeline = pipeline
         self._runner = runner
 

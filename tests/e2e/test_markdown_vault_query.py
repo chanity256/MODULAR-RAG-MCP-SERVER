@@ -198,8 +198,10 @@ def _run_query_cli(workspace: Path, query: str) -> subprocess.CompletedProcess[s
             "--config",
             str(workspace / "config" / "settings.yaml"),
         ],
-        cwd=str(workspace),  # BM25 默认 data/db/bm25/index.json 相对 cwd 命中
-        env=_env(),
+        cwd=str(workspace),
+        # RA3：BM25/Chroma 等缺省数据路径按项目根锚定，注入 RAG_PROJECT_ROOT
+        # 指向 workspace（原依赖相对 CWD 命中）。
+        env={**_env(), "RAG_PROJECT_ROOT": str(workspace)},
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -263,13 +265,16 @@ def test_mcp_query_knowledge_hub_cites_note_path(vault_workspace):
     workspace = vault_workspace
     env = _env()
     env["PYTHONPATH"] = str(_SRC_DIR) + os.pathsep + env.get("PYTHONPATH", "")
+    # ROOT_ANCHOR_SPEC RA1：默认配置路径按项目根锚定，注入 RAG_PROJECT_ROOT
+    # 指向 fixture workspace（不再依赖子进程 CWD 相对 config/settings.yaml）。
+    env["RAG_PROJECT_ROOT"] = str(workspace)
     proc = subprocess.Popen(
         [sys.executable, "-m", "mcp_server.server"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         env=env,
-        cwd=str(workspace),  # load_settings() 读 cwd 相对 config/settings.yaml
+        cwd=str(workspace),
         text=True,
     )
     try:

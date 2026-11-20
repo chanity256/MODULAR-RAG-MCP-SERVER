@@ -85,6 +85,52 @@ class TestAgenticSearchConfig:
         assert config.enabled is True
         assert config.allowed_roots == [str(root)]
 
+    def test_relative_allowed_roots_anchored_to_project_root(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """相对 ``allowed_roots`` 按项目根锚定为绝对路径（ROOT_ANCHOR_SPEC RA2）。"""
+        monkeypatch.setenv("RAG_PROJECT_ROOT", str(tmp_path))
+        yaml = (
+            "agentic_search:\n"
+            "  enabled: true\n"
+            "  allowed_roots:\n"
+            "    - ./data/documents\n"
+            "    - ./data/uploads\n"
+        )
+        config = load_settings(_write(tmp_path, yaml)).agentic_search
+        assert config.allowed_roots == [
+            str((tmp_path / "data" / "documents").resolve()),
+            str((tmp_path / "data" / "uploads").resolve()),
+        ]
+
+    def test_absolute_allowed_roots_kept_as_is(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """绝对 ``allowed_roots`` 原样保留（不锚定到项目根）。"""
+        outside = tmp_path / "outside-docs"
+        outside.mkdir(parents=True)
+        monkeypatch.setenv("RAG_PROJECT_ROOT", str(tmp_path / "unused-root"))
+        yaml = (
+            "agentic_search:\n"
+            "  enabled: true\n"
+            f"  allowed_roots:\n    - {outside}\n"
+        )
+        config = load_settings(_write(tmp_path, yaml)).agentic_search
+        assert config.allowed_roots == [str(outside.resolve())]
+
+    def test_tilde_allowed_roots_expanded(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """``~`` 开头的 ``allowed_roots`` 先展开用户目录再保留为绝对路径。"""
+        monkeypatch.setenv("RAG_PROJECT_ROOT", str(tmp_path))
+        yaml = (
+            "agentic_search:\n"
+            "  enabled: true\n"
+            "  allowed_roots:\n    - ~/agentic-docs\n"
+        )
+        config = load_settings(_write(tmp_path, yaml)).agentic_search
+        assert config.allowed_roots == [str(Path("~/agentic-docs").expanduser().resolve())]
+
     def test_mode_lowercased_normalized_to_upper(self, tmp_path: Path):
         yaml = "agentic_search:\n  mode: deep\n"
         assert load_settings(_write(tmp_path, yaml)).agentic_search.mode == "DEEP"
