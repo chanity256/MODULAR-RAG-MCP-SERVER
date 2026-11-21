@@ -140,7 +140,8 @@ class SearchService:
             mode: ``normal`` | ``fast`` | ``deep``。
             query: 查询文本（非空）。
             top_k: 返回条数上限（正整数；``None`` 用工具缺省）。
-            collection: 仅 Normal 模式生效的 collection 过滤。
+            collection: collection 过滤（Normal 按主路 metadata 过滤；
+                agentic 模式经摄取历史定界检索起点，AC3）。
 
         Returns:
             归一化的 :class:`SearchOutcome`。
@@ -160,7 +161,7 @@ class SearchService:
             if mode == "normal":
                 result = self._run_normal(query, top_k=top_k, collection=collection)
             else:
-                result = self._run_agentic(query, mode=mode, top_k=top_k)
+                result = self._run_agentic(query, mode=mode, top_k=top_k, collection=collection)
         except ToolInvalidParams as exc:
             return self._error_outcome(mode, f"参数非法：{exc}", started)
         except (TypeError, ValueError) as exc:
@@ -207,6 +208,9 @@ class SearchService:
             arguments: dict[str, Any] = {"query": query, "mode": "DEEP"}
             if top_k is not None:
                 arguments["top_k"] = top_k
+            if collection and collection.strip():
+                # AC3：Deep 流式与同步同口径透传 collection（WS /api/v1/search/ws）。
+                arguments["collection"] = collection.strip()
             result = stream_tool(arguments)
         except NotImplementedError:
             return self.run(mode, query, top_k=top_k, collection=collection)
@@ -230,10 +234,15 @@ class SearchService:
             arguments["collection"] = collection
         return self._get_query_tool()(arguments)
 
-    def _run_agentic(self, query: str, *, mode: str, top_k: int | None) -> dict[str, Any]:
+    def _run_agentic(
+        self, query: str, *, mode: str, top_k: int | None, collection: str | None = None
+    ) -> dict[str, Any]:
         arguments: dict[str, Any] = {"query": query, "mode": "FAST" if mode == "fast" else "DEEP"}
         if top_k is not None:
             arguments["top_k"] = top_k
+        if collection and collection.strip():
+            # AC3：agentic 模式透传 collection（工具侧按摄取历史定界检索起点）。
+            arguments["collection"] = collection.strip()
         return self._get_agentic_tool()(arguments)
 
     def _parse(self, mode: str, result: Any, elapsed_ms: float) -> SearchOutcome:
@@ -317,6 +326,7 @@ class SearchService:
             search=_StreamingSearchAdapter(backend, on_event),
             settings=tool._get_settings(),
             path_guard=tool._get_path_guard(),
+            history=tool._history,  # AC3：流式工具共享历史句柄（collection 定界）
         )
 
 

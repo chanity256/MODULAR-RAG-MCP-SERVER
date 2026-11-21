@@ -23,8 +23,17 @@ describe("request building", () => {
   it("sends only API fields, trimmed", () => {
     expect(buildSearchRequest(form)).toEqual({ mode: "normal", query: "hello", top_k: 5, collection: "docs" });
   });
-  it("omits empty top_k and drops collection outside normal mode", () => {
-    expect(buildSearchRequest({ ...form, mode: "fast", topK: "" })).toEqual({ mode: "fast", query: "hello" });
+  it("omits empty top_k and keeps collection across all modes (AC3)", () => {
+    expect(buildSearchRequest({ ...form, mode: "fast", topK: "" })).toEqual({
+      mode: "fast",
+      query: "hello",
+      collection: "docs",
+    });
+    expect(buildSearchRequest({ ...form, mode: "deep", collection: "  " })).toEqual({
+      mode: "deep",
+      query: "hello",
+      top_k: 5,
+    });
   });
   it("validates query and top_k", () => {
     expect(validateSearchForm({ ...form, query: " " })).toMatch(/query/i);

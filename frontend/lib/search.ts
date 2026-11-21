@@ -100,13 +100,13 @@ export function validateSearchForm(values: SearchFormValues): string | null {
   return null;
 }
 
-/** Only the four fields the API accepts (extras are 422); collection applies to normal mode only. */
+/** Only the four fields the API accepts (extras are 422); collection applies to all modes (AC3: agentic modes scope via ingestion history). */
 export function buildSearchRequest(values: SearchFormValues): SearchRequestBody {
   const body: SearchRequestBody = { mode: values.mode, query: values.query.trim() };
   const raw = values.topK.trim();
   if (raw !== "") body.top_k = Number.parseInt(raw, 10);
   const collection = values.collection.trim();
-  if (values.mode === "normal" && collection) body.collection = collection;
+  if (collection) body.collection = collection;
   return body;
 }
 
