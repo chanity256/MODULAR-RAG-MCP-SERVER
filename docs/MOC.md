@@ -78,7 +78,7 @@ docs/ 文档分两类：
 | 文档 | 说明 |
 |------|------|
 | [AI_NATIVE_SDLC_SPEC.md](specs/AI_NATIVE_SDLC_SPEC.md) | AI-Native SDLC 流程升级规格（SD 系列，v0.5 立项；SD1 CI 门（含 fork 上真实 run 与分支保护）、SD2 review 规则、SD6 skill 单一来源、SD3a QA 计划清理与 QA ↔ pytest 对照补测已交付，SD5 过程度量基线已出（[process-metrics.md](analysis/process-metrics.md)），SD7 规格结构校验已接入测试，SD4 定时闭环已交付（两个本机周度 automation active：followups 扫描起草草案 PR + QA 离线回归写回进度，SD4.4 阈值后置），SD3.4 evals 单次成本已测、预算已确认（D5 终裁为 BYOK `custom:glm-5.3-Flash-2`，SD3.5 evals 判据 / 运行器 / 5 条用例已交付（`evals/`），SD3.6 `agent-evals.yml` 已接入（CI 基线 2/5，门槛按基线校准），SD3.7 test-file 保护 hook 已交付（`.factory/hooks/test_guard.py`），D6 baseline PR 已合入；SD2.3 自动 review 已接入（2026-11-14，验收进行中））：前置决策 D1–D6 + baseline PR、CI 确定性门（干净环境 / 双 job / 禁网 / 红线脚本 / CODEOWNERS，承接 ci-pipeline 提案）、AI PR review、QA 对照与 agent evals（门控）、定时闭环（SD4.4 阈值后置）、过程度量、skill 单一来源 + plan + PR 化、规格结构校验（可选）；不改 `src/` 业务行为 |
-| [PAGEINDEX_TREE_RETRIEVAL_SPEC.md](specs/PAGEINDEX_TREE_RETRIEVAL_SPEC.md) | PageIndex 树检索规格（PI 系列，v0.1 立项 2026-11-21，开发中）：独立 venv 本机 HTTP sidecar（`scripts/pageindex/`）接入「树索引 + LLM 沿树推理」，Web UI Chat 新增 `tree` 检索模式，引用落到章节 / 行号或页码；D1 本地模式、D2 Chat 新增模式、D3 自建 MD 树存储 + 检索循环（用户拍板），D5 对账同步不改摄取管线、D7 自建检索循环、D10 不进 auto 候选；PI0 四路对照为立项门（门槛 D9 基线后拍板），PI1–PI7 待门控通过后开工 |
+| [PAGEINDEX_TREE_RETRIEVAL_SPEC.md](specs/PAGEINDEX_TREE_RETRIEVAL_SPEC.md) | PageIndex 树检索规格（PI 系列，v0.1 立项 2026-11-21，开发中）：独立 venv 本机 HTTP sidecar（`scripts/pageindex/`）接入「树索引 + LLM 沿树推理」，Web UI Chat 新增 `longdoc` 检索模式，引用落到章节 / 行号或页码；D1 本地模式、D2 Chat 新增模式、D3 自建 MD 树存储 + 检索循环（用户拍板），D5 对账同步不改摄取管线、D7 自建检索循环、D10 不进 auto 候选；PI0 四路对照为立项门（门槛 D9 基线后拍板），PI1–PI7 待门控通过后开工 |
 
 
 ## frozen/ — 已冻结文档

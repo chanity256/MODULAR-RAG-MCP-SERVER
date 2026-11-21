@@ -1,4 +1,4 @@
-<!-- 规格定位：以独立 venv 的本机 HTTP sidecar 接入 PageIndex「树索引 + LLM 沿树推理」，在 Web UI Chat 新增 `tree` 检索模式，补长结构化文档的章节定位与页 / 行级引用。基线：S / SX / WC / LG / WS / SR / CMC / MR / AR / RA / AC 均已收口冻结。与既有规格的关系：独立增量；不改 Sirchmunk agentic 契约（`libs/agentic_search/` 与 `agentic_search` 配置节）、不改三档既有模式与 `auto` 的行为契约、不改 MCP 工具、不改摄取管线与 DocumentManager。 -->
+<!-- 规格定位：以独立 venv 的本机 HTTP sidecar 接入 PageIndex「树索引 + LLM 沿树推理」，在 Web UI Chat 新增 `longdoc` 检索模式，补长结构化文档的章节定位与页 / 行级引用。基线：S / SX / WC / LG / WS / SR / CMC / MR / AR / RA / AC 均已收口冻结。与既有规格的关系：独立增量；不改 Sirchmunk agentic 契约（`libs/agentic_search/` 与 `agentic_search` 配置节）、不改三档既有模式与 `auto` 的行为契约、不改 MCP 工具、不改摄取管线与 DocumentManager。 -->
 
 # PageIndex 树检索规格 (PAGEINDEX_TREE_RETRIEVAL_SPEC)
 
@@ -6,7 +6,7 @@
 >
 > 起源与决策依据：由 backlog/pageindex-tree-retrieval_backlog.md 单文件晋升，原文见 git 历史；提案起源为会话内调研（2026-11-21，非文件来源：上游 [VectifyAI/PageIndex](https://github.com/VectifyAI/PageIndex) main `add6b17` 源码 + 本仓库 agentic_search / sidecar 架构核对）。依据 [03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md](../frozen/03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md)（进程隔离红线、HTTP sidecar 契约风格）、[18_AGENTIC_COLLECTION_ISOLATION_SPEC_frozen.md](../frozen/18_AGENTIC_COLLECTION_ISOLATION_SPEC_frozen.md)（collection 定界 D3/D5）、[15_MODE_ROUTER_SPEC_frozen.md](../frozen/15_MODE_ROUTER_SPEC_frozen.md)（Chat 模式常量六处登记、auto 候选口径、立项门先例）、[11_CHAT_MODE_COLORS_SPEC_frozen.md](../frozen/11_CHAT_MODE_COLORS_SPEC_frozen.md)（模式配色规则）、[16_ROOT_ANCHOR_SPEC_frozen.md](../frozen/16_ROOT_ANCHOR_SPEC_frozen.md)（相对路径按项目根解析）
 >
-> 基线：`c732778`（fork/main），上述系列均已收口冻结；`tree_search` 配置节、`tree` 模式与 PageIndex sidecar 均不存在
+> 基线：`c732778`（fork/main），上述系列均已收口冻结；`tree_search` 配置节、`longdoc` 模式与 PageIndex sidecar 均不存在
 >
 > 日期：2026-11-21
 
@@ -33,7 +33,7 @@
 | 问题 | 结论 |
 |------|------|
 | 要解决什么问题？ | 语料中有千级标题的长 Markdown（最大 1.7 MB / 1045 个标题行），Dense + BM25 按 1000 字切块召回会丢章节上下文，Sirchmunk 证据只有抽取文本字符偏移；「哪一节讲 X」「跨章节归纳」类问题缺少按结构定位的检索路径，引用也无法落到章节 / 行号。**尚无实测失败样例**，由 PI0 在真实问题上确认 |
-| 定位是什么？ | Web UI Chat 的第五档请求值 `tree`（与 `hybrid` / `agentic_fast` / `agentic_deep` / `auto` 并列）：sidecar 沿文档树选节点返回证据，答案仍由本项目 AnswerGenerator 生成；不替换任何既有模式 |
+| 定位是什么？ | Web UI Chat 的第五档请求值 `longdoc`（与 `hybrid` / `agentic_fast` / `agentic_deep` / `auto` 并列）：sidecar 沿文档树选节点返回证据，答案仍由本项目 AnswerGenerator 生成；不替换任何既有模式 |
 | 实施范围（已决策） | PI0 为立项门（门槛按 D9 终裁，不达标即搁置，本规格止于预研并移入派生台账）；PI1–PI6 为承诺任务（门控通过后）；PI7 含门控真实冒烟。仅本地模式（D1），MCP / Hybrid 第四路 / auto 候选不做（D2、D10） |
 | 主要代价 | 多维护一个进程与一个 venv；建树要把文档全文送 LLM 写节点摘要（一次性，按 token 计费）；一次树检索为多轮 LLM 调用（预期十秒到数十秒级）；Markdown 存储与检索循环需自写（上游本地模式不支持） |
 
@@ -69,20 +69,20 @@
 2. **更简单的方案**：
    - **方案 (a)**：MarkdownLoader / splitter 给 chunk 补「标题路径」metadata、引用显示章节与行号。不引入新进程，能覆盖引用可读性诉求，但不改变召回方式。PI0 以离线近似方式纳入对照（3.6 第 4 条）；(a) 达标则本规格止于预研。
    - **MCP 客户端旁路挂 PageIndex**：零代码，但上游本地模式无 MCP server（仅云端提供），且进不了 trace / Chat / collection 隔离。不采用。
-3. **如何确认有效**：PI0 四路对照（Hybrid、Sirchmunk DEEP、方案 (a) 离线近似、PageIndex 树检索原型）在用户逐条确认的问题集上比较命中率、引用可定位率、P50 / P95 延迟与 token；端到端由 PI7 门控冒烟确认 Chat `tree` 模式可用且引用落到章节 / 行或页。
+3. **如何确认有效**：PI0 四路对照（Hybrid、Sirchmunk DEEP、方案 (a) 离线近似、PageIndex 树检索原型）在用户逐条确认的问题集上比较命中率、引用可定位率、P50 / P95 延迟与 token；端到端由 PI7 门控冒烟确认 Chat `longdoc` 模式可用且引用落到章节 / 行或页。
 
 | 编号 | 决策 | 终裁 |
 |------|------|------|
 | D1 | 本地还是云端 | **本地模式**（2026-11-21，用户拍板）。文档与树索引留在本机，仅 LLM 调用外发；云端（原文件上传 PageIndex、付费）不做 |
-| D2 | 首期接入面 | **Chat 新增模式 `tree`**（2026-11-21，用户拍板）。MCP 独立工具、Hybrid 第四路融合不做；Query Playground 不做（2.2） |
+| D2 | 首期接入面 | **Chat 新增模式 `longdoc`**（2026-11-21，用户拍板；模式名由初稿 `tree` 更名为 `longdoc`，后端能力命名 `tree_search` 不变）。MCP 独立工具、Hybrid 第四路融合不做；Query Playground 不做（2.2） |
 | D3 | Markdown 路径 | **自建 MD 树存储 + 检索循环**（2026-11-21，用户拍板）。MD 经预处理（绕开 #609）后调用上游 `md_to_tree` 建树，存入 sidecar 自建存储；PDF 走上游 `PageIndexClient.submit_document` 与 DocStore；检索循环两种格式统一自建（D7） |
 | D4 | 检索 / 摘要模型 | **sidecar 独立 env 配置，默认智谱 GLM（OpenAI 兼容端点，经 LiteLLM `openai/<model>` + `api_base`）**（规格设计决策，与 Sirchmunk sidecar「LLM 配置独立于 `settings.llm`」同口径）。PI0 实测工具调用 / JSON 输出质量，终裁回填本行；换模型只改 env，不改代码 |
 | D5 | 建树时机 | **对账同步命令 `scripts/pageindex_sync.py`**（规格设计决策）：以摄取历史 v2 success 记录为准，`file_hash` 变化即重建、历史中已不存在的即删除、非 `.pdf` / `.md` / `.markdown` 跳过并计数。首期不改摄取管线与 DocumentManager（04 规格的 7 阶段与删除链路不动）；摄取后自动触发列入 2.2 |
 | D6 | 上游版本 | **锁定 PyPI 精确版本**，PI0.1 实装时确定并回填本行（`setup_venv.sh` 写死版本、`start_sidecar.sh` 启动日志打印实际版本，对齐 KE0 先例） |
 | D7 | 检索循环形态 | **自建「选文档 → 选节点 → 读原文 → 判是否足够」循环**（规格设计决策）：不用上游 `chat()`（会生成答案，与 AnswerGenerator 重叠）与 `agent_tools()`（只覆盖 DocStore 中的 PDF，D3 的 MD 存储用不上）。LLM 调用经注入的 `complete(prompt) -> str`，循环本体是不 import pageindex 的纯模块，可在主 venv 离线单测 |
-| D8 | 证据到引用 | **`RetrievalResult.metadata` 承载 `retrieval_route="tree"` / `source_path` / `page` / `section` / `line_start` / `line_end` / `node_id`；`Citation` 只增可选字段 `section` / `line_start` / `line_end`，值为 `None` 时 `to_dict()` 不输出该键**（规格设计决策）：既有 hybrid / agentic 引用的 `to_dict()` 逐字节不变，WS `sources` 帧只增不改 |
+| D8 | 证据到引用 | **`RetrievalResult.metadata` 承载 `retrieval_route="longdoc"` / `source_path` / `page` / `section` / `line_start` / `line_end` / `node_id`；`Citation` 只增可选字段 `section` / `line_start` / `line_end`，值为 `None` 时 `to_dict()` 不输出该键**（规格设计决策）：既有 hybrid / agentic 引用的 `to_dict()` 逐字节不变，WS `sources` 帧只增不改 |
 | D9 | PI0 门槛 | **本规格只固定度量口径（3.6 第 4 条），数值门槛在 PI0 基线跑出后与用户共同拍板**（规格设计决策，沿用 MR D2 先例）。门槛终裁前 PI1 不开工；终裁回填本行与 PI0.3 行 |
-| D10 | auto 候选 | **`tree` 不进入 auto 候选**（规格设计决策，依据 1.2 第 2 条）：`_ALL_MODES` 保持三档并改名语义为「auto 候选与既有三档」，`tree` 单独追加到 capabilities `retrievals`；纳入候选需新增 criteria 文案并按 MR D2 门槛复核，另立提案 |
+| D10 | auto 候选 | **`longdoc` 不进入 auto 候选**（规格设计决策，依据 1.2 第 2 条）：`_ALL_MODES` 保持三档并改名语义为「auto 候选与既有三档」，`longdoc` 单独追加到 capabilities `retrievals`；纳入候选需新增 criteria 文案并按 MR D2 门槛复核，另立提案 |
 
 ### 1.4 对提案的调整
 
@@ -103,8 +103,8 @@
 | sidecar 服务 | HTTP 服务 + pageindex 适配层 + 运维脚本 + 红线 | 承诺（PI2） | 仅 loopback + Bearer 的 `/status` `/documents` `/index` `/search`；`check_redlines.py` 增 pageindex import 规则（精确白名单） |
 | 主 venv 后端 | `libs/tree_search/` + `tree_search` 配置节 | 承诺（PI3） | `BaseTreeSearch` / `TreeEvidence` / HTTP 后端 / fake 后端 / 工厂；配置缺失走默认、非法值 fail-fast |
 | 索引同步 | `scripts/pageindex_sync.py` | 承诺（PI4） | 摄取历史 → sidecar 索引的幂等对账（新增 / 重建 / 删除 / 跳过） |
-| Chat 后端 | `tree` 模式接入 | 承诺（PI5） | 常量、配置校验、检索器、capabilities、schema、`Citation` 只增字段；collection 定界与 PathGuard 过滤 |
-| Chat 前端 | 模式选择器与引用展示 | 承诺（PI6） | Tree 选项与配色（对比度 ≥ WCAG AA）、引用显示章节 / 行号 |
+| Chat 后端 | `longdoc` 模式接入 | 承诺（PI5） | 常量、配置校验、检索器、capabilities、schema、`Citation` 只增字段；collection 定界与 PathGuard 过滤 |
+| Chat 前端 | 模式选择器与引用展示 | 承诺（PI6） | Longdoc 选项与配色（对比度 ≥ WCAG AA）、引用显示章节 / 行号 |
 | 验证与文档 | 门控冒烟 + USAGE_GUIDE | 承诺（PI7，其中真实冒烟门控） | `RAG_PAGEINDEX_INTEGRATION=1` 真实 sidecar 冒烟；USAGE_GUIDE 新增章节 |
 
 ### 2.2 Out of Scope（明确不做）
@@ -114,21 +114,21 @@
 - **MCP 工具**（D2）：不新增 `tree_search` 工具，`query_knowledge_hub` / `agentic_search` 输入 schema 与行为不变。
 - **Hybrid 第四路融合**（D2）：`HybridSearch` 与 `agentic_search.trigger` 不感知树检索。
 - **auto 候选**（D10）：`routing_question.py` 文案与 MR 门槛不动。
-- **Query Playground、`scripts/query.py`、`scripts/evaluate.py` 感知 `tree`**：调试 / CLI / 评估链路保持现状。
+- **Query Playground、`scripts/query.py`、`scripts/evaluate.py` 感知 `longdoc`**：调试 / CLI / 评估链路保持现状。
 - **改摄取管线或 DocumentManager**（D5）：摄取后自动建树、删除时同步删索引列为后续，由对账命令覆盖。
 - **`start_api.py --manage-sidecar` 托管 PageIndex sidecar**：首期手动启动（`scripts/pageindex/start_sidecar.sh`），托管编排列为后续。
-- **`tree` 模式的进度流（`search_log` 帧）**：sidecar `/search` 为同步端点，Chat 只下发既有 `status` 帧；流式列为后续。
+- **`longdoc` 模式的进度流（`search_log` 帧）**：sidecar `/search` 为同步端点，Chat 只下发既有 `status` 帧；流式列为后续。
 - **`.docx` / `.pptx` / `.xlsx` / `.html` 建树**：对账时跳过并计数。
 - **在主 venv 安装或 import `pageindex`**，以及把 PageIndex 装进 Sirchmunk sidecar 进程或其 venv。
-- **回改冻结规格**：CMC 三档配色、MR auto violet 配色、AC 定界语义、Sirchmunk 契约均不动；`tree` 配色是本规格新行为。
+- **回改冻结规格**：CMC 三档配色、MR auto violet 配色、AC 定界语义、Sirchmunk 契约均不动；`longdoc` 配色是本规格新行为。
 
 ## 3. 技术选型与模块设计
 
 ### 3.1 运行架构
 
 ```
-Web UI Chat（选 Tree）
-   │ WS /api/v1/chat/ws  {retrieval: "tree", collection?}
+Web UI Chat（选 Longdoc）
+   │ WS /api/v1/chat/ws  {retrieval: "longdoc", collection?}
    ▼
 主 venv（永不 import pageindex）
   ChatEngine ──► TreeChatRetriever（services/chat_retrievers.py）
@@ -177,18 +177,18 @@ Web UI Chat（选 Tree）
 
 **Chat 接入（PI5）**：
 
-- `core/chat/retriever.py` 增 `RETRIEVAL_TREE = "tree"` 并追加进 `RETRIEVAL_MODES`；`core/settings.py` `CHAT_RETRIEVAL_MODES` 同步追加，`chat.default_retrieval: tree` 要求 `tree_search.enabled: true`（否则 fail-fast），`mode_router.fallback_retrieval` 仍只接受三档。
-- `api/chat_wiring.py`：`_ALL_MODES` 保持三档（auto 候选口径不变，D10）；`tree_search.enabled` 时 capabilities `retrievals` 末尾追加 `tree`，并新增 `tree_enabled` 字段（只增）。
-- `api/schemas/chat.py`：`RetrievalMode` 追加 `"tree"`。
+- `core/chat/retriever.py` 增 `RETRIEVAL_LONGDOC = "longdoc"` 并追加进 `RETRIEVAL_MODES`；`core/settings.py` `CHAT_RETRIEVAL_MODES` 同步追加，`chat.default_retrieval: longdoc` 要求 `tree_search.enabled: true`（否则 fail-fast），`mode_router.fallback_retrieval` 仍只接受三档。
+- `api/chat_wiring.py`：`_ALL_MODES` 保持三档（auto 候选口径不变，D10）；`tree_search.enabled` 时 capabilities `retrievals` 末尾追加 `longdoc`，并新增 `longdoc_enabled` 字段（只增）。
+- `api/schemas/chat.py`：`RetrievalMode` 追加 `"longdoc"`。
 - `services/chat_retrievers.py`：`tree_search.enabled` 时注册 `TreeChatRetriever`，`answer=None`，走 AnswerGenerator 路径；不声明 `on_log`。
 - `core/response/citation_generator.py`：`Citation` 增可选 `section` / `line_start` / `line_end`，`None` 不输出（D8）。
 
-**前端（PI6）**：`types.ts` / `modes.ts` 加 `tree`（标签 `Tree`，`tree_enabled` 为真且 `retrievals` 含 `tree` 才出现）；`ModeSelector.tsx` 选中态 rose 色系（light `bg-rose-100 text-rose-800`，dark `dark:bg-rose-500/20 dark:text-rose-200`，实测对比度 ≥ AA 后回填）；引用卡片在有 `section` / `line_start` 时显示「章节 · 第 N–M 行」。
+**前端（PI6）**：`types.ts` / `modes.ts` 加 `longdoc`（标签 `Longdoc`，`longdoc_enabled` 为真且 `retrievals` 含 `longdoc` 才出现）；`ModeSelector.tsx` 选中态 rose 色系（light `bg-rose-100 text-rose-800`，dark `dark:bg-rose-500/20 dark:text-rose-200`，实测对比度 ≥ AA 后回填）；引用卡片在有 `section` / `line_start` 时显示「章节 · 第 N–M 行」。
 
 ### 3.3 配置契约
 
 ```yaml
-# PageIndex 树检索（独立 HTTP sidecar，可选；enabled=false 时零加载、Chat 不出现 Tree）
+# PageIndex 树检索（独立 HTTP sidecar，可选；enabled=false 时零加载、Chat 不出现 Longdoc）
 tree_search:
   enabled: false
   backend: pageindex_http          # 唯一生产后端（fake 仅供测试注入）
@@ -257,13 +257,13 @@ tree_search:
   - sidecar 服务（PI2）：`server.py` 以注入的 fake adapter 跑 FastAPI TestClient（鉴权 401、loopback 绑定参数、各端点 schema）；`pi_adapter.py` 不进主 venv 测试。
   - 主 venv 后端（PI3）：`httpx.MockTransport` 覆盖 Bearer、超时、连接拒绝、5xx、`success=false`、非 JSON、契约 fixture 解析（`tests/fixtures/pageindex/contract_search_response.json`，PI2 真实响应抓取后替换）；线程 HTTP stub 集成测试走真实 httpx 链路；配置节默认值与 fail-fast 校验。
   - 索引同步（PI4）：fake 历史表 + fake 后端覆盖新增 / 重建 / 删除 / 跳过 / 单条失败不中断 / `--dry-run` 无写入。
-  - Chat（PI5）：fake 树检索后端驱动 ChatEngine，断言 `tree` 模式帧序列、引用含 `section` / `line_*`、collection 空定界集不调用后端、PathGuard 剔除越权证据、后端异常走既有失败分支。
-  - 前端（PI6）：vitest 覆盖 `buildModeOptions`（`tree_enabled` 真 / 假）、`resolveMode`、配色类名、引用展示；Playwright 假后端新增 tree 用例（opt-in，需先 build）。
+  - Chat（PI5）：fake 树检索后端驱动 ChatEngine，断言 `longdoc` 模式帧序列、引用含 `section` / `line_*`、collection 空定界集不调用后端、PathGuard 剔除越权证据、后端异常走既有失败分支。
+  - 前端（PI6）：vitest 覆盖 `buildModeOptions`（`longdoc_enabled` 真 / 假）、`resolveMode`、配色类名、引用展示；Playwright 假后端新增 longdoc 用例（opt-in，需先 build）。
   - 红线（PI2）：`check_redlines.py` 新规则的正反样例单测。
-- **真实依赖冒烟**：`RAG_PAGEINDEX_INTEGRATION=1`（默认跳过，需 sidecar 已启动且已同步）：真实 sidecar `/status`、对一篇 MD 与一篇 PDF 检索命中并带行号 / 页码；Chat `tree` 模式端到端出答案与引用。PI0 对照脚本只在 sidecar venv 手动运行，不进 pytest。
+- **真实依赖冒烟**：`RAG_PAGEINDEX_INTEGRATION=1`（默认跳过，需 sidecar 已启动且已同步）：真实 sidecar `/status`、对一篇 MD 与一篇 PDF 检索命中并带行号 / 页码；Chat `longdoc` 模式端到端出答案与引用。PI0 对照脚本只在 sidecar venv 手动运行，不进 pytest。
 - **既有测试语义**（本规格不得破坏）：
   - `tree_search` 节缺失或 `enabled: false` 时：`compute_capabilities` 输出、`build_chat_retrievers` 注册集合、前端模式选项、MCP `tools/list` 与基线逐字节一致。
-  - auto 候选仍取三档（`_ALL_MODES` 不含 `tree`），`routing_question.py` 文案与 MR 测试不变。
+  - auto 候选仍取三档（`_ALL_MODES` 不含 `longdoc`），`routing_question.py` 文案与 MR 测试不变。
   - `Citation.to_dict()` 对既有 hybrid / agentic 结果输出键集合不变。
   - Sirchmunk：`libs/agentic_search/` 契约、`AgenticSearchFactory` 注册表、AC 定界语义与相关测试不变。
   - `check_redlines.py` 既有三条规则判定不变。
@@ -281,8 +281,8 @@ tree_search:
 | PI2 | sidecar 服务、`pi_adapter`、`start_sidecar.sh`、红线规则 | 本机启动后 `/status` 200、无 token 401；对 1 篇 MD + 1 篇 PDF 建树并检索返回带行号 / 页码证据；`python scripts/check_redlines.py` 0 违规且新规则正反样例单测通过；契约 fixture 替换为真实响应 | 未开始 |
 | PI3 | `libs/tree_search/` + `tree_search` 配置节 | MockTransport / stub 集成测试全过；默认配置下 `load_settings()` 结果除新增节外不变；非法配置 fail-fast 单测覆盖 3.3 每条校验 | 未开始 |
 | PI4 | `scripts/pageindex_sync.py` | 离线单测覆盖四类动作与 `--dry-run`；对真实 sidecar 跑两次，第二次新增 / 重建计数为 0 | 未开始 |
-| PI5 | Chat 后端 `tree` 模式 | 第 4 章 PI5 用例全过；既有测试语义清单逐条有测试锁定或复跑通过 | 未开始 |
-| PI6 | Chat 前端 Tree 选项、配色、引用展示 | `npm run typecheck && npm run lint && npm test` 全绿；rose 选中态 light / dark 实测对比度 ≥ 4.5:1 并回填；Playwright tree 用例通过 | 未开始 |
+| PI5 | Chat 后端 `longdoc` 模式 | 第 4 章 PI5 用例全过；既有测试语义清单逐条有测试锁定或复跑通过 | 未开始 |
+| PI6 | Chat 前端 Longdoc 选项、配色、引用展示 | `npm run typecheck && npm run lint && npm test` 全绿；rose 选中态 light / dark 实测对比度 ≥ 4.5:1 并回填；Playwright longdoc 用例通过 | 未开始 |
 | PI7 | 门控真实冒烟 + 文档回写 | `RAG_PAGEINDEX_INTEGRATION=1` 冒烟通过并记录延迟与 token；USAGE_GUIDE 新章节与 README 回写完成（第 7 章）；全量禁网 pytest + 红线全绿 | 未开始 |
 
 > 进度备注：交付后在各任务下回填状态与关键实测数据；全部收口后本规格移入 `docs/frozen/` 并更新 MOC.md。
@@ -291,8 +291,8 @@ tree_search:
 
 - [ ] PI0 立项门通过，门槛与对照数据记录在本规格（或已按「止于预研」收口）。
 - [ ] `tree_search.enabled: false` 时 Chat、MCP、capabilities 与基线逐字节一致。
-- [ ] `tree_search.enabled: true` 且 sidecar 已同步时，Chat 选 Tree 能对长 Markdown 给出带「章节 · 行号」的引用，对 PDF 给出页码引用。
-- [ ] 带 collection 的 Tree 检索只返回该 collection 定界集内证据；空定界集不调用 sidecar。
+- [ ] `tree_search.enabled: true` 且 sidecar 已同步时，Chat 选 Longdoc 能对长 Markdown 给出带「章节 · 行号」的引用，对 PDF 给出页码引用。
+- [ ] 带 collection 的 Longdoc 检索只返回该 collection 定界集内证据；空定界集不调用 sidecar。
 - [ ] `pageindex_sync.py` 幂等：连续两次运行第二次无新增 / 重建。
 - [ ] 主 venv 无 `pageindex` / `litellm` import（红线脚本 0 违规）。
 - [ ] `pytest tests -q` 与 CI 禁网命令全绿；前端 typecheck / lint / vitest 全绿。
@@ -300,8 +300,8 @@ tree_search:
 
 ## 7. 实现合入后的回写清单
 
-- `docs/reference/USAGE_GUIDE.md`：新增章节「Tree 检索模式（PageIndex sidecar）」——venv 搭建、env、启动、`pageindex_sync.py` 用法、`tree_search` 配置、隐私提示、门控冒烟。
-- `README.md`：配置速查与 Web UI 模式说明补 Tree；开发文档导航表更新本规格状态。
+- `docs/reference/USAGE_GUIDE.md`：新增章节「Longdoc 检索模式（PageIndex sidecar）」——venv 搭建、env、启动、`pageindex_sync.py` 用法、`tree_search` 配置、隐私提示、门控冒烟。
+- `README.md`：配置速查与 Web UI 模式说明补 Longdoc；开发文档导航表更新本规格状态。
 - `config/settings.yaml`：`tree_search` 节（默认 `enabled: false`）与注释。
 - `AGENTS.md`：仅在本规格冻结时新增一行「编码前必读」条目（docs-governance §3 第 5 条），开发中不改。
 - `docs/MOC.md`：分区说明与谱系表随状态更新。
