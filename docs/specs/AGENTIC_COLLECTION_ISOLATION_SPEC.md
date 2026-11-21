@@ -208,7 +208,7 @@ POST /uploads（AC5）：加锁 → 整批按 D4 三重判定预检（任一冲�
 | 编号 | 任务 | 验收标准 | 状态 |
 |------|------|----------|------|
 | AC0 | 立项与决策终裁 | D1–D4 终裁记入 §1.3；MOC、backlog/README、README 导航与冻结规格引用（14 / 16 号）同步；`test_docs_links.py` 与 `test_spec_structure.py` 通过；v0.2 评审修订补 AGENTS.md 14 号条目的旧台账指针；D5 终裁记入 §1.3 | 已完成（2026-11-21） |
-| AC1 | collection 路径集推导组件 | §4 AC1 五组离线测试通过；组件位于 `src/libs/agentic_search/` 且不 import sirchmunk（红线脚本过）；PathGuard 方法零改动 | 未开始 |
+| AC1 | collection 路径集推导组件 | §4 AC1 五组离线测试通过；组件位于 `src/libs/agentic_search/` 且不 import sirchmunk（红线脚本过）；PathGuard 方法零改动 | 已完成（2026-11-21，`CollectionPathResolver`，测试 `tests/unit/test_collection_paths.py` 9/9） |
 | AC2 | MCP `agentic_search` collection 参数 | §4 AC2 六组离线测试通过；不传 collection 时行为与基线逐字节一致 | 未开始 |
 | AC3 | Chat / Playground collection 透传 | §4 AC3 三组测试通过（含前端 vitest 更新）；ChatEngine 零改动 | 未开始 |
 | AC4 | Hybrid 第三路白名单修复 + collection 定界 | §4 AC4 六组离线测试通过；既有第三路测试文件零改动；S2.3 未触发回归红线不变 | 未开始 |
