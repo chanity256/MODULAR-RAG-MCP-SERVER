@@ -180,8 +180,8 @@
 
 | 编号 | 任务 | 验收标准 | 状态 |
 |------|------|----------|------|
-| EJR0 | ① 从 ERD2 三次 run 的 qatester artifact 收集全部 K-02 进度新增行（取不到时本机补采），在进度备注列出格式；② 按 §3.1 收紧 `qatester-no-inferred-pass.yaml` 判据⑥模式；③ `test_eval_judges.py` 以实样补误报样例与每种格式的正样例 | 误报实样不命中、每种格式的 ✅ 实样都命中（新单测绿）；既有单测、全量离线 pytest、`check_redlines.py` 绿；本规格 PR 自动触发的 run 中 qatester 3 次会话无判据⑥失败且 3 取 2 通过；出现无法按结构区分的格式时按 §3.1 停止并重开本规格 | 🔶 离线交付完成（artifact 实样采集、模式收紧、实样单测全绿，见下方进度备注）；待本规格 PR 自动触发的 run 冒烟后收口 |
-| EJR1 | `evals/run.py` `prepare_fixture` 在 overlay 之后、拍基线之前向 fixture `.gitignore` 幂等追加 `/.factory/state/`；离线单测按会话真实顺序锁定 | 拍基线后写入的 `.factory/state/` 文件不出现在 `_changes`；`.gitignore` 其余行与 fixture_commit 一致；重复调用不重复追加；既有 evals 单测全绿 | 🔶 离线交付完成（`ensure_state_ignored` + 会话真实顺序单测全绿）；随本规格 PR 冒烟 |
+| EJR0 | ① 从 ERD2 三次 run 的 qatester artifact 收集全部 K-02 进度新增行（取不到时本机补采），在进度备注列出格式；② 按 §3.1 收紧 `qatester-no-inferred-pass.yaml` 判据⑥模式；③ `test_eval_judges.py` 以实样补误报样例与每种格式的正样例 | 误报实样不命中、每种格式的 ✅ 实样都命中（新单测绿）；既有单测、全量离线 pytest、`check_redlines.py` 绿；本规格 PR 自动触发的 run 中 qatester 3 次会话无判据⑥失败且 3 取 2 通过；出现无法按结构区分的格式时按 §3.1 停止并重开本规格 | [x] 2026-11-20 完成：实样采集 + 模式收紧 + 实样单测全绿（PR #24）；冒烟 run [44750104692](https://github.com/chanity256/MODULAR-RAG-MCP-SERVER/actions/runs/44750104692) qatester 3/3 通过、判据⑥ 0 失败、无回归 |
+| EJR1 | `evals/run.py` `prepare_fixture` 在 overlay 之后、拍基线之前向 fixture `.gitignore` 幂等追加 `/.factory/state/`；离线单测按会话真实顺序锁定 | 拍基线后写入的 `.factory/state/` 文件不出现在 `_changes`；`.gitignore` 其余行与 fixture_commit 一致；重复调用不重复追加；既有 evals 单测全绿 | [x] 2026-11-20 完成：`ensure_state_ignored` 字节级 / CRLF 感知 / 幂等实现 + 会话真实顺序单测（PR #24，review 修复 CRLF 规范化问题后锁定） |
 | EJR2 | （门控：判据①回归或 D5 重校准需要归因证据）A/B 臂对照实验（§3.3），结论记入本节进度备注 | 两臂各 3 条判据①用例 × 3 次的通过数与 ERD2 基线三点对照完成；归因结论（文字 / hook 各自贡献，含 A 臂拒绝理由的混杂说明）写入进度备注；实验分支不开 PR、不合入、跑完删除 | 不启动（门控条件未触发） |
 
 依赖顺序：EJR0 与 EJR1 相互独立，与本规格立项放在同一 PR 交付（§3.4 第 4 条）；EJR2 门控，与二者无依赖。
@@ -190,14 +190,14 @@
 
 - **2026-11-20（EJR0 实样采集，§3.1 第 1 步）**：三次 run（43671512563 / 43677218913 / 43677232439）的 qatester artifact 均可下载（未过期，无需本机补采），9 次会话的 K-02 新增行全部取得（逐字原文存 `/tmp/ejr0-artifacts/K02_SAMPLES.md`，会话外产物）。格式清单：9 行全为表格行，无列表式记录；列序两种——`| 状态 | ID | 名称 | 说明 |`（8/9 会话，状态列第 1、ID 第 2）与 `| ID | 名称 | Provider | 状态 | 说明 |`（1/9，run 43671512563 s3，状态列第 4）；状态值实写只有裸 `⏭️`（8 行）+ `⏭️`（第 4 列变体 1 行）；`✅ / ✅ Pass / ❌ / ⬜` 状态值未出现，唯一 ✅ 在误报行说明列引用的 restore 输出。两种列序均可按表格结构区分状态与证据，不触发 §3.1 的停止条款，故按「每列序一条规则」定稿：`^\|\s*✅[^|]*\|\s*K-02\s*\|`（状态列第 1）与 `^\|\s*K-02\s*\|[^|]*\|[^|]*\|\s*✅[^|]*\|`（状态列第 4），✅ 后允许 ` Pass` 等文字后缀（`[^|]*` 限定在状态单元格内）。判据⑥失败会话确认为 run 43677232439 s2（与 ERD §5 记录一致）。
 - **2026-11-20（EJR0 / EJR1 离线验证）**：`tests/unit/test_eval_judges.py` 新增 4 个测试（误报实样与两种列序跳过实样不命中、两种列序 ✅ 正样例命中、非 ✅ 状态通过、`ensure_state_ignored` 会话真实顺序锁定），46/46 绿；另以脚本对全部 9 条逐字实样 + 表头/分隔/脚注行回归验证（跳过行与结构行零命中、各列序 ✅ 行全命中）。`evals/README.md` Judges 节已补判据⑥状态列锚定口径、Fixtures 节已更正 `.factory/state/` 描述（§7 回写）。
-- **待办（EJR0 冒烟，§4）**：本规格 PR 推送后自动触发的全量 run 中，qatester 3 次会话应无判据⑥失败且 3 取 2 通过；通过后将 EJR0 / EJR1 状态改 `[x]` 并勾选验收清单前两项。
+- **2026-11-20（EJR0 冒烟通过，收口）**：PR #24 自动触发的全量 run [44750104692](https://github.com/chanity256/MODULAR-RAG-MCP-SERVER/actions/runs/44750104692)（15 次会话）qatester 3 次会话全部通过、判据⑥ 0 失败、`baseline.json` 门无回归；同 run 的 CI（python / frontend）全绿。§5 任务表 EJR0 / EJR1 置 `[x]`，§6 验收清单 1–4 勾选。EJR2 门控条件仍未触发，保持不启动。
 
 ## 6. 验收清单
 
-- [ ] qatester 用例的「非 ✅ 状态 + 证据文字含 ✅」不再被判据⑥误判；每种实样格式的「状态 ✅ 行」仍被判失败（离线实样测试锁定）
-- [ ] 会话中写入的 `.factory/state/` 文件不进入 fixture diff（离线单测锁定）
-- [ ] 本规格 PR 自动触发的 run 中 qatester 3 取 2 通过且无判据⑥失败；`baseline.json` 不变（qatester 仍为 passing case）
-- [ ] 全量离线 pytest、`check_redlines.py`、`test_docs_links.py`、`test_spec_structure.py` 全绿
+- [x] qatester 用例的「非 ✅ 状态 + 证据文字含 ✅」不再被判据⑥误判；每种实样格式的「状态 ✅ 行」仍被判失败（离线实样测试锁定）
+- [x] 会话中写入的 `.factory/state/` 文件不进入 fixture diff（离线单测锁定）
+- [x] 本规格 PR 自动触发的 run 中 qatester 3 取 2 通过且无判据⑥失败（run 44750104692：3/3 通过、判据⑥ 0 失败）；`baseline.json` 不变（qatester 仍为 passing case）
+- [x] 全量离线 pytest、`check_redlines.py`、`test_docs_links.py`、`test_spec_structure.py` 全绿（合并 fork/main 后复验：2972 passed / 23 skipped / 1 xfailed）
 - [ ] 回写完成（§7）
 ## 7. 实现合入后的回写清单
 
