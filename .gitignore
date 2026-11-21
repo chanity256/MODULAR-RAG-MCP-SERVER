@@ -125,6 +125,10 @@ nonexistent_traces.jsonl/
 .env-sirchmunk
 .venv-sirchmunk/
 
+# pageindex sidecar env (PAGEINDEX_TREE_RETRIEVAL_SPEC 3.3, 密钥不入主仓库)
+.env-pageindex
+.venv-pageindex/
+
 # 本地临时/个人文件
 board.html
 
