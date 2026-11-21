@@ -12,6 +12,11 @@
 - **参数校验**：``query`` 必填非空；``mode`` ∈ {FAST, DEEP} 且 DEEP 受
   ``allow_deep`` 配置门控；``paths`` 必须全部过 PathGuard 白名单
   （越权抛 ``ToolInvalidParams`` → -32602，fail-closed 不发请求）。
+- **collection 定界**（AGENTIC_COLLECTION_ISOLATION_SPEC AC2）：可选
+  ``collection`` 经摄取历史表推导定界路径集（``CollectionPathResolver``）
+  作为 ``paths`` 发送；与 ``paths`` 互斥（D5，同给 → -32602）；定界集为空
+  不调 sidecar，直接返回零证据结构化结果并记 ``scoped_empty`` trace 阶段
+  （D3）；证据与引用文件按定界集后置过滤。
 - **引用口径**：citations 的 ``page`` 恒为 None（sirchmunk 无页码/行号，
   字符偏移入 metadata，spec 4.6）。
 - **降级语义**：sidecar 不可用/超时 → ``isError: true`` 友好响应
@@ -34,6 +39,7 @@ from libs.agentic_search.base_agentic_search import (
     AgenticSearchError,
     AgenticSearchRequest,
 )
+from libs.agentic_search.collection_paths import CollectionPathResolver
 from libs.agentic_search.converter import evidence_to_retrieval_results
 from libs.agentic_search.path_guard import PathGuard, PathGuardError
 from mcp_server.protocol_handler import ToolDefinition, ToolInvalidParams
@@ -80,6 +86,16 @@ TOOL_INPUT_SCHEMA: dict[str, Any] = {
                 "within the server's allowed roots; defaults to them."
             ),
         },
+        "collection": {
+            "type": "string",
+            "description": (
+                "Restrict retrieval to files ingested into this collection "
+                "(resolved from the ingestion history and intersected with "
+                "the server's allowed roots). Mutually exclusive with "
+                "'paths'. When the collection has no retrievable files, "
+                "returns zero evidence without calling the sidecar."
+            ),
+        },
         "top_k": {
             "type": "integer",
             "minimum": 1,
@@ -100,6 +116,7 @@ class AgenticSearchTool:
         *,
         settings: Any | None = None,
         path_guard: PathGuard | None = None,
+        history: Any | None = None,
         response_builder: ResponseBuilder | None = None,
     ) -> None:
         """Args:
@@ -107,10 +124,14 @@ class AgenticSearchTool:
                 后端（缺省首次调用时经 ``AgenticSearchFactory`` 按 settings
                 创建）。
             path_guard: 路径白名单守卫（缺省按 settings.agentic_search 构建）。
+            history: 摄取历史表访问句柄（``list_processed()`` 鸭子类型，
+                AC2 collection 定界用；缺省首次用到时构造
+                ``SQLiteIntegrityChecker``）。
             settings: 全局配置（缺省 ``load_settings()``）。
         """
         self._search = search
         self._path_guard = path_guard
+        self._history = history
         self._settings = settings
         self._response_builder = response_builder or ResponseBuilder()
 
@@ -145,6 +166,18 @@ class AgenticSearchTool:
             )
         return self._path_guard
 
+    def _get_history(self) -> Any:
+        if self._history is None:
+            from libs.loader.file_integrity import SQLiteIntegrityChecker
+
+            self._history = SQLiteIntegrityChecker()
+        return self._history
+
+    def _resolve_collection_paths(self, collection: str) -> list[str]:
+        """collection → 定界绝对路径集（AC1 组件；空集由调用方按 D3 短路）。"""
+        resolver = CollectionPathResolver(self._get_history(), self._get_path_guard())
+        return resolver.resolve(collection)
+
     # ------------------------------------------------------------------ #
     # Tool 入口
     # ------------------------------------------------------------------ #
@@ -170,13 +203,21 @@ class AgenticSearchTool:
         ``finish()``、不落盘，由调用方统一收尾（WEBUI_CHAT_SPEC D7：Chat 每轮恰好
         一条 trace）。未传入时行为与 MCP ``tools/call`` 完全一致。
         """
-        query, mode, paths, top_k = self._validate_arguments(arguments)
+        query, mode, paths, top_k, collection, scoped_paths = self._validate_arguments(arguments)
         owns_trace = trace is None
         if trace is None:
             trace = TraceContext(
                 trace_type=TRACE_TYPE_QUERY,
                 metadata={"query": query, "mode": mode, "routes": "agentic"},
             )
+        if collection is not None and not scoped_paths:
+            # D3：定界集为空 → 不调 sidecar，零证据直接返回（fail-closed，
+            # 绝不静默退化为全量 allowed_roots）。
+            self._record_scoped_empty(trace, collection, finish=owns_trace)
+            settings = self._settings
+            if owns_trace and settings is not None:
+                persist_trace(trace, log_file=settings.observability.log_file)
+            return self._scoped_empty_result(query, mode, collection)
         request = AgenticSearchRequest(
             query=query,
             mode=mode,
@@ -195,14 +236,26 @@ class AgenticSearchTool:
         settings = self._settings
         if owns_trace and settings is not None:
             persist_trace(trace, log_file=settings.observability.log_file)
-        return self._build_result(response, query, top_k)
+        return self._build_result(response, query, top_k, scoped_paths=scoped_paths)
 
     # ------------------------------------------------------------------ #
     # 校验与构建
     # ------------------------------------------------------------------ #
     def _validate_arguments(
         self, arguments: dict[str, Any]
-    ) -> tuple[str, str, list[str], int | None]:
+    ) -> tuple[str, str, list[str], int | None, str | None, list[str] | None]:
+        """校验参数并解析定界路径。
+
+        Returns:
+            ``(query, mode, paths, top_k, collection, scoped_paths)``；
+            未给 ``collection`` 时后两项为 ``None``（基线行为逐字节一致），
+            给定时 ``paths`` 即定界集（可能与 scoped_paths 同为空列表，
+            由调用方按 D3 短路）。
+
+        Raises:
+            ToolInvalidParams: query/mode/paths/top_k/collection 校验失败，
+                含 PathGuard 越权与 ``paths``/``collection`` 互斥（D5）。
+        """
         if not isinstance(arguments, dict):
             raise TypeError(f"arguments must be an object, got {type(arguments).__name__}")
         config = self._get_config()
@@ -223,36 +276,60 @@ class AgenticSearchTool:
             )
 
         raw_paths = arguments.get("paths")
-        if raw_paths is None:
-            raw_paths = list(config.allowed_roots)
-        if not isinstance(raw_paths, list) or any(not isinstance(p, str) for p in raw_paths):
-            raise ToolInvalidParams("'paths' must be a list of strings")
-        try:
-            paths = self._get_path_guard().validate_paths(raw_paths)
-        except PathGuardError as exc:
-            raise ToolInvalidParams(f"'paths' rejected by allowlist: {exc}") from exc
+        raw_collection = arguments.get("collection")
+        collection: str | None = None
+        scoped_paths: list[str] | None = None
+        if raw_collection is not None:
+            if not isinstance(raw_collection, str) or not raw_collection.strip():
+                raise ToolInvalidParams("'collection' must be a non-empty string")
+            if raw_paths is not None:
+                # D5：二者互斥，同时给出即拒绝、不调用后端（fail-closed）。
+                raise ToolInvalidParams(
+                    "'paths' and 'collection' are mutually exclusive; give either one"
+                )
+            collection = raw_collection.strip()
+            scoped_paths = self._resolve_collection_paths(collection)
+            paths = list(scoped_paths)
+        else:
+            if raw_paths is None:
+                raw_paths = list(config.allowed_roots)
+            if not isinstance(raw_paths, list) or any(not isinstance(p, str) for p in raw_paths):
+                raise ToolInvalidParams("'paths' must be a list of strings")
+            try:
+                paths = self._get_path_guard().validate_paths(raw_paths)
+            except PathGuardError as exc:
+                raise ToolInvalidParams(f"'paths' rejected by allowlist: {exc}") from exc
 
         top_k = arguments.get("top_k")
         if top_k is not None and (
             isinstance(top_k, bool) or not isinstance(top_k, int) or top_k < 1
         ):
             raise ToolInvalidParams(f"'top_k' must be a positive integer, got {top_k!r}")
-        return query, mode, paths, top_k
+        return query, mode, paths, top_k, collection, scoped_paths
 
     def _build_result(
-        self, response: Any, query: str, top_k: int | None
+        self,
+        response: Any,
+        query: str,
+        top_k: int | None,
+        scoped_paths: list[str] | None = None,
     ) -> dict[str, Any]:
         guard = self._get_path_guard()
         # 调用后第二层防线：剔除越权来源的证据与文件引用（spec 4.4）。
         # 证据路径可能为相对形式（sidecar 按其 CWD 回显，spec 4.6）——
         # 先归一化为绝对路径再比对，保留路径同时让 citations 可定位。
+        scope = set(scoped_paths) if scoped_paths is not None else None
         normalized_files = guard.filter_evidence_paths(response.source_files)
         kept_evidences = []
         for evidence in response.evidences:
             normalized = guard.filter_evidence_paths([evidence.source_path])
-            if normalized:
+            if normalized and (scope is None or normalized[0] in scope):
                 evidence.source_path = normalized[0]
                 kept_evidences.append(evidence)
+        if scope is not None:
+            # AC2 后置过滤：只保留定界集内的引用文件（防御 sidecar 经
+            # file_read 返回白名单内、定界集外的其他 collection 文件）。
+            normalized_files = [p for p in normalized_files if p in scope]
         filtered = type(response)(
             answer=response.answer,
             evidences=kept_evidences,
@@ -319,6 +396,45 @@ class AgenticSearchTool:
         )
         if finish:
             trace.finish()
+
+    def _record_scoped_empty(
+        self, trace: TraceContext, collection: str, *, finish: bool = True
+    ) -> None:
+        """D3：定界集为空的 ``scoped_empty`` 阶段（Query Traces 可解释）。"""
+        trace.record_stage(
+            "agentic_search",
+            method="scoped_empty",
+            details={"collection": collection, "scoped_paths": 0},
+        )
+        if finish:
+            trace.finish()
+
+    def _scoped_empty_result(self, query: str, mode: str, collection: str) -> dict[str, Any]:
+        """D3 零证据结构化结果：未调用 sidecar、零 token 消耗。"""
+        result = self._response_builder.build([], query)
+        result["content"] = [
+            {
+                "type": "text",
+                "text": (
+                    f"Collection {collection!r} has no retrievable files in "
+                    "the agentic scope (no ingestion-history success records "
+                    "inside the allowlist); nothing was searched."
+                ),
+            }
+        ]
+        result["structuredContent"]["agentic"] = {
+            "mode": mode,
+            "agentic_answer": "",
+            "llm_call_count": 0,
+            "total_llm_tokens": 0,
+            "confidence": None,
+            "elapsed_ms": None,
+            "evidence_files": [],
+            "telemetry": None,
+            "collection": collection,
+            "scoped_paths": 0,
+        }
+        return result
 
     @staticmethod
     def _unavailable_result(exc: AgenticSearchError) -> dict[str, Any]:
