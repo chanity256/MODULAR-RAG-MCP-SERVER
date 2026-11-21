@@ -6,7 +6,7 @@
 >
 > - 冻结时间：2026-11-15
 > - 完成概要：ERD0–ERD2 共 3 项承诺任务全部收口（PostToolUse 前提补验与 30 次会话失败分布；`.factory/hooks/read_guard.py` 先读后改守卫 + 判据①跳过 `isError` 编辑调用 + AGENTS.md / auto-coder 规则说明；3 次付费 evals 判据①失败 0/27、通过用例 1/5 → 4/5，`evals/baseline.json` 更新为 4 条 + `min_pass_rate` 0.8）；ERD3 换模型门控条件不成立、未启动；验收清单 6 项全部勾选。
-> - 遗留：见 [../specs/EVALS_JUDGE_RELIABILITY_SPEC.md](../specs/EVALS_JUDGE_RELIABILITY_SPEC.md)（遗留台账已于 2026-11-20 单文件晋升）
+> - 遗留：见 [17_EVALS_JUDGE_RELIABILITY_SPEC_frozen.md](17_EVALS_JUDGE_RELIABILITY_SPEC_frozen.md)（遗留台账已于 2026-11-20 单文件晋升，2026-11-21 冻结）
 
 > 版本：0.1 — 由候选提案升级为可执行规格
 >

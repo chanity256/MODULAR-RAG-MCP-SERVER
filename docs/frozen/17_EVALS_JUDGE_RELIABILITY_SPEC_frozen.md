@@ -1,10 +1,16 @@
-<!-- 开发中规格：agent evals 判据可靠性改进（EJR 系列）。由 ERD 规格冻结时的遗留台账单文件晋升而来：收紧 qatester 用例判据⑥的误报模式（EJR0）、fixture 卫生（EJR1）、归因对照实验（EJR2，门控）。基线：12_EVALS_READ_DISCIPLINE_SPEC_frozen.md（ERD0–ERD2）已收口，evals/baseline.json 为 4/5（min_pass_rate 0.8）。不改判据①口径、不改 src/ 业务行为。 -->
+<!-- 已冻结规格：agent evals 判据可靠性改进（EJR 系列，2026-11-21 冻结）。由 ERD 规格冻结时的遗留台账单文件晋升而来：收紧 qatester 用例判据⑥的误报模式（EJR0）、fixture 卫生（EJR1）、归因对照实验（EJR2，门控未启动）。基线：12_EVALS_READ_DISCIPLINE_SPEC_frozen.md（ERD0–ERD2）已收口，evals/baseline.json 为 4/5（min_pass_rate 0.8）。不改判据①口径、不改 src/ 业务行为。 -->
 
 # Agent evals 判据可靠性改进规格 (EVALS_JUDGE_RELIABILITY_SPEC)
 
+> **📌 冻结记录**
+>
+> - 冻结时间：2026-11-21
+> - 完成概要：EJR0 / EJR1 已交付并收口（PR #24）——判据⑥误报模式按 ERD2 三次 run 的 9 条逐字实样收紧为两条状态列锚定规则（`evals/cases/qatester-no-inferred-pass.yaml`），离线实样单测锁定（误报行不命中、各列序 ✅ 行命中）；`evals/run.py` `prepare_fixture` 在拍基线前幂等追加 `/.factory/state/`（字节级 / CRLF 感知，`ensure_state_ignored`）。付费冒烟 run [44750104692](https://github.com/chanity256/MODULAR-RAG-MCP-SERVER/actions/runs/44750104692)：qatester 3/3 通过、判据⑥ 0 失败、`baseline.json` 门无回归；`evals/README.md` Judges / Fixtures 节已按 §7 回写。
+> - 遗留：EJR2（文字 vs hook 归因对照）为门控任务，启动条件未触发、保持不启动（见 §3.3）；判据⑥模式口径与 fixture 卫生对改 evals 用例 / 运行器者构成必读契约（见 AGENTS.md 条目）。
+
 > 版本：0.2 — 0.1 由遗留台账单文件晋升；0.2 按对照代码的复核修订：更正回归触发条件与进度行格式前提，EJR0 改为先收集 artifact 实样再定稿模式，EJR1 改为只追加一行，EJR2 两臂去混杂并改用实验分支，EJR0 / EJR1 与立项同一 PR 交付、复用自动触发的 evals
 >
-> 起源与决策依据：由 `backlog/evals-read-discipline-followups_backlog.md` 单文件晋升，原文见 git 历史；该台账派生自 [12_EVALS_READ_DISCIPLINE_SPEC_frozen.md](../frozen/12_EVALS_READ_DISCIPLINE_SPEC_frozen.md)（ERD0–ERD2 收口与三次付费 evals 中沉淀的遗留事项）。台账三问并入 §1.2。
+> 起源与决策依据：由 `backlog/evals-read-discipline-followups_backlog.md` 单文件晋升，原文见 git 历史；该台账派生自 [12_EVALS_READ_DISCIPLINE_SPEC_frozen.md](12_EVALS_READ_DISCIPLINE_SPEC_frozen.md)（ERD0–ERD2 收口与三次付费 evals 中沉淀的遗留事项）。台账三问并入 §1.2。
 >
 > 基线：[evals/baseline.json](../../evals/baseline.json) 为 4/5（`min_pass_rate` 0.8，ERD2 重校准）；判据⑥误报证据为 ERD2 第 3 次 run（[43677232439](https://github.com/chanity256/MODULAR-RAG-MCP-SERVER/actions/runs/43677232439)）
 >
@@ -94,7 +100,7 @@
 
 本规格新增的不做项：
 
-- **redline-sirchmunk-temptation 用例的改进**：失败在判据② / 离线 pytest / 超时，不属判据⑥；归 [AI_NATIVE_SDLC_SPEC.md](AI_NATIVE_SDLC_SPEC.md) SD3.6 遗留。
+- **redline-sirchmunk-temptation 用例的改进**：失败在判据② / 离线 pytest / 超时，不属判据⑥；归 [AI_NATIVE_SDLC_SPEC.md](../specs/AI_NATIVE_SDLC_SPEC.md) SD3.6 遗留。
 - **`baseline.json` 门槛与 `passing_cases` 调整**：4/5 基线不受本规格影响（qatester 仍是 passing case，修的是误报不是通过率）；如未来需重校准，走 D5 决策。
 - **判据①–⑤ 实现语义的任何改动**、`src/` 业务行为的任何改动、升级 `fixture_commit`（除非 EJR1 的 overlay 方案被证伪，届时按重开流程修订本规格）。
 
@@ -198,7 +204,7 @@
 - [x] 会话中写入的 `.factory/state/` 文件不进入 fixture diff（离线单测锁定）
 - [x] 本规格 PR 自动触发的 run 中 qatester 3 取 2 通过且无判据⑥失败（run 44750104692：3/3 通过、判据⑥ 0 失败）；`baseline.json` 不变（qatester 仍为 passing case）
 - [x] 全量离线 pytest、`check_redlines.py`、`test_docs_links.py`、`test_spec_structure.py` 全绿（合并 fork/main 后复验：2972 passed / 23 skipped / 1 xfailed）
-- [ ] 回写完成（§7）
+- [x] 回写完成（§7；冻结时条目随本冻结 PR 完成）
 ## 7. 实现合入后的回写清单
 
 - `docs/MOC.md`、根目录 `README.md`、`AGENTS.md`、`docs/backlog/README.md`、`docs/frozen/12_EVALS_READ_DISCIPLINE_SPEC_frozen.md` 的台账路径引用：**随本规格立项（单文件晋升）同步完成**，不属后续回写。
