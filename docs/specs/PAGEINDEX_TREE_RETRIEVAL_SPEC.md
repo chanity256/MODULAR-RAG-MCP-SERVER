@@ -336,7 +336,7 @@ sidecar 侧 env（`scripts/pageindex/env.example`）：`PAGEINDEX_API_TOKEN`、`
 | 编号 | 任务 | 验收标准 | 状态 |
 |------|------|----------|------|
 | PI0.1 | sidecar venv 与版本锁定：`setup_venv.sh` / `env.example` / `.gitignore`，D6 终裁 | `bash scripts/pageindex/setup_venv.sh` 在干净机器建出 `.venv-pageindex`，`pip show pageindex` 版本与脚本锁定一致；D6 行回填版本号 | 已完成（2026-11-21：D6 锁定 `0.7.4`；本机实测脚本建出 `.venv-pageindex`（Python 3.12），`pip show pageindex` = 0.7.4，上游接口导入核对通过；fastapi / uvicorn 一并装入 sidecar venv 供 PI2 使用） |
-| PI0.2 | 问题集起草与确认 | `tests/fixtures/pageindex/poc_questions.jsonl` 20–30 条，每条含目标章节范围，用户逐条确认（记录确认日期） | 未开始 |
+| PI0.2 | 问题集起草与确认 | `tests/fixtures/pageindex/poc_questions.jsonl` 20–30 条，每条含目标章节范围，用户逐条确认（记录确认日期） | 已完成（2026-11-21 用户逐条确认定稿：30 条 = MD 25 + PDF 5，locate 21 + synthesize 9；PDF 为上游 `examples/documents/2023-annual-report.pdf`（美联储 2023 年报，222 页），落 `data/db/pageindex/poc/`（不入 git），印刷页码 + 6 = 物理页已抽样校准） |
 | PI0.3 | 四路对照与立项门终裁 | `poc_compare.py`（内置树检索原型，在 sidecar venv 独立运行，不依赖 PI1 / PI2，见 3.6 第 5 条）输出对照表（命中率 / 引用可定位率 / P50·P95 / 单题 token / 建树成本）落盘本规格附录；PDF 对照经临时隔离库摄取、跑完清理；D4、D9 终裁回填；不达标则本规格止于预研并建派生台账 | 未开始 |
 | PI1 | sidecar 纯模块 `md_prep` / `tree_store` / `tree_loop` | 第 4 章 PI1 用例全过；纯模块 import 不引入 `pageindex` / `litellm` | 未开始 |
 | PI2 | sidecar 服务、`pi_adapter`、`start_sidecar.sh`、红线规则 | 本机启动后 `/status` 200、无 token 401；对 1 篇 MD + 1 篇 PDF 建树并检索返回带行号 / 页码证据；`python scripts/check_redlines.py` 0 违规（白名单仅 `pi_adapter.py` / `poc_compare.py`）且新规则正反样例单测通过；契约 fixture 替换为真实响应 | 未开始 |
