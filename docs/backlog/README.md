@@ -26,4 +26,5 @@
 | [OBSIDIAN_RAG_SPEC_backlog.md](OBSIDIAN_RAG_SPEC_backlog.md) | Obsidian Vault RAG 扩展规格（V 系列；M1/M2 Markdown 摄取已移交 INGESTION_ROBUSTNESS_SPEC 阶段 IR7，剩余 M3/M4 待排期） |
 | [sirchmunk-extension-followups_backlog.md](sirchmunk-extension-followups_backlog.md) | Sirchmunk SX 规格遗留事项台账：明确不做（llm_fallback 等 5 项；evolver 随 KE 系列收口，负结果已记回本台账）、实验负结果存档（编译 GX 不通过；复用经 KE2 补充数据后维持关闭）、已知缺陷与候选池（流式线程泄漏等 7 项） |
 | [mode-router-followups_backlog.md](mode-router-followups_backlog.md) | 检索模式路由器（MR）规格遗留事项台账：#1 同一问题集合 auto 与人工三选一对比记表（延后）；#2 接入 Jev（已决议不接入，2026-11-19，仅留档）；#3 接入本地微调模型（待端点） |
+| [pageindex-tree-retrieval_backlog.md](pageindex-tree-retrieval_backlog.md) | PageIndex 树检索 sidecar 接入提案（草案）：独立 venv 本机 HTTP sidecar，补长结构化文档章节定位与页 / 行级引用；Markdown 路径需自建，PI0 四路对照预研门未跑，未立项 |
 | [retrieval-trace-mining_backlog.md](retrieval-trace-mining_backlog.md) | 检索 Trace 挖掘管线提案（草案）：从 `logs/traces/` 与 `chat_sessions.db` 提取「问题 → 回答 → 所选检索模式」，作 MODE_ROUTER 标注集扩充 / 持续校准数据源；六个待研究问题未立项 |
