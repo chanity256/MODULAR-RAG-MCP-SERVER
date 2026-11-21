@@ -259,11 +259,22 @@ class HybridSearch:
                     self._trigger.strategy, trigger_decision.reason,
                 )
                 try:
-                    agentic_results = self._agentic_retriever.retrieve(
-                        processed.query,
-                        self._settings.retrieval.top_k_dense,
-                        trace=trace,
-                    )
+                    collection_filter = processed.filters.get("collection")
+                    if collection_filter:
+                        # AC4：仅 filters 含非空 collection 时才以关键字传入，
+                        # 否则调用形态与基线完全相同（鸭子类型 fake 兼容）。
+                        agentic_results = self._agentic_retriever.retrieve(
+                            processed.query,
+                            self._settings.retrieval.top_k_dense,
+                            trace=trace,
+                            collection=collection_filter,
+                        )
+                    else:
+                        agentic_results = self._agentic_retriever.retrieve(
+                            processed.query,
+                            self._settings.retrieval.top_k_dense,
+                            trace=trace,
+                        )
                 except Exception as exc:  # 第三路失败降级为 N-1 路，不中断查询
                     failures["agentic"] = f"{type(exc).__name__}: {exc}"
                     agentic_results = []

@@ -175,18 +175,16 @@ export default function PlaygroundView() {
               className={`${INPUT_CLASS} w-24`}
             />
           </label>
-          {mode === "normal" && (
-            <label className={label}>
-              Collection (optional)
-              <input
-                type="text"
-                value={collection}
-                onChange={(e) => setCollection(e.target.value)}
-                placeholder="default"
-                className={`${INPUT_CLASS} w-56`}
-              />
-            </label>
-          )}
+          <label className={label}>
+            Collection (optional)
+            <input
+              type="text"
+              value={collection}
+              onChange={(e) => setCollection(e.target.value)}
+              placeholder="default"
+              className={`${INPUT_CLASS} w-56`}
+            />
+          </label>
         </div>
         {validation && (
           <p role="alert" className="text-xs text-red-600 dark:text-red-300">

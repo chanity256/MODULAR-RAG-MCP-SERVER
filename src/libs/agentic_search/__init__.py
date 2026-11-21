@@ -22,6 +22,7 @@ from libs.agentic_search.agentic_search_factory import (
     AgenticSearchBackendRouteError,
     AgenticSearchFactory,
 )
+from libs.agentic_search.collection_paths import CollectionPathResolver
 from libs.agentic_search.converter import (
     evidence_to_retrieval_results,
     make_agentic_id,
@@ -44,6 +45,7 @@ __all__ = [
     "BaseAgenticSearch",
     "AgenticSearchFactory",
     "AgenticSearchBackendRouteError",
+    "CollectionPathResolver",
     "FakeAgenticSearch",
     "SirchmunkHttpBackend",
     "PathGuard",

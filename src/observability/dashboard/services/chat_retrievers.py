@@ -105,13 +105,17 @@ class AgenticChatRetriever:
         trace: Any | None = None,
         on_log: SearchLogCallback | None = None,
     ) -> ChatRetrievalResult:
-        # agentic 按路径白名单检索，没有 collection 概念，该参数在此被有意忽略。
         if self._mode == "DEEP" and not self._allow_deep():
             raise DeepDisabledError("agentic_search.allow_deep is false")
 
         arguments: dict[str, Any] = {"query": query, "mode": self._mode}
         if top_k is not None:
             arguments["top_k"] = top_k
+        if collection and collection.strip():
+            # AC3：collection 非空时透传给工具，由工具按摄取历史推导定界
+            # 路径集（AGENTIC_COLLECTION_ISOLATION_SPEC；空定界集由工具按
+            # D3 零证据短路）。同步与流式共用同一 arguments。
+            arguments["collection"] = collection.strip()
 
         try:
             result = self._invoke(arguments, trace, on_log)
@@ -169,6 +173,7 @@ class AgenticChatRetriever:
             search=_StreamingSearchAdapter(backend, on_log),
             settings=tool._get_settings(),
             path_guard=tool._get_path_guard(),
+            history=getattr(tool, "_history", None),  # AC3：流式工具共享历史句柄
         )
 
     @staticmethod

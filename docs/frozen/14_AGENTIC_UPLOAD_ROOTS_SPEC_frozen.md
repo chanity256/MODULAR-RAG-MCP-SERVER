@@ -6,7 +6,7 @@
 >
 > - 冻结时间：2026-11-18
 > - 完成概要：AR0–AR4 全部收口——`allowed_roots` 默认追加 `./data/uploads`（D2：默认加入 + 文档外发提示）；进程入口预建 `data/` 下白名单根（D1-a：`ensure_local_roots`，`start_api.py` / `mcp_server.server` / `query.py --agentic` 三入口接入，PathGuard 契约不变）；删除文档联动清理上传源文件（`source_file_removed` 响应字段，三重门禁防误删）；USAGE_GUIDE / README 同步隐私与启动提示；AR4 真实 sidecar 门控冒烟通过（上传 → Hybrid / Agentic (fast) 双模式命中 → 删除后 `source_file_removed: true` 且双模式不再命中）。相关离线测试全量 2803 passed / 11 skipped，红线 0 违规。
-> - 遗留：见 [backlog/agentic-roots-followups_backlog.md](../backlog/agentic-roots-followups_backlog.md)
+> - 遗留：原派生台账 `agentic-roots-followups_backlog.md` 候选 #1 已拆分移交 [16_ROOT_ANCHOR_SPEC_frozen.md](16_ROOT_ANCHOR_SPEC_frozen.md)（已收口）；候选 #2 已单文件晋升为 [18_AGENTIC_COLLECTION_ISOLATION_SPEC_frozen.md](18_AGENTIC_COLLECTION_ISOLATION_SPEC_frozen.md)（AC 系列，已收口冻结，台账原文见 git 历史）
 
 > 版本：0.1 — 由 backlog 提案立项为可执行规格，采用提案方案 A
 >

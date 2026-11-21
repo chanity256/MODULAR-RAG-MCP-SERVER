@@ -42,6 +42,31 @@ INGESTION_KIND = "ingestion"
 _READ_CHUNK = 1024 * 1024
 # check-then-submit 的冲突检测需要串行化，否则并发提交同一文件会同时通过检查。
 _submit_lock = threading.Lock()
+# AC5：同名上传的「预检 + 落盘」串行化，防并发上传同名文件同时通过检查。
+_upload_lock = threading.Lock()
+
+
+def _save_with_name_guard(ingestion: IngestionService, payloads: list[tuple[str, bytes]]) -> list[Path]:
+    """落盘前按 D4 三重判定预检（AGENTIC_COLLECTION_ISOLATION_SPEC AC5）。
+
+    整批预检：任一冲突 → 整批 409、不写入任何文件；同哈希幂等与孤儿文件
+    覆盖放行。锁内串行「预检 + 落盘」，防并发同名同时通过检查。
+    """
+    with _upload_lock:
+        conflicts = ingestion.upload_conflicts(payloads)
+        if conflicts:
+            listing = "; ".join(
+                f"{item['name']} (in use by collection(s): {', '.join(item['collections'])})"
+                for item in conflicts
+            )
+            raise ApiError(
+                409,
+                "Uploaded file name(s) are already referenced by ingested "
+                f"documents; delete the document(s) first, then re-upload: {listing}",
+                code="upload_name_in_use",
+                details={"conflicts": conflicts},
+            )
+        return ingestion.save_uploads(payloads)
 
 
 def get_ingestion_service(container: ServiceContainer = Depends(get_container)) -> IngestionService:
@@ -77,7 +102,11 @@ async def _read_limited(upload: UploadFile, limit: int, name: str) -> bytes:
     "/uploads",
     status_code=201,
     response_model=UploadResponse,
-    responses={400: {"model": ErrorResponse}, 413: {"model": ErrorResponse}},
+    responses={
+        400: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+        413: {"model": ErrorResponse},
+    },
     summary="Upload one or more files (multipart field name: files)",
 )
 async def upload_files(
@@ -90,7 +119,7 @@ async def upload_files(
     for upload in files:
         name = _validate_upload_name(upload.filename)
         payloads.append((name, await _read_limited(upload, limit, name)))
-    await run_in_threadpool(ingestion.save_uploads, payloads)
+    await run_in_threadpool(_save_with_name_guard, ingestion, payloads)
     return UploadResponse(files=[UploadedFile(name=name, size=len(data)) for name, data in payloads])
 
 

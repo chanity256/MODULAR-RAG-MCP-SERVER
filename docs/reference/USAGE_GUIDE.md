@@ -180,7 +180,7 @@ python scripts/evaluate.py --retrieval-mode hybrid+agentic --agentic-trigger alw
 Web UI「检索」分组 → Query Playground：三模式在线查询，不写代码、不敲 CLI 也能检索。Deep 模式走同步检索、**没有实时进度日志**（有意规避 SX5.3 线程泄漏，见 [10.6](#106-agentic_progress_stream-与-sidecar-线程泄漏警告)）。
 
 - **模式选择**：Normal / Fast / Deep 三模式，默认 Normal；Fast 需 `agentic_search.enabled: true`，Deep 另需 `agentic_search.allow_deep: true`（门控拒绝时返回统一错误，见 10.5）。
-- **表单**：查询文本 + Top-K；collection 输入仅在 Normal 模式显示。
+- **表单**：查询文本 + Top-K；collection 输入在三种模式均显示——Normal 按主路 metadata 过滤，Fast / Deep（AC 系列）按摄取历史把检索起点定界到该 collection 的文件集。
 - **结果**：Markdown 答案 + 引用表（来源/页码/分数）；Fast/Deep 额外展示 Agentic 答案、模式、Token、LLM 调用次数、耗时与证据文件。
 - **trace 联动**：每次检索自动写入 trace，到「Query Traces」页可查看各阶段耗时。
 
@@ -295,7 +295,8 @@ agentic_search:
 
 白名单说明（AR 系列）：
 
-- **隐私提示**：`./data/uploads` 在白名单内时，agentic 检索（MCP 工具、Chat `agentic_fast` / `agentic_deep`、第三路）会把命中上传文件的内容经 sidecar 发给外部 LLM；只想让上传文件留在本地索引，就从 `allowed_roots` 移除该行（`agentic_search.enabled: false` 时完全不外发）。
+- **隐私提示**：`./data/uploads` 在白名单内时，agentic 检索（MCP 工具、Chat `agentic_fast` / `agentic_deep`、第三路）会把命中上传文件的内容经 sidecar 发给外部 LLM；只想让上传文件留在本地索引，就从 `allowed_roots` 移除该行（`agentic_search.enabled: false` 时完全不外发）。带 `collection` 的检索（AC 系列）把检索起点从全部 `allowed_roots` 收窄到该 collection 的摄取历史文件集，返回的证据与引用文件同样限定在定界集内；不带 collection 时口径与基线一致。
+- **同名上传防护（AC 系列）**：`POST /uploads` 落盘前整批预检——目标文件已被任一 collection 的摄取历史引用且新内容 sha256 与磁盘不同时，整批拒绝并返回 409 `upload_name_in_use`（`details.conflicts` 列出占用 collection），指引先删除对应文档再重传；同哈希重传幂等放行、无引用的孤儿文件按现状覆盖放行。
 - **目录预建**：进程入口（`start_api.py` / MCP server / `query.py --agentic`）会自动预建位于 `data/` 之下的白名单根（如 `data/uploads`）；`data/` 之外的根仍须自行创建，否则 PathGuard fail-closed 拒绝（`allowed root does not exist`）。
 - **项目根锚定（RA 系列）**：白名单相对根（`./data/...`）不再按启动目录 CWD 解析，而是按「项目根」解析——优先取环境变量 `RAG_PROJECT_ROOT`，未设置时按代码位置推导（即本仓库根）。因此可从任意目录启动主项目，启动目录不会被新建出 `data/`；数据部署在仓库之外时，设 `RAG_PROJECT_ROOT` 指向该目录即可。白名单写绝对路径（含 `~` 展开）则原样生效。
 - **删除联动**：经 Web UI 删除文档时，源文件若在上传目录内且不再被任何 collection 引用，会随四存储删除一并清理；删除响应新增 `source_file_removed` 字段。
@@ -335,6 +336,7 @@ PYTHONPATH=src python -m mcp_server.server
 | `query` | 是 | 非空字符串。避免 "hi"/"test" 这类打招呼措辞——会被 sidecar 短路成闲聊，跳过检索 |
 | `mode` | 否 | `FAST`（默认，2–5s）或 `DEEP`（数十秒，受 `allow_deep` 门控，未开则报 -32602） |
 | `paths` | 否 | 绝对路径列表，缺省用 `allowed_roots`；传入值必须全在白名单内，越权直接返回 -32602 且**不发请求** |
+| `collection` | 否 | 按摄取历史把检索起点定界到该 collection 的文件集（AC 系列）：给定后发送的 `paths` 即定界集，返回的证据与引用文件也限定在定界集内；与 `paths` **互斥**（同给返回 -32602）；定界集为空时不调 sidecar、零 token 直接返回零证据。不给则检索全部 `allowed_roots`（口径与基线一致） |
 | `top_k` | 否 | 正整数，返回证据条数上限 |
 
 **返回内容**：带出处的答案（Markdown 引用 + structuredContent.citations）与证据片段。注意：证据只有字符偏移（`char_start`/`char_end`），**没有页码**（`page` 恒为空）。
@@ -409,6 +411,7 @@ RAG_AGENTIC_INTEGRATION=1 pytest tests/e2e/test_agentic_mcp.py -v   # 真实 sid
   1. 调用前：校验 `paths`，realpath 归一、拒绝符号链接逃逸、白名单外直接 `-32602`，fail-closed 不发请求；
   2. 调用后：过滤证据中落在白名单外的条目（防注入诱导泄露）。
 - **信任模型**：语料内容不可信（prompt injection 可操纵 Agent 读文件），agentic 答案按不可信输入处理。
+- **collection 定界不是安全边界（AC 系列）**：带 collection 的检索只收窄检索起点与返回的证据/引用文件；sidecar 的 `file_read` 仍可按 LLM 请求读 `paths` 之外的文件，agentic 答案文本不经路径过滤，仍按不可信输入处理。
 - **部署要求**：sidecar 只监听 `127.0.0.1` 并始终开启 Bearer；重度使用 DEEP 模式建议在受限用户/容器内运行。
 
 ---
@@ -506,6 +509,8 @@ chat:
 
 选中态按模式着色以便一眼区分：Hybrid 黄、Agentic (fast) 绿、Agentic (deep) 蓝、Auto 紫（明暗两种主题下均保证文字对比度，见 CHAT_MODE_COLORS_SPEC §3.1 与 MODE_ROUTER_SPEC MR4）。
 
+**collection 口径（AC 系列）**：Chat WS 帧的 `collection` 字段（`user_message` 载荷）对全部检索模式生效——`hybrid` 按主路 metadata 过滤；`agentic_fast` / `agentic_deep`（含 `auto` 定档到 agentic）经摄取历史把检索起点定界到该 collection 的文件集，空定界集按零证据短路、不调 sidecar。Chat 前端本轮不提供 collection 选择器，需要时经 WS 帧直接指定。
+
 **降级与 `grounded`**：
 
 - 检索失败默认直接发 `error` 帧（引用必须可溯源）。仅 `chat.fallback_to_chat_only: true` 时降级为纯聊天：先发 `search_error` 帧，再生成答案，且终帧 `result.grounded: false`。`DEEP_DISABLED` 不降级。
@@ -540,7 +545,7 @@ chat:
 |------|------|
 | 健康（免鉴权，不带前缀） | `GET /health` |
 | 只读 | `GET /overview`；`GET /collections`、`GET /collections/{name}`；`GET /documents`（`collection` / `keyword` / `limit<=500` / `offset`）、`GET /documents/{source_path}?collection=`；`GET /images`、`GET /images/{image_id}`（图片字节）；`GET /traces`（`trace_type` / `keyword` / `routes` / `limit<=500` / `offset`）、`GET /traces/{trace_id}` |
-| 写（后台任务，202 + `task_id`） | `POST /uploads`（multipart 字段 `files`，201）；`POST /ingestions`（`{files, collection, force}`，只接受已上传文件名；同文件同集合重复提交 409）；`POST /evaluations`（`{backend, test_set_path?, top_k?, filters?}`；同时只允许一个，409）；`DELETE /documents/{source_path}?collection=`（同步，Chroma + BM25 + 图片 + 摄取历史 + 上传目录内的源文件联动清理） |
+| 写（后台任务，202 + `task_id`） | `POST /uploads`（multipart 字段 `files`，201；同名文件已被任一 collection 摄取历史引用且内容不同 → 409 `upload_name_in_use`，AC 系列）；`POST /ingestions`（`{files, collection, force}`，只接受已上传文件名；同文件同集合重复提交 409）；`POST /evaluations`（`{backend, test_set_path?, top_k?, filters?}`；同时只允许一个，409）；`DELETE /documents/{source_path}?collection=`（同步，Chroma + BM25 + 图片 + 摄取历史 + 上传目录内的源文件联动清理） |
 | 任务 | `GET /tasks`（`kind` / `status` / `limit<=200` / `offset`）、`GET /tasks/{task_id}`（断线恢复轮询）；**`WS /tasks/{task_id}/events`**：先回放当前快照再推送 `{type:"task_event", task_id, status, detail, timestamp, version}`，终态后服务端关闭 |
 | 检索（Query Playground） | `POST /search`（`{mode: normal\|fast\|deep, query, top_k?, collection?}`，被门控拒绝 403 `AGENTIC_DISABLED` / `DEEP_DISABLED`；检索自身失败 200 + `is_error`）；`GET /search/capabilities`（含 `progress_stream`，反映 `api.deep_progress_stream`）；**`WS /search/ws`**（仅 `api.deep_progress_stream: true` 时可用，见 10.6） |
 | Chat | `WS /chat`；`GET /chat/capabilities`；`GET /chat/sessions`、`GET /chat/sessions/{session_id}`、`DELETE /chat/sessions/{session_id}` |
