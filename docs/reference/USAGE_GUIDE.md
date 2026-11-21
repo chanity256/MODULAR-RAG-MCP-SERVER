@@ -60,10 +60,12 @@ Modular-RAG-MCP-Server/
 ├── main.py                   # 最小启动入口（加载配置自检；真正的 MCP 入口在 src/mcp_server/server.py）
 ├── pyproject.toml            # 依赖与 pytest 配置（pythonpath / markers；可选组 ingest-formats）
 ├── requirements.txt          # pip 依赖清单
+├── REVIEW.md                 # PR review 规则人读版（SD2，与 .factory/skills/review-guidelines/ 逐字锁定）
 ├── board.html                # 本地生成的笔记看板页面（agent-notes-board 产物，非核心功能）
 │
+├── build/                    # Python 构建产物（本地生成，不入库，可安全删除）
 ├── config/                   # 配置文件目录
-│   ├── settings.yaml         # 主配置：LLM / Embedding / Splitter / Rerank / 检索 / ingestion / agentic 全部在此
+│   ├── settings.yaml         # 主配置：LLM / Embedding / Splitter / Rerank / 检索 / ingestion / agentic / mode_router 全部在此
 │   └── prompts/              # Prompt 模板（chunk_refinement / image_captioning / rerank）
 │
 ├── src/                      # 源代码主目录（分层依赖自上而下，见 DEV_SPEC 5.1）
@@ -76,18 +78,29 @@ Modular-RAG-MCP-Server/
 │
 ├── frontend/                 # Web UI：Next 静态导出（构建产物 frontend/out/ 由 start_api.py --serve-ui 托管）
 │
+├── docs/                     # 分层文档（索引 docs/MOC.md）：frozen/（已冻结规格）/ specs/（开发中）/ backlog/（提案与台账）/ analysis/（架构分析）/ reference/（使用参考，含本指南）/ images/
+│
+├── evals/                    # agent evals（SD3.5）：cases/ 用例、check.py 判据、run.py 运行器、baseline.json 基线；真实模型花 token，不进 pytest tests
+│
 ├── scripts/                  # CLI 脚本
 │   ├── ingest.py             # 摄取（含 --sync / --prune / --dry-run / --retry-failed，见 2.2）
 │   ├── query.py              # 查询（--verbose / --agentic，见 2.3）
 │   ├── evaluate.py           # RAG 评估（golden set + composite 指标）
-│   ├── start_api.py          # Web UI / API 启动器（主界面，见第 10 章）
+│   ├── start_api.py          # Web UI / API 启动器（主界面，见第 10 章；--manage-sidecar 托管 sidecar）
+│   ├── sidecar_manager.py    # sidecar 共享托管编排（--manage-sidecar 实现，WS 系列）
+│   ├── eval_mode_router.py   # auto 模式决策质量评估（MR 系列，见第 11 章）
+│   ├── migrate_traces.py     # 旧单文件 trace 日志按日迁移（见 2.8）
+│   ├── sync_skills.py        # skill 镜像同步（.factory/skills/ → .claude/ + .github/，SD6）
+│   ├── check_redlines.py     # CI 红线静态检查（SD1）
+│   ├── measure_process.py    # 过程度量基线（SD5）
 │   └── sirchmunk/            # sidecar 环境与旁路对比工具（setup_venv / start_sidecar / preflight / compare）
 │
-├── tests/                    # 离线测试套件（unit / integration / e2e；fixtures/ 为测试夹具与金标准集）
+├── tests/                    # 离线测试套件（unit / integration / e2e / e2e_web；fixtures/ 为测试夹具与金标准集；e2e_web 需先构建 frontend/out，未构建则 skip）
 │
 ├── data/                     # 本地数据（不入库 git）
 │   ├── documents/            # 待摄取语料目录
-│   ├── db/                   # 存储：chroma/（向量）、bm25/（稀疏索引）、image_index.db、ingestion_history.db、sirchmunk/
+│   ├── uploads/              # Web UI 上传文件落盘目录（AR 系列，默认在 agentic 白名单内）
+│   ├── db/                   # 存储：chroma/（向量）、bm25/（稀疏索引）、image_index.db、ingestion_history.db、tasks.db（API 后台任务）、chat_sessions.db（Chat 会话）、sirchmunk/
 │   └── images/               # 摄取抽取的图片文件（按 doc_hash 分目录）
 │
 ├── logs/                     # 日志（见 2.8）：traces/ 按日 trace、app/ 按日应用日志 + sidecar 日志与对比报告
