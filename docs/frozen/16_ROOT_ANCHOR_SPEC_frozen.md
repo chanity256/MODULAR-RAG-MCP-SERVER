@@ -6,11 +6,11 @@
 >
 > - 冻结时间：2026-11-20
 > - 完成概要：RA0–RA5 共 6 项任务全部收口（RA0 立项与 D1–D3 终裁：D1-a + D2-b + D3-a；RA1 `resolve_project_root()` + MCP 默认配置路径锚定；RA2 相对 `allowed_roots` 与预建基准按项目根；RA3 数据层相对路径 D2-b 全量锚定（`tasks_db` / `session_db` / `static_dir` 为使用点锚定）；RA4 文档撤销「须从仓库根启动」；RA5 真实 sidecar 仓库外启动冒烟通过——上传 → Agentic (fast) 命中 → 删除后不再命中，启动目录无 `data/`）。
-> - 遗留：无新遗留（agentic 按 collection 隔离已单文件晋升为 [AGENTIC_COLLECTION_ISOLATION_SPEC.md](../specs/AGENTIC_COLLECTION_ISOLATION_SPEC.md)，AC 系列）。
+> - 遗留：无新遗留（agentic 按 collection 隔离已单文件晋升为 [18_AGENTIC_COLLECTION_ISOLATION_SPEC_frozen.md](18_AGENTIC_COLLECTION_ISOLATION_SPEC_frozen.md)，AC 系列，已收口冻结）。
 
 > 版本：0.2 — RA0 立项与 D1–D3 终裁已完成（D1-a + D2-b + D3-a，2026-11-20）
 >
-> 起源与决策依据：由 `backlog/agentic-roots-followups_backlog.md` 候选 #1「相对 `allowed_roots` 改为按项目根解析」拆分移交（#1 细节已移入本规格；该台账候选 #2 其后单文件晋升为 [AGENTIC_COLLECTION_ISOLATION_SPEC.md](../specs/AGENTIC_COLLECTION_ISOLATION_SPEC.md)，台账原文见 git 历史）；台账源自 [14_AGENTIC_UPLOAD_ROOTS_SPEC_frozen.md](../frozen/14_AGENTIC_UPLOAD_ROOTS_SPEC_frozen.md) §2.2 Out of Scope。立项依据为会话内入口复现（2026-11-20，非文件来源，结果见 §1.2）
+> 起源与决策依据：由 `backlog/agentic-roots-followups_backlog.md` 候选 #1「相对 `allowed_roots` 改为按项目根解析」拆分移交（#1 细节已移入本规格；该台账候选 #2 其后单文件晋升为 [18_AGENTIC_COLLECTION_ISOLATION_SPEC_frozen.md](18_AGENTIC_COLLECTION_ISOLATION_SPEC_frozen.md)（AC 系列，已收口冻结），台账原文见 git 历史）；台账源自 [14_AGENTIC_UPLOAD_ROOTS_SPEC_frozen.md](../frozen/14_AGENTIC_UPLOAD_ROOTS_SPEC_frozen.md) §2.2 Out of Scope。立项依据为会话内入口复现（2026-11-20，非文件来源，结果见 §1.2）
 >
 > 基线：`5337024`（fork/main），AR / MR 系列均已收口冻结；本仓库 `config/settings.yaml` 中 `agentic_search.enabled: true`
 >

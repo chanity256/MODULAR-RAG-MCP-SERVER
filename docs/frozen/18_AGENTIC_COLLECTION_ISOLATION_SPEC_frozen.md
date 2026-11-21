@@ -2,6 +2,12 @@
 
 # Agentic 检索按 collection 隔离规格 (AGENTIC_COLLECTION_ISOLATION_SPEC)
 
+> **📌 冻结记录**
+>
+> - 冻结时间：2026-11-21
+> - 完成概要：AC0–AC7 全部收口（AC1 `CollectionPathResolver` 定界组件；AC2 MCP `agentic_search` 可选 `collection` 参数（D3 空集零证据 / D5 与 `paths` 互斥）；AC3 Chat / Playground collection 透传 + 前端全模式输入；AC4 Hybrid 第三路恒发显式白名单 `paths` + collection 定界 + 证据两级过滤；AC5 `POST /uploads` 同名 409 防护；AC6 USAGE_GUIDE / README / MOC 回写；AC7 真实 sidecar 冒烟通过——跨 collection 隔离、409、第三路定界实测全部符合预期）。冻结时全量禁网 pytest 3012 passed / 23 skipped / 1 xfailed、红线脚本、前端 typecheck / lint / vitest 277 全绿。
+> - 本规格自此为改动 agentic collection 语义（`src/libs/agentic_search/collection_paths.py`、MCP 工具、上传 409、第三路 `paths`）前的必读契约。
+
 > 版本：0.2 — 由 AR 遗留台账候选 #2 立项为可执行规格，采用定界方案 A（历史表定界 paths）
 >
 > 修订记录：v0.1（2026-11-21）立项，D1–D4 终裁；v0.2（2026-11-21）对照代码评审修订：补相对 `source_path` 解析基准、定界集成员后置过滤、`paths` / `collection` 同时给出的语义（D5 终裁：互斥）、`run_stream` 透传、第三路鸭子类型兼容、批量上传与并发语义；纠正「复用 `filter_evidence_paths`」「与 AR2 引用检查同源」「历史表不受 N-05 影响」「外发范围收窄到定界集」四处表述；D1–D4 终裁不变，新增 D5 终裁
@@ -214,22 +220,22 @@ POST /uploads（AC5）：加锁 → 整批按 D4 三重判定预检（任一冲�
 | AC4 | Hybrid 第三路白名单修复 + collection 定界 | §4 AC4 六组离线测试通过；既有第三路测试文件零改动；S2.3 未触发回归红线不变 | 已完成（2026-11-21，测试 `tests/unit/test_agentic_route_scoping.py` 10 项 + 既有第三路套件零改动通过；装配模式 `last_response` 为过滤后响应、裸构造保持基线，实现取严于测试断言之先） |
 | AC5 | 同名上传 409 防护 | §4 AC5 五组测试通过；AR2 删除联动既有用例不变 | 已完成（2026-11-21，测试 `tests/unit/test_upload_name_guard.py` 7 项（五组 + 多 collection 列举 + 路由级 409 体）；AR2 既有用例零改动；Fix-Rounds: 0） |
 | AC6 | 文档同步 | §7 回写清单完成；`test_docs_links.py` 通过 | 已完成（2026-11-21，USAGE_GUIDE §2.7 / §4.4 / §6 / §9 / §10.4 / §10.5、README 工具参数与白名单段与导航表、MOC 谱系与 specs 条目；`test_docs_links.py` + `test_spec_structure.py` 20/20） |
-| AC7 | 门控真实冒烟 | `RAG_AGENTIC_INTEGRATION=1` 下完成 §4 冒烟场景，结果（含定界集大小与耗时）记入本表 | 未开始 |
+| AC7 | 门控真实冒烟 | `RAG_AGENTIC_INTEGRATION=1` 下完成 §4 冒烟场景，结果（含定界集大小与耗时）记入本表 | 已完成（2026-11-21，真实 sidecar（上游 ASGI，FAST）+ `start_api.py --manage-sidecar`：① ac-smoke-a / ac-smoke-b 两 collection 各一份标记文件，带 collection 的 Agentic (fast) 证据**只含本 collection 文件**（sidecar 日志证实 scoped 时仅检索 1 个文件），不带 collection 时两标记均可达（现状口径保留）；② 同名不同内容跨 collection 上传 409 `upload_name_in_use` 实证（磁盘不变）、同哈希幂等 201；③ `query.py --agentic --collection ac-smoke-a`（临时配置 `trigger: always` 强制触发）第三路证据限于定界集（1 evidence，仅 A 文件，2222 token / 3335ms）；定界集大小 1 文件/collection，端到端 FAST 约 2.9–3.3s；冒烟文档经 AR2 删除联动全部清理，`data/uploads/` 无残留） |
 
-> 进度备注：交付后在各任务下回填状态与关键实测数据；全部收口后本规格移入 `docs/frozen/` 并更新 MOC.md。
+> 进度备注：AC0–AC7 已于 2026-11-21 全部收口并冻结（本文件移入 `docs/frozen/18_AGENTIC_COLLECTION_ISOLATION_SPEC_frozen.md`，MOC 与 README 导航同步）。
 
 ## 6. 验收清单
 
-- [ ] A、B 两 collection 各有独有文件时，带 collection 的 agentic 检索（MCP / Chat wiring / Playground 含 Deep 流式）只命中本 collection 的文件；不带 collection 时口径与现状一致（离线 + AC7 实测）
-- [ ] 定界集与启动目录无关：相对 `source_path` 按项目根解析，从非项目根目录启动时结果不变
-- [ ] collection 给定但定界集为空时返回零证据结构化结果，不调用 sidecar、不产生 token 消耗，trace 可见（D3）
-- [ ] 白名单内但定界集外的证据在 MCP 工具与第三路均被后置过滤剔除
-- [ ] MCP 工具 `paths` 与 `collection` 同时给出时返回 `-32602` 且不调用后端（D5）
-- [ ] Hybrid 第三路触发时发送的 `paths` 恒为白名单内绝对路径，不再回退 sidecar CWD；既有第三路 fake 不改即通过（AC4 离线断言）
-- [ ] 同名不同内容文件跨 collection 上传被 409 拦截且磁盘文件不变；批量上传整批拒绝；同哈希重传幂等；孤儿文件覆盖放行（D4）
-- [ ] PathGuard 契约、AR2 删除联动、S2.3 未触发回归红线、N-05 xfail 全部保持
-- [ ] `pytest tests -q`、CI 等价禁网命令、`python scripts/check_redlines.py` 全绿
-- [ ] 回写完成（§7）
+- [x] A、B 两 collection 各有独有文件时，带 collection 的 agentic 检索（MCP / Chat wiring / Playground 含 Deep 流式）只命中本 collection 的文件；不带 collection 时口径与现状一致（离线 + AC7 实测）
+- [x] 定界集与启动目录无关：相对 `source_path` 按项目根解析，从非项目根目录启动时结果不变
+- [x] collection 给定但定界集为空时返回零证据结构化结果，不调用 sidecar、不产生 token 消耗，trace 可见（D3）
+- [x] 白名单内但定界集外的证据在 MCP 工具与第三路均被后置过滤剔除
+- [x] MCP 工具 `paths` 与 `collection` 同时给出时返回 `-32602` 且不调用后端（D5）
+- [x] Hybrid 第三路触发时发送的 `paths` 恒为白名单内绝对路径，不再回退 sidecar CWD；既有第三路 fake 不改即通过（AC4 离线断言）
+- [x] 同名不同内容文件跨 collection 上传被 409 拦截且磁盘文件不变；批量上传整批拒绝；同哈希重传幂等；孤儿文件覆盖放行（D4）
+- [x] PathGuard 契约、AR2 删除联动、S2.3 未触发回归红线、N-05 xfail 全部保持
+- [x] `pytest tests -q`、CI 等价禁网命令、`python scripts/check_redlines.py` 全绿
+- [x] 回写完成（§7）
 
 ## 7. 实现合入后的回写清单
 
@@ -241,7 +247,7 @@ POST /uploads（AC5）：加锁 → 整批按 D4 三重判定预检（任一冲�
   - §10.4 Chat 使用补 collection 口径（wiring 支持、前端暂不提供选择器）；§10.5 路由表补 `POST /uploads` 409（`upload_name_in_use`）
 - `README.md`：MCP 工具节与「白名单与隐私（AR 系列）」段补 collection 隔离口径
 - `docs/MOC.md` 与根目录 README 导航表：本规格状态
-- 本规格收口冻结时：按 docs-governance §2.4 分配编号；冻结后本规格成为改动 agentic collection 语义前的必读契约，届时新增 AGENTS.md 条目（改 AGENTS.md 会触发 `agent-evals.yml` 付费 evals）；N-05 修复若要推进，建派生台账另立提案
+- 本规格收口冻结时：按 docs-governance §2.4 分配编号（**已执行：编号 18**）；冻结后本规格成为改动 agentic collection 语义前的必读契约，届时新增 AGENTS.md 条目（改 AGENTS.md 会触发 `agent-evals.yml` 付费 evals）（**已执行：AGENTS.md 14 号指针更新并新增 18 号条目**）；N-05 修复若要推进，建派生台账另立提案（未启动）
 
 ## 8. 隐私注记
 
