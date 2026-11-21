@@ -37,7 +37,7 @@ if __package__ in (None, ""):  # pragma: no cover - 直接运行兜底
 from core.project_root import resolve_project_root
 from libs.agentic_search.path_guard import PathGuard, PathGuardError
 
-__all__ = ["CollectionPathResolver", "IngestionHistoryStore"]
+__all__ = ["CollectionPathResolver", "IngestionHistoryStore", "normalize_history_source_path"]
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,21 @@ class IngestionHistoryStore(Protocol):
     """
 
     def list_processed(self) -> list[dict]: ...
+
+
+def normalize_history_source_path(source_path: str, project_root: str | Path | None = None) -> str:
+    """历史表 ``source_path`` 的读时归一（AC1 定界与 AC5 上传防护同一规则）。
+
+    绝对路径原样；相对路径按 ``project_root``（缺省
+    ``resolve_project_root()``，**不按 CWD**）解析；统一 realpath
+    （符号链接与 ``..`` 归一），使混合形态的存量记录可与目标绝对路径
+    直接比较（AGENTIC_COLLECTION_ISOLATION_SPEC AC5）。
+    """
+    path = Path(source_path).expanduser()
+    if not path.is_absolute():
+        base = Path(project_root).expanduser().resolve() if project_root is not None else resolve_project_root()
+        path = base / path
+    return str(path.resolve())
 
 
 class CollectionPathResolver:
@@ -114,7 +129,4 @@ class CollectionPathResolver:
 
     def _normalize(self, source_path: str) -> str:
         """相对路径按项目根解析为绝对路径（不按 CWD）；绝对路径原样。"""
-        candidate = Path(source_path).expanduser()
-        if candidate.is_absolute():
-            return str(candidate)
-        return str(self._project_root / candidate)
+        return normalize_history_source_path(source_path, self._project_root)

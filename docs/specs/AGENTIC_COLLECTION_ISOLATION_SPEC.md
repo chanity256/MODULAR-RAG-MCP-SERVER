@@ -212,7 +212,7 @@ POST /uploads（AC5）：加锁 → 整批按 D4 三重判定预检（任一冲�
 | AC2 | MCP `agentic_search` collection 参数 | §4 AC2 六组离线测试通过；不传 collection 时行为与基线逐字节一致 | 已完成（2026-11-21，测试 `tests/unit/test_agentic_tool_collection.py` 6 组 + 既有 `test_agentic_tool.py` 零改动通过；Fix-Rounds: 0） |
 | AC3 | Chat / Playground collection 透传 | §4 AC3 三组测试通过（含前端 vitest 更新）；ChatEngine 零改动 | 已完成（2026-11-21，测试 `tests/unit/test_collection_passthrough.py` 7 项 + vitest 277 项；Fix-Rounds: 1，系新测试 fake 缺 `__call__` 非实现缺陷） |
 | AC4 | Hybrid 第三路白名单修复 + collection 定界 | §4 AC4 六组离线测试通过；既有第三路测试文件零改动；S2.3 未触发回归红线不变 | 已完成（2026-11-21，测试 `tests/unit/test_agentic_route_scoping.py` 10 项 + 既有第三路套件零改动通过；装配模式 `last_response` 为过滤后响应、裸构造保持基线，实现取严于测试断言之先） |
-| AC5 | 同名上传 409 防护 | §4 AC5 五组测试通过；AR2 删除联动既有用例不变 | 未开始 |
+| AC5 | 同名上传 409 防护 | §4 AC5 五组测试通过；AR2 删除联动既有用例不变 | 已完成（2026-11-21，测试 `tests/unit/test_upload_name_guard.py` 7 项（五组 + 多 collection 列举 + 路由级 409 体）；AR2 既有用例零改动；Fix-Rounds: 0） |
 | AC6 | 文档同步 | §7 回写清单完成；`test_docs_links.py` 通过 | 未开始 |
 | AC7 | 门控真实冒烟 | `RAG_AGENTIC_INTEGRATION=1` 下完成 §4 冒烟场景，结果（含定界集大小与耗时）记入本表 | 未开始 |
 

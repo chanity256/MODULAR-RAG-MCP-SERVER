@@ -14,10 +14,12 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from core.project_root import resolve_data_path
+from libs.agentic_search.collection_paths import normalize_history_source_path
 from typing import Any, Callable, Iterable
 
 __all__ = [
@@ -89,16 +91,70 @@ class IngestionService:
         pipeline: Any | None = None,
         runner: RunnerFn | None = None,
         settings: Any | None = None,
+        history: Any | None = None,
     ) -> None:
         self._settings = settings
         # ROOT_ANCHOR_SPEC RA3：默认与显式相对 upload_dir 都按项目根锚定。
         self._upload_dir = resolve_data_path(upload_dir) if upload_dir is not None else resolve_data_path(DEFAULT_UPLOAD_DIR)
         self._pipeline = pipeline
         self._runner = runner
+        self._history = history  # AC5 同名上传防护：历史表句柄（懒构造）
 
     @property
     def upload_dir(self) -> Path:
         return self._upload_dir
+
+    def _get_history(self) -> Any:
+        if self._history is None:
+            from libs.loader.file_integrity import SQLiteIntegrityChecker
+
+            self._history = SQLiteIntegrityChecker()
+        return self._history
+
+    def upload_conflicts(
+        self,
+        files: Iterable[tuple[str | None, bytes]],
+        *,
+        history: Any | None = None,
+        project_root: str | Path | None = None,
+    ) -> list[dict[str, Any]]:
+        """D4 同名上传三重判定，返回冲突列表（空 = 全部放行）。
+
+        逐文件判定（AGENTIC_COLLECTION_ISOLATION_SPEC AC5）：目标
+        ``upload_dir / sanitize_filename(name)`` 已存在 **且** 被任一
+        collection 的摄取历史 success 记录引用（``source_path`` 经
+        ``normalize_history_source_path`` 归一后等于目标 realpath，
+        兼容 RA3 前相对记录）**且** 新内容 sha256 与磁盘现有文件不同
+        → ``{"name": ..., "collections": [...]}``。同哈希幂等放行；
+        无历史引用（孤儿文件）按现状覆盖放行。
+        """
+        store = history if history is not None else self._get_history()
+        records = [
+            record
+            for record in store.list_processed()
+            if record.get("status") == "success"
+            and isinstance(record.get("source_path"), str)
+            and record["source_path"].strip()
+        ]
+        conflicts: list[dict[str, Any]] = []
+        for name, data in files:
+            dest = self._upload_dir / sanitize_filename(name)
+            if not dest.exists():
+                continue
+            dest_real = str(dest.resolve())
+            collections = sorted(
+                {
+                    record["collection"]
+                    for record in records
+                    if record.get("collection")
+                    and normalize_history_source_path(record["source_path"], project_root) == dest_real
+                }
+            )
+            if not collections:
+                continue  # 孤儿文件：无历史引用，现状覆盖放行
+            if hashlib.sha256(data).hexdigest() != hashlib.sha256(dest.read_bytes()).hexdigest():
+                conflicts.append({"name": name, "collections": collections})
+        return conflicts
 
     def save_uploads(self, files: Iterable[tuple[str | None, bytes]]) -> list[Path]:
         """保存上传内容，返回落盘路径（与输入同序）。同名文件覆盖。"""
