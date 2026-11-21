@@ -34,7 +34,7 @@
 source .venv/bin/activate            # 主项目 venv
 
 # 测试（全量离线，零网络，默认必须全绿）
-pytest tests -q                      # 看计数用 pytest tests -o addopts="" -q；当前 2609 passed / 11 skipped / 1 xfailed（干净 clone 未 build frontend/out 时 2606 / 14 / 1；xfail 为 QA N-05 已知缺陷）
+pytest tests -q                      # 看计数用 pytest tests -o addopts="" -q；当前 3012 passed / 23 skipped / 1 xfailed（干净 clone 未 build frontend/out 时 3009 / 26 / 1；xfail 为 QA N-05 已知缺陷）
 pytest tests/unit/test_xxx.py -q     # 单文件
 pytest tests/unit/test_xxx.py::test_name   # 单用例
 pytest tests/e2e_web -q              # Web UI 假后端启动冒烟（frontend/out 未构建则 skip）
