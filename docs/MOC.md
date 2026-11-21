@@ -68,7 +68,7 @@ docs/ 文档分两类：
 | 项目根锚定（RA） | `agentic-roots-followups_backlog.md` 候选 #1（原文见 git 历史）；会话内入口复现（2026-11-20，非文件来源） | `agentic-roots-followups_backlog.md`（#1 细节移入规格；台账其后整体晋升为 AC 规格，原文见 git 历史） | [ROOT_ANCHOR_SPEC.md](frozen/16_ROOT_ANCHOR_SPEC_frozen.md)（已收口冻结，2026-11-20，RA0–RA5） | — | 拆分移交 |
 | Agentic 检索按 collection 隔离（AC） | [14_AGENTIC_UPLOAD_ROOTS_SPEC_frozen.md](frozen/14_AGENTIC_UPLOAD_ROOTS_SPEC_frozen.md) §2.2 Out of Scope 冻结遗留（台账候选 #2，原文见 git 历史） | agentic-roots-followups_backlog.md（单文件晋升，原文见 git 历史） | [18_AGENTIC_COLLECTION_ISOLATION_SPEC_frozen.md](frozen/18_AGENTIC_COLLECTION_ISOLATION_SPEC_frozen.md)（已收口冻结，2026-11-21，AC0–AC7；AC7 真实 sidecar 冒烟通过） | — | 派生台账 → 单文件晋升 |
 | 检索 Trace 挖掘 | 会话讨论（2026-11-18，源于 [15_MODE_ROUTER_SPEC_frozen.md](frozen/15_MODE_ROUTER_SPEC_frozen.md) MR0.2 标注集扩充需求；非文件来源） | [retrieval-trace-mining_backlog.md](backlog/retrieval-trace-mining_backlog.md)（草案，未立项；已核实 trace 与会话库的数据现状与六个待研究问题） | — | — | — |
-| PageIndex 树检索 sidecar（PI，暂定） | 会话内调研（2026-11-21，上游 PageIndex `add6b17` 源码 + 本仓库 agentic_search / sidecar 架构核对；非文件来源）；依据 [03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md](frozen/03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md) 进程隔离红线 | [pageindex-tree-retrieval_backlog.md](backlog/pageindex-tree-retrieval_backlog.md)（草案，未立项；PI0 四路对照预研门待跑） | — | — | — |
+| PageIndex 树检索（PI） | 会话内调研（2026-11-21，上游 PageIndex `add6b17` 源码 + 本仓库 agentic_search / sidecar 架构核对；非文件来源）；依据 [03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md](frozen/03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md) 进程隔离红线 | pageindex-tree-retrieval_backlog.md（单文件晋升，原文见 git 历史） | [PAGEINDEX_TREE_RETRIEVAL_SPEC.md](specs/PAGEINDEX_TREE_RETRIEVAL_SPEC.md)（v0.1 立项，开发中；PI0 立项门待跑） | — | 单文件晋升 |
 ## specs/ — 开发规格（落点）
 
 **立项后新规格的存放处**（从 [backlog/](backlog/) 晋升）。任务全收口后冻结入 frozen/（SX 系列先例见 [frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md](frozen/05_SIRCHMUNK_EXTENSION_SPEC_frozen.md)）。
@@ -78,6 +78,7 @@ docs/ 文档分两类：
 | 文档 | 说明 |
 |------|------|
 | [AI_NATIVE_SDLC_SPEC.md](specs/AI_NATIVE_SDLC_SPEC.md) | AI-Native SDLC 流程升级规格（SD 系列，v0.5 立项；SD1 CI 门（含 fork 上真实 run 与分支保护）、SD2 review 规则、SD6 skill 单一来源、SD3a QA 计划清理与 QA ↔ pytest 对照补测已交付，SD5 过程度量基线已出（[process-metrics.md](analysis/process-metrics.md)），SD7 规格结构校验已接入测试，SD4 定时闭环已交付（两个本机周度 automation active：followups 扫描起草草案 PR + QA 离线回归写回进度，SD4.4 阈值后置），SD3.4 evals 单次成本已测、预算已确认（D5 终裁为 BYOK `custom:glm-5.3-Flash-2`，SD3.5 evals 判据 / 运行器 / 5 条用例已交付（`evals/`），SD3.6 `agent-evals.yml` 已接入（CI 基线 2/5，门槛按基线校准），SD3.7 test-file 保护 hook 已交付（`.factory/hooks/test_guard.py`），D6 baseline PR 已合入；SD2.3 自动 review 已接入（2026-11-14，验收进行中））：前置决策 D1–D6 + baseline PR、CI 确定性门（干净环境 / 双 job / 禁网 / 红线脚本 / CODEOWNERS，承接 ci-pipeline 提案）、AI PR review、QA 对照与 agent evals（门控）、定时闭环（SD4.4 阈值后置）、过程度量、skill 单一来源 + plan + PR 化、规格结构校验（可选）；不改 `src/` 业务行为 |
+| [PAGEINDEX_TREE_RETRIEVAL_SPEC.md](specs/PAGEINDEX_TREE_RETRIEVAL_SPEC.md) | PageIndex 树检索规格（PI 系列，v0.1 立项 2026-11-21，开发中）：独立 venv 本机 HTTP sidecar（`scripts/pageindex/`）接入「树索引 + LLM 沿树推理」，Web UI Chat 新增 `tree` 检索模式，引用落到章节 / 行号或页码；D1 本地模式、D2 Chat 新增模式、D3 自建 MD 树存储 + 检索循环（用户拍板），D5 对账同步不改摄取管线、D7 自建检索循环、D10 不进 auto 候选；PI0 四路对照为立项门（门槛 D9 基线后拍板），PI1–PI7 待门控通过后开工 |
 
 
 ## frozen/ — 已冻结文档
@@ -131,7 +132,6 @@ docs/ 文档分两类：
 | [OBSIDIAN_RAG_SPEC_backlog.md](backlog/OBSIDIAN_RAG_SPEC_backlog.md) | Obsidian Vault RAG 扩展规格（V 系列；v0.2 起 M1/M2 Markdown 摄取已移交 IR 规格 IR7，本规格保留 M3 sentence-transformers / M4 Semantic Walk 待排期） |
 | [sirchmunk-extension-followups_backlog.md](backlog/sirchmunk-extension-followups_backlog.md) | Sirchmunk SX 规格遗留事项台账：明确不做（llm_fallback 等 5 项；evolver 已移交）、实验负结果存档（编译 GX 不通过；复用已移交）、已知缺陷与候选池（流式线程泄漏等 7 项） |
 | [retrieval-trace-mining_backlog.md](backlog/retrieval-trace-mining_backlog.md) | 检索 Trace 挖掘管线提案（草案，未立项）：从 `logs/traces/` 与 `chat_sessions.db` 提取「问题 → 回答 → 所选检索模式」作 MODE_ROUTER 标注集扩充 / 持续校准数据源；已核实 trace 与会话库各自的数据现状，六个待研究问题（手选 vs 默认区分、弱标注口径、跨库 join、隐私、模式命名映射、时机依赖 MR0.2 门槛） |
-| [pageindex-tree-retrieval_backlog.md](backlog/pageindex-tree-retrieval_backlog.md) | PageIndex 树检索 sidecar 接入提案（PI 系列暂定，草案，未立项）：以独立 venv 本机 HTTP sidecar 接入「树索引 + LLM 沿树推理」，补长结构化文档章节定位与页 / 行级引用；上游本地模式仅支持 PDF、Markdown 路径需自建（Issue #609），六项契约差距 G1–G6 与六项待决 D1–D6，PI0 四路对照预研门决定立项或止于分析 |
 | [mode-router-followups_backlog.md](backlog/mode-router-followups_backlog.md) | 检索模式路由器遗留事项台账（MR 规格冻结遗留）：#1 同一问题集合 auto 与人工三选一的质量 / 延迟 / 成本对比记表（用户决议延后）；#2 接入 Jev（`typesafe` 后端，原 MR6，用户决议不接入，2026-11-19，仅留档）；#3 接入本地微调模型（`openai_compatible` 后端，原 MR7，待端点） |
 
 ## reference/ — 使用参考
