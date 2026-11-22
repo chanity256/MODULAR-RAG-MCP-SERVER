@@ -156,13 +156,84 @@ def run_route(route: str, settings, query: str, collection: str | None) -> tuple
     return [r.to_dict() for r in results], meta
 
 
-def annotate_md(results: list[dict], heading: HeadingIndex) -> list[dict]:
-    """给 md 检索结果追加离线定位（line_start/line_end/section）供评分用。"""
+def annotate_md(results: list[dict], heading_cache: dict) -> list[dict]:
+    """给 md 检索结果追加离线定位（line_start/line_end/section）供评分用。
+
+    按 chunk 自身的 ``metadata.source_path`` 选标题索引（上一版错拿目标文件
+    的索引定位全语料检回的 chunk，span 几乎全错）；各 chunk 在自己文件内
+    定位，评分侧再按「证据文件 == 题目目标文件」过滤。
+    """
     for r in results:
-        loc = heading.locate(r["text"])
+        src = (r.get("metadata") or {}).get("source_path") or ""
+        loc = None
+        if src and src.lower().endswith((".md", ".markdown")) and Path(src).exists():
+            if src not in heading_cache:
+                try:
+                    heading_cache[src] = HeadingIndex(src)
+                except Exception:
+                    heading_cache[src] = None
+            index = heading_cache.get(src)
+            if index is not None:
+                found = index.locate(r["text"])
+                if found:
+                    loc = {"source": src, "section": " > ".join(found[0]),
+                           "line_start": found[1], "line_end": found[2]}
+        r["loc"] = loc
+    return results
+
+
+class PageLocator:
+    """单篇 PDF 的页码离线近似定位（方案 (a) 口径，规格 3.6 第 4 条）。
+
+    pypdf 逐页抽文本建行探针（归一化后 ≥12 字符的行 → 首个出现页码），
+    chunk 文本的探针行命中即得页码范围。摄取侧 markitdown 引擎无页边界
+    （整块 Markdown），chunk 也不带 page metadata（chunker 无页追踪），
+    故页码只能离线回定位。pypdf 与 markitdown 的换行/空格差异使部分行
+    匹配不上——locatable 率如实反映该近似的质量。
+    """
+
+    def __init__(self, path: str) -> None:
+        from pypdf import PdfReader
+
+        reader = PdfReader(path)
+        # 去全部空白后整页保存：pypdf 与 markitdown 的换行/空格差异大，
+        # 行级全等几乎必失配，子串包含才是可用近似。
+        self._pages: list[str] = [
+            re.sub(r"\s+", "", page.extract_text() or "") for page in reader.pages
+        ]
+
+    def locate(self, chunk_text: str) -> tuple[int, int] | None:
+        joined = re.sub(r"\s+", "", chunk_text)
+        if len(joined) < 30:
+            return None
+        mid = len(joined) // 2
+        probes = [seg for seg in (joined[:100], joined[mid:mid + 100], joined[-100:])
+                  if len(seg) >= 30]
+        pages_by_probe = [
+            [no for no, ptext in enumerate(self._pages, 1) if probe in ptext]
+            for probe in probes
+        ]
+        # 目录行 / 页眉会在多页重复出现：优先只统计低歧义探针（≤5 页）
+        usable = [ps for ps in pages_by_probe if ps and len(ps) <= 5]
+        pages = sorted({p for ps in (usable or [ps for ps in pages_by_probe if ps]) for p in ps})
+        if not pages:
+            return None
+        return pages[0], pages[-1]
+
+
+def annotate_pdf(results: list[dict], locator_cache: dict, pdf_path: str) -> list[dict]:
+    """给 PDF 检索结果追加离线页码定位（page_start/page_end）供评分用。"""
+    if pdf_path not in locator_cache:
+        try:
+            locator_cache[pdf_path] = PageLocator(pdf_path)
+        except Exception:
+            locator_cache[pdf_path] = None
+    locator = locator_cache.get(pdf_path)
+    for r in results:
+        found = locator.locate(r["text"]) if locator is not None else None
         r["loc"] = (
-            {"section": " > ".join(loc[0]), "line_start": loc[1], "line_end": loc[2]}
-            if loc
+            {"source": pdf_path, "page_start": found[0], "page_end": found[1]}
+            if found
             else None
         )
     return results
@@ -175,25 +246,26 @@ def main() -> int:
     parser.add_argument("--source", required=True, choices=["md", "pdf"])
     parser.add_argument("--config", default=None, help="配置文件（PDF 对照用临时隔离配置）")
     parser.add_argument("--collection", default=None)
+    parser.add_argument("--pdf-path", default=None,
+                        help="PDF 源的原始文件路径（离线页码定位用）")
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
 
     settings = load_settings(args.config)
     questions = load_questions(args.questions, args.source)
     heading_cache: dict[str, HeadingIndex] = {}
+    locator_cache: dict[str, PageLocator | None] = {}
 
     with open(args.out, "w", encoding="utf-8") as out:
         for q in questions:
             record: dict = {"id": q["id"], "route": args.route}
             try:
-                if args.source == "md":
-                    src = q["path"]
-                    if src not in heading_cache:
-                        heading_cache[src] = HeadingIndex(src)
                 collection = args.collection
                 results, meta = run_route(args.route, settings, q["question"], collection)
                 if args.source == "md":
-                    results = annotate_md(results, heading_cache[q["path"]])
+                    results = annotate_md(results, heading_cache)
+                elif args.source == "pdf" and args.pdf_path:
+                    results = annotate_pdf(results, locator_cache, args.pdf_path)
                 record.update({"ok": True, "results": results, "meta": meta})
             except Exception as exc:  # 单题失败不中断整批
                 record.update({"ok": False, "error": f"{type(exc).__name__}: {exc}"})

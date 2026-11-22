@@ -78,6 +78,71 @@ def extract_json(text: str) -> dict | list | None:
     return None
 
 
+def patch_pageindex_ratelimit(concurrency: int = 3) -> None:
+    """给上游 ``pageindex.utils._acompletion`` 打限流补丁（POC 运行期 monkeypatch，
+    不改上游源码）。
+
+    ``md_to_tree`` 对全部节点 ``asyncio.gather`` 并发发 LLM 请求，大文档会
+    瞬时打爆供应商 RPM（实测智谱 429「您的账户已达到速率限制」，重试 10 次
+    耗尽后整树崩溃）。此补丁用全局信号量限制在飞请求数，并在上游重试耗尽后
+    以指数退避整体重试。
+    """
+    import litellm
+    import pageindex.utils as pi_utils
+
+    sem = asyncio.Semaphore(concurrency)
+    original = pi_utils._acompletion
+    # 可重试错误：限流 + 连接类故障（DNS / 连接失败 / 超时）+ 上游重试耗尽。
+    # 大文档建树要几十分钟，瞬时网络抖动不应把整树作废。
+    retryable = (
+        litellm.RateLimitError,
+        litellm.InternalServerError,
+        litellm.Timeout,
+        litellm.APIConnectionError,
+        pi_utils.LLMRetriesExhausted,
+    )
+
+    async def limited(model, messages, sent):
+        delay = 5.0
+        for attempt in range(10):
+            async with sem:
+                try:
+                    return await original(model, messages, sent)
+                except retryable:
+                    if attempt == 9:
+                        raise
+                except litellm.BadRequestError as exc:
+                    # 内容审核拒绝（400「敏感内容」）：上游不重试直接抛，一个节点
+                    # 会炸掉整树。降级为截断原文当摘要（对齐上游 fallback_summary
+                    # 的 600 字符口径），计数后继续。
+                    limited.moderation_skips += 1
+                    prompt = ""
+                    if messages and isinstance(messages[0], dict):
+                        prompt = messages[0].get("content") or ""
+                    text = prompt.split("Partial Document Text:", 1)[1] if \
+                        "Partial Document Text:" in prompt else prompt
+                    excerpt = " ".join(text.strip().split())[:600]
+                    print(f"[poc] moderation fallback #{limited.moderation_skips}: "
+                          f"{str(exc)[:80]}", file=sys.stderr)
+                    return excerpt
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 60.0)
+        raise RuntimeError("unreachable: retry loop exited")
+
+    limited.moderation_skips = 0
+    limited._poc_ratelimit_wrapped = True
+    pi_utils._acompletion = limited
+
+
+def moderation_skip_count() -> int:
+    """读取限流补丁累计的审核拒绝降级次数（未打补丁时为 0）。"""
+    try:
+        import pageindex.utils as pi_utils
+        return getattr(pi_utils._acompletion, "moderation_skips", 0)
+    except Exception:
+        return 0
+
+
 def file_hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -170,9 +235,10 @@ class TreeDoc:
         return " > ".join(found or [])
 
 
-def build_md_tree(path: Path, model: str, cache_dir: Path) -> TreeDoc:
+def build_md_tree(path: Path, model: str, cache_dir: Path, concurrency: int = 3) -> TreeDoc:
     from pageindex.page_index_md import md_to_tree
 
+    patch_pageindex_ratelimit(concurrency)
     cache = cache_dir / f"md_{file_hash(path)[:16]}.json"
     if cache.exists():
         data = json.loads(cache.read_text(encoding="utf-8"))
@@ -187,7 +253,10 @@ def build_md_tree(path: Path, model: str, cache_dir: Path) -> TreeDoc:
 
     started = time.perf_counter()
     tree = asyncio.run(md_to_tree(
-        str(prepared_path), if_add_node_summary="yes", model=model, if_add_node_id="yes"
+        str(prepared_path), if_add_node_summary="yes", model=model, if_add_node_id="yes",
+        # 上游 0.7.4 缺陷：开启摘要而 threshold=None 直接 TypeError；
+        # 200 是 get_node_summary 自身的默认——低于阈值的小节点用原文当摘要（免 LLM）。
+        summary_token_threshold=200,
     ))
     build_ms = round((time.perf_counter() - started) * 1000, 1)
     tokens = 0  # md_to_tree 内部 litellm 用量不回传，建树 token 以 token 计数器近似（见 report 注记）
@@ -241,6 +310,8 @@ class TreeSearcher:
         self.get_pdf_page = get_pdf_page
         self.llm_calls = 0
         self.tokens = 0
+        self.last_tokens = 0   # 最近一次 search 的本题 token（每题独立预算口径）
+        self.last_calls = 0
         self.telemetry: dict = {"invalid_output": 0}
 
     def _ask(self, prompt: str) -> str:
@@ -277,17 +348,23 @@ class TreeSearcher:
         return to_old(start), to_old(end), text, truncated
 
     def _read_pdf_node(self, doc: TreeDoc, node: dict) -> tuple[int, int, str, bool]:
-        page = node.get("page_number") or node.get("page") or 1
+        # PDF 树节点页码字段为 start_index / end_index（物理页范围，
+        # Preface = 1-3 实测）；page_number / page 均非上游 schema。
+        start = node.get("start_index") or 1
+        end = node.get("end_index") or start
         text = ""
         if self.get_pdf_page and doc.doc_id:
-            text = self.get_pdf_page(doc.doc_id, page) or ""
-        else:
-            text = json.dumps(node, ensure_ascii=False)
-        truncated = len(text) > MAX_EVIDENCE_CHARS
-        if truncated:
+            pages = []
+            for page in range(int(start), min(int(end), int(start) + 5) + 1):
+                page_text = self.get_pdf_page(doc.doc_id, page)
+                if page_text:
+                    pages.append(page_text)
+            text = "\n\n".join(pages)
+        truncated = False
+        if len(text) > MAX_EVIDENCE_CHARS:
             text = text[:MAX_EVIDENCE_CHARS]
-        end_page = node.get("page_end") or page
-        return page, end_page, text, truncated
+            truncated = True
+        return int(start), int(end), text, truncated
 
     def _outline(self, doc: TreeDoc) -> str:
         lines = []
@@ -306,13 +383,33 @@ class TreeSearcher:
         return doc.tree.get("structure", [])
 
     def search(self, query: str, source_paths: list[str] | None) -> list[dict]:
+        """逐层下钻检索（选文档 → 逐层选节点 → 读原文）。
+
+        大树（1000+ 节点）整树大纲塞不进上下文（实测一次调用即吃掉
+        ~30 万 token），改为从顶层开始逐层展开：每轮展示当前层节点的
+        标题 + 截断摘要，模型给出 ``read``（读原文）/ ``expand``（展开
+        子节点）两类选择。预算按题目独立计。
+        """
         candidates = [d for d in self.docs if source_paths is None or d.source_path in source_paths]
         if not candidates:
             return []
+        rank = 0
+        tokens_q = 0
+        calls_q = 0
+
+        def ask(prompt: str) -> str:
+            nonlocal tokens_q, calls_q
+            result = self.complete(prompt)
+            calls_q += 1
+            self.llm_calls += 1
+            tokens_q += result["tokens"]
+            self.tokens += result["tokens"]
+            return result["text"]
+
         picked = candidates
         if len(candidates) > 1:
             listing = "\n".join(f"- {d.source_path}（{d.format}）" for d in candidates)
-            text = self._ask(
+            text = ask(
                 "以下是可选文档列表。判断哪些文档可能包含回答问题所需的内容，"
                 "返回 JSON：{\"doc_ids\": [索引]}。\n\n"
                 f"问题：{query}\n\n文档列表（索引从 0 开始）：\n{listing}\n\n"
@@ -327,39 +424,73 @@ class TreeSearcher:
                 picked = [candidates[i] for i in ids if isinstance(i, int) and 0 <= i < len(candidates)] or candidates
 
         evidence_by_node: dict[tuple, dict] = {}
-        rank = 0
-        for loop in range(self.max_loops):
-            if self.tokens > self.max_token_budget:
+
+        # 每篇文档的下钻前沿（当前待决策的节点层）
+        frontier: dict[str, list[dict]] = {d.source_path: self.tree_nodes(d) for d in picked}
+        truncated_any = False
+        for _loop in range(self.max_loops):
+            if tokens_q > self.max_token_budget:
+                self.telemetry.setdefault("budget_stopped", 0)
+                self.telemetry["budget_stopped"] += 1
                 break
-            new_nodes: list[tuple[TreeDoc, dict]] = []
+            new_reads: list[tuple[TreeDoc, dict]] = []
+            expanded_any = False
             for doc in picked:
-                prompt = (
-                    "以下是文档的树状目录（标题、节点 ID 与摘要，不含正文）。"
-                    "选出回答问题最相关的节点（最多 "
-                    f"{self.max_nodes} 个），返回 JSON：{{\"node_ids\": [\"0000\", ...]}}。\n\n"
-                    f"问题：{query}\n\n文档：{doc.source_path}\n\n目录：\n{self._outline(doc)}\n\n只返回 JSON。"
+                nodes = frontier.get(doc.source_path) or []
+                if not nodes:
+                    continue
+                lines = []
+                for n in nodes:
+                    summary = (n.get("summary") or n.get("prefix_summary") or "").strip()
+                    if len(summary) > 120:
+                        summary = summary[:120] + "…"
+                    has_children = "＋" if n.get("nodes") else "·"
+                    lines.append(f"- [{n.get('node_id')}] {has_children} {n.get('title')}"
+                                 + (f" — {summary}" if summary else ""))
+                text = ask(
+                    "下面是文档某一层级的节点列表（＋= 有子节点可展开，·= 叶节点）。\n"
+                    f"选出与回答问题相关的节点（最多 {self.max_nodes} 个）：要读原文的放进 "
+                    "\"read\"，要看其子节点的放进 \"expand\"（只能选带＋的）。\n"
+                    "返回 JSON：{\"read\": [\"0000\"], \"expand\": [\"0001\"]}。只返回 JSON。\n\n"
+                    f"问题：{query}\n文档：{doc.source_path}\n\n节点列表：\n" + "\n".join(lines)
                 )
-                text = self._ask(prompt)
                 data = extract_json(text)
-                ids = data.get("node_ids") if isinstance(data, dict) else None
-                if not isinstance(ids, list) or not ids:
-                    self.telemetry["invalid_output"] += 1
+                read_ids = data.get("read") if isinstance(data, dict) else None
+                expand_ids = data.get("expand") if isinstance(data, dict) else None
+                if not isinstance(read_ids, list) and not isinstance(expand_ids, list):
+                    self.telemetry["invalid_output"] = self.telemetry.get("invalid_output", 0) + 1
                     continue
                 by_id = {n.get("node_id"): n for n in doc.flat_nodes()}
-                for nid in ids:
+                next_level: list[dict] = []
+                for nid in (expand_ids or []):
                     node = by_id.get(str(nid))
-                    if node is not None and (doc.source_path, nid) not in evidence_by_node:
-                        new_nodes.append((doc, node))
+                    if node is None:
+                        continue
+                    children = node.get("nodes") or []
+                    if children:
+                        next_level.extend(children)
+                        expanded_any = True
+                    else:  # 叶节点无可展开：直接读
+                        new_reads.append((doc, node))
+                for nid in (read_ids or []):
+                    node = by_id.get(str(nid))
+                    if node is not None:
+                        new_reads.append((doc, node))
+                frontier[doc.source_path] = next_level
 
-            for doc, node in new_nodes:
+            for doc, node in new_reads:
+                key = (doc.source_path, node.get("node_id"))
+                if key in evidence_by_node:
+                    continue
                 if doc.format == "md":
                     ls, le, text, truncated = self._read_md_node(doc, node)
                     page_start = page_end = None
                 else:
                     page_start, page_end, text, truncated = self._read_pdf_node(doc, node)
                     ls = le = None
+                truncated_any = truncated_any or truncated
                 rank += 1
-                evidence_by_node[(doc.source_path, node.get("node_id"))] = {
+                evidence_by_node[key] = {
                     "source_path": doc.source_path,
                     "doc_id": doc.doc_id,
                     "node_id": node.get("node_id"),
@@ -373,15 +504,13 @@ class TreeSearcher:
                     "truncated": truncated,
                 }
 
-            # 判是否足够
-            joined = "\n\n".join(e["text"][:1500] for e in evidence_by_node.values())
-            verdict = extract_json(self._ask(
-                f"问题：{query}\n\n已收集的证据摘录：\n{joined}\n\n"
-                '这些证据是否足以回答问题？返回 JSON：{"sufficient": true|false}。只返回 JSON。'
-            ))
-            if isinstance(verdict, dict) and verdict.get("sufficient") is True:
-                break
+            if not expanded_any and not new_reads:
+                break  # 模型不再展开也不再有新读取：收敛
 
+        if truncated_any:
+            self.telemetry["truncated_evidence"] = self.telemetry.get("truncated_evidence", 0) + 1
+        self.last_tokens = tokens_q
+        self.last_calls = calls_q
         return list(evidence_by_node.values())
 
 
@@ -391,7 +520,8 @@ class TreeSearcher:
 
 def run_main_route(main_python: str, route: str, source: str, questions: str,
                    out_dir: Path, config: str | None, collection: str | None,
-                   extra_env: dict[str, str] | None = None) -> list[dict]:
+                   extra_env: dict[str, str] | None = None,
+                   pdf_path: str | None = None) -> list[dict]:
     out_path = out_dir / f"main_{route}_{source}.jsonl"
     cmd = [main_python, str(REPO_ROOT / "scripts" / "pageindex" / "poc_main_routes.py"),
            "--route", route, "--questions", questions, "--source", source,
@@ -400,6 +530,8 @@ def run_main_route(main_python: str, route: str, source: str, questions: str,
         cmd += ["--config", config]
     if collection:
         cmd += ["--collection", collection]
+    if pdf_path:
+        cmd += ["--pdf-path", pdf_path]
     env = dict(os.environ)
     env.update(extra_env or {})
     print(f"[poc] main route {route}/{source} -> {out_path.name}", file=sys.stderr)
@@ -407,29 +539,45 @@ def run_main_route(main_python: str, route: str, source: str, questions: str,
     return [json.loads(l) for l in out_path.read_text(encoding="utf-8").splitlines() if l.strip()]
 
 
-def ranges_from_record(record: dict, source: str) -> tuple[list[tuple[int, int]], list[str]]:
-    """从一条主路由记录提取 (证据范围, 章节名) 列表（MD 行号 / PDF 页码）。"""
+def ranges_from_record(record: dict, source: str, target: str | None = None
+                       ) -> tuple[list[tuple[int, int]], list[str], int]:
+    """从一条主路由记录提取 (证据范围, 章节名, 跨文件证据数)。
+
+    MD 按「证据文件 == 题目目标文件」过滤（语料存在跨文件重复内容，命中
+    拆分件不算 hit）；跨文件命中数单独返回作口径备注。PDF 集合只含单文件，
+    无需过滤。
+    """
     spans: list[tuple[int, int]] = []
     sections: list[str] = []
+    crossfile = 0
     for r in record.get("results", []):
         loc = r.get("loc") or {}
         meta = r.get("metadata") or {}
         if source == "md":
+            src = loc.get("source") or meta.get("source_path") or ""
+            if target and src and str(Path(src).resolve()) != target:
+                crossfile += 1
+                continue
             ls, le = loc.get("line_start"), loc.get("line_end")
             if ls:
                 spans.append((ls, le or ls))
                 sections.append(loc.get("section") or "")
         else:
-            page = meta.get("page")
+            page_loc = (r.get("loc") or {})
+            page = page_loc.get("page_start") or meta.get("page")
             if page:
-                spans.append((int(page), int(page)))
-                sections.append("")
-    return spans, sections
+                spans.append((int(page), int(page_loc.get("page_end") or page)))
+                sections.append(page_loc.get("section") or "")
+    return spans, sections, crossfile
 
 
-def ranges_from_tree(evidences: list[dict], source: str) -> tuple[list[tuple[int, int]], list[str]]:
-    spans, sections = [], []
+def ranges_from_tree(evidences: list[dict], source: str, target: str | None = None
+                     ) -> tuple[list[tuple[int, int]], list[str], int]:
+    spans, sections, crossfile = [], [], 0
     for e in evidences:
+        if source == "md" and target and str(Path(e.get("source_path", "")).resolve()) != target:
+            crossfile += 1
+            continue
         if source == "md":
             if e.get("line_start"):
                 spans.append((e["line_start"], e.get("line_end") or e["line_start"]))
@@ -438,7 +586,7 @@ def ranges_from_tree(evidences: list[dict], source: str) -> tuple[list[tuple[int
             if e.get("page_start"):
                 spans.append((e["page_start"], e.get("page_end") or e["page_start"]))
                 sections.append(e.get("section") or "")
-    return spans, sections
+    return spans, sections, crossfile
 
 
 def overlap(spans: list[tuple[int, int]], targets: list[tuple[int, int]]) -> bool:
@@ -454,9 +602,13 @@ def score_questions(records: list[dict], questions: dict[str, dict], source: str
                    else (t["target_pages"][0], t["target_pages"][1])
                    for t in q["target_sections"]]
         if rec.get("route") == "tree":
-            spans, sections = ranges_from_tree(rec.get("evidences", []), source)
+            # 不给评分泄露答案之外的语义：target 只是「题目声明的目标文件」，
+            # 用于同文件归属判定（跨文件重复内容不算 hit）。
+            target = str((REPO_ROOT / q["path"]).resolve()) if source == "md" else None
+            spans, sections, crossfile = ranges_from_tree(rec.get("evidences", []), source, target)
         else:
-            spans, sections = ranges_from_record(rec, source)
+            target = str((REPO_ROOT / q["path"]).resolve()) if source == "md" else None
+            spans, sections, crossfile = ranges_from_record(rec, source, target)
         elapsed = rec.get("meta", {}).get("elapsed_ms") or 0
         tokens = rec.get("meta", {}).get("total_llm_tokens") or 0
         # 引用可定位率：生产口径——引用能直接给出「章节+行号」或「页码」
@@ -464,7 +616,8 @@ def score_questions(records: list[dict], questions: dict[str, dict], source: str
             locatable = bool(sections and any(s for s in sections))
         else:
             has_page = any((r.get("metadata") or {}).get("page") for r in rec.get("results", [])) \
-                or any(e.get("page_start") for e in rec.get("evidences", []))
+                or any(e.get("page_start") for e in rec.get("evidences", [])) \
+                or any((r.get("loc") or {}).get("page_start") for r in rec.get("results", []))
             locatable = bool(has_page)
         scored.append({
             "id": rec["id"], "ok": rec.get("ok", False),
@@ -472,6 +625,7 @@ def score_questions(records: list[dict], questions: dict[str, dict], source: str
             "locatable": locatable if rec.get("ok") else False,
             "elapsed_ms": elapsed, "tokens": tokens,
             "n_evidences": len(spans),
+            "n_crossfile": crossfile,
             "error": rec.get("error"),
         })
     return scored
@@ -491,12 +645,21 @@ def summarize(scored: list[dict]) -> dict:
 
 def prepare_pdf_workspace(out_dir: Path, pdf_path: Path,
                           sirchmunk_env: dict[str, str]) -> tuple[Path, str, str]:
-    """PDF 对照隔离工作区：RAG_PROJECT_ROOT 临时目录 + 临时配置（agentic DEEP）。"""
+    """PDF 对照隔离工作区：RAG_PROJECT_ROOT 临时目录 + 临时配置（agentic DEEP）。
+
+    工作区放系统临时目录而非 ``data/db/`` 下：PathGuard 的 denied
+    substring 含 ``data/db``（防索引库进语料），工作区建在其下会让
+    collection 定界把语料自身判为越权（实测踩坑：collection_paths 全部
+    记录被剔除 → 空定界集 → 零证据）。
+    """
+    import tempfile
     import yaml
 
-    ws = out_dir / "workspace"
+    ws = Path(tempfile.gettempdir()) / "pi0_poc_ws"
     docs_dir = ws / "data" / "documents"
     docs_dir.mkdir(parents=True, exist_ok=True)
+    # PathGuard fail-closed：allowed_roots 里的根必须存在（AR 规格入口预建约定）
+    (ws / "data" / "uploads").mkdir(parents=True, exist_ok=True)
     target = docs_dir / pdf_path.name
     if not target.exists():
         target.write_bytes(pdf_path.read_bytes())
@@ -526,7 +689,10 @@ def main() -> int:
     parser.add_argument("--index-only", action="store_true", help="只测建树成本")
     parser.add_argument("--max-nodes", type=int, default=5)
     parser.add_argument("--max-loops", type=int, default=3)
+    parser.add_argument("--concurrency", type=int, default=3,
+                        help="建树期 LLM 并发上限（限流补丁；智谱账户 RPM 低时调小）")
     args = parser.parse_args()
+    poc_concurrency = args.concurrency
 
     out_dir = REPO_ROOT / args.out
     cache_dir = out_dir / "cache"
@@ -541,13 +707,22 @@ def main() -> int:
 
     def complete(prompt: str) -> dict:
         started = time.perf_counter()
-        resp = litellm.completion(
-            model=llm_model,
-            messages=[{"role": "user", "content": prompt}],
-            api_base=env.get("LLM_API_BASE"),
-            api_key=env.get("LLM_API_KEY"),
-            temperature=0,
-        )
+        resp = None
+        # 连接类错误重试（本地代理抖动实测会打断零星请求）：3 次 + 指数退避
+        for attempt in range(3):
+            try:
+                resp = litellm.completion(
+                    model=llm_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    api_base=env.get("LLM_API_BASE"),
+                    api_key=env.get("LLM_API_KEY"),
+                    temperature=0,
+                )
+                break
+            except Exception as exc:
+                if attempt == 2 or "Connection error" not in str(exc):
+                    raise
+                time.sleep(2 ** attempt)
         usage = getattr(resp, "usage", None)
         return {
             "text": resp.choices[0].message.content or "",
@@ -561,7 +736,8 @@ def main() -> int:
     docs: list[TreeDoc] = []
     build_rows = []
     for rel in args.md_paths:
-        doc = build_md_tree(REPO_ROOT / rel, llm_model, cache_dir)
+        doc = build_md_tree(REPO_ROOT / rel, llm_model, cache_dir,
+                            concurrency=poc_concurrency)
         docs.append(doc)
         build_rows.append({"source_path": rel, "format": "md", "node_count": len(doc.flat_nodes()),
                            "build_ms": doc.build_ms, "build_tokens": doc.build_tokens})
@@ -570,7 +746,9 @@ def main() -> int:
         docs.append(doc)
         build_rows.append({"source_path": pdf_rel, "format": "pdf", "node_count": len(doc.flat_nodes()),
                            "build_ms": doc.build_ms, "build_tokens": doc.build_tokens})
-    print(json.dumps({"build_cost": build_rows}, ensure_ascii=False, indent=2))
+    print(json.dumps({"build_cost": build_rows,
+                      "moderation_skips": moderation_skip_count()},
+                     ensure_ascii=False, indent=2))
 
     if args.index_only:
         return 0
@@ -598,9 +776,39 @@ def main() -> int:
 
     all_scored: dict[str, dict] = {}
     tree_records: dict[str, list[dict]] = {}
+    # tree 路不在本轮 routes 时，从落盘明细复跑评分（零 LLM）；无明细则
+    # 退回上一轮 poc_results.json 的评分行。
+    prior_tree_telemetry: dict | None = None
+    if "tree" not in routes:
+        for source in sources:
+            tree_path = out_dir / f"tree_{source}.jsonl"
+            if tree_path.exists():
+                recs = [json.loads(l) for l in tree_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+                all_scored[f"tree/{source}"] = score_questions(recs, questions, source)
+                print(f"[poc] rescored tree from {tree_path.name} ({len(recs)} 题)", file=sys.stderr)
+            else:
+                prev = out_dir / "poc_results.json"
+                key = f"tree/{source}"
+                if prev.exists() and key in json.loads(prev.read_text(encoding="utf-8")).get("detail", {}):
+                    all_scored[key] = json.loads(prev.read_text(encoding="utf-8"))["detail"][key]
+                    print(f"[poc] reuse tree detail: {key}", file=sys.stderr)
+        prev = out_dir / "poc_results.json"
+        if prev.exists():
+            try:
+                prior_tree_telemetry = json.loads(prev.read_text(encoding="utf-8")).get("tree_telemetry")
+            except Exception:
+                pass
     for source in sources:
         ws = config = collection = None
-        extra_env = {}
+        extra_env = {"SIRCHMUNK_API_TOKEN": sirchmunk_env.get("SIRCHMUNK_API_TOKEN", ""),
+                     "SIRCHMUNK_BASE_URL": sirchmunk_env.get("SIRCHMUNK_BASE_URL", "")}
+        if source == "md":
+            # 规格假定「MD 对照直接用默认库中已摄取的文档」，实测默认库
+            # 未含这 4 篇——按正常摄取路径补齐（SHA256 幂等，跳过已摄取）。
+            for rel in args.md_paths:
+                subprocess.run([args.main_python, str(REPO_ROOT / "scripts" / "ingest.py"),
+                                "--path", str(REPO_ROOT / rel), "--collection", "default"],
+                               check=False, cwd=str(REPO_ROOT))
         if source == "pdf" and pdf_path.exists():
             ws, config, collection = prepare_pdf_workspace(out_dir, pdf_path, sirchmunk_env)
             extra_env["RAG_PROJECT_ROOT"] = str(ws)
@@ -618,8 +826,6 @@ def main() -> int:
                         continue
                     started = time.perf_counter()
                     try:
-                        targets = [t["path"] for t in [q]] if False else None
-                        paths = [q["path"]] if source == "md" else [str(pdf_path)]
                         # 不给检索器泄露答案：候选范围 = 该 source 的全部文档
                         cand_paths = args.md_paths if source == "md" else [str(pdf_path)]
                         abs_paths = [str(REPO_ROOT / p) for p in cand_paths]
@@ -627,16 +833,22 @@ def main() -> int:
                         recs.append({"id": q["id"], "route": "tree", "ok": True,
                                      "evidences": evidences,
                                      "meta": {"elapsed_ms": round((time.perf_counter() - started) * 1000, 1),
-                                              "total_llm_tokens": searcher.tokens,
-                                              "llm_call_count": searcher.llm_calls}})
+                                              "total_llm_tokens": searcher.last_tokens,
+                                              "llm_call_count": searcher.last_calls}})
                     except Exception as exc:
                         recs.append({"id": q["id"], "route": "tree", "ok": False,
                                      "error": f"{type(exc).__name__}: {exc}"})
                 tree_records[source] = recs
+                # 证据落盘：评分诊断与免重跑复用都依赖明细
+                tree_path = out_dir / f"tree_{source}.jsonl"
+                tree_path.write_text(
+                    "\n".join(json.dumps(r, ensure_ascii=False) for r in recs) + "\n",
+                    encoding="utf-8")
             else:
                 try:
                     recs = run_main_route(args.main_python, route, source, args.questions,
-                                          out_dir, config, collection, extra_env)
+                                          out_dir, config, collection, extra_env,
+                                          pdf_path=str(pdf_path) if source == "pdf" else None)
                 except Exception as exc:
                     print(f"[poc] route {route}/{source} failed: {exc}", file=sys.stderr)
                     continue
@@ -644,10 +856,28 @@ def main() -> int:
             all_scored[f"{route}/{source}"] = scored
 
     # ---- 汇总报告 ----
+    # 本轮范围外的 key（如 --source pdf 只跑 pdf 时）保留上一轮明细
+    expected = {f"{route}/{source}" for route in routes for source in sources}
+    if "tree" not in routes:
+        expected |= {f"tree/{source}" for source in sources}
+    prev = out_dir / "poc_results.json"
+    if prev.exists():
+        try:
+            prior = json.loads(prev.read_text(encoding="utf-8"))
+            for key, rows in prior.get("detail", {}).items():
+                if key not in expected and key not in all_scored:
+                    all_scored[key] = rows
+                    print(f"[poc] keep prior detail: {key}", file=sys.stderr)
+        except Exception as exc:
+            print(f"[poc] prior merge failed: {exc}", file=sys.stderr)
     summary = {key: summarize(v) for key, v in all_scored.items()}
+    tree_telemetry = {"llm_calls": searcher.llm_calls, "tokens": searcher.tokens,
+                      **searcher.telemetry}
+    if "tree" not in routes and prior_tree_telemetry:
+        tree_telemetry = prior_tree_telemetry
     report = {"summary": summary, "build_cost": build_rows, "detail": all_scored,
-              "tree_telemetry": {"llm_calls": searcher.llm_calls, "tokens": searcher.tokens,
-                                 **searcher.telemetry}}
+              "moderation_skips": moderation_skip_count(),
+              "tree_telemetry": tree_telemetry}
     (out_dir / "poc_results.json").write_text(json.dumps(report, ensure_ascii=False, indent=2),
                                               encoding="utf-8")
     print("\n=== PI0 四路对照汇总 ===")
