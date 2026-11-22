@@ -524,7 +524,8 @@ def _derived_cache_key(md_path: Path) -> str:
 
 
 def build_md_tree_v2(path: Path, model: str, cache_dir: Path, *,
-                     tree_source: str = "flash", concurrency: int = 3) -> TreeDoc:
+                     tree_source: str = "flash", concurrency: int = 3,
+                     optimize: str | None = None) -> TreeDoc:
     """MD → 派生 PDF → 树（D3 / D11 / D12 原型）。
 
     tree_source:
@@ -536,7 +537,8 @@ def build_md_tree_v2(path: Path, model: str, cache_dir: Path, *,
     """
     patch_pageindex_ratelimit(concurrency)
     md_hash = file_hash(path)
-    cache = cache_dir / f"{_derived_cache_key(path)}_{tree_source}.json"
+    cache = cache_dir / f"{_derived_cache_key(path)}_{tree_source}"
+    cache = Path(str(cache) + (f"_{optimize}" if tree_source == "submit" else "") + ".json")
     if cache.exists():
         data = json.loads(cache.read_text(encoding="utf-8"))
         if data.get("md_hash") == md_hash and data.get("tree_source") == tree_source:
@@ -567,7 +569,8 @@ def build_md_tree_v2(path: Path, model: str, cache_dir: Path, *,
         from pageindex import PageIndexClient
         client = PageIndexClient(index_model=model, chat_model=model,
                                  storage_path=str(PAGEINDEX_STORAGE),
-                                 summary_concurrency=concurrency)
+                                 summary_concurrency=concurrency,
+                                 optimize=optimize)
         submitted = client.submit_document(str(derived_pdf))
         doc_id = submitted.get("doc_id") if isinstance(submitted, dict) else None
         usage = submitted.get("usage") or {} if isinstance(submitted, dict) else {}
@@ -581,7 +584,7 @@ def build_md_tree_v2(path: Path, model: str, cache_dir: Path, *,
     cache.write_text(json.dumps({
         "tree": tree, "doc_id": doc_id, "build_tokens": tokens, "build_ms": build_ms,
         "derived_pdf": str(derived_pdf), "md_hash": md_hash, "tree_source": tree_source,
-        "render": render,
+        "optimize": optimize, "render": render,
     }, ensure_ascii=False), encoding="utf-8")
     return doc
 
@@ -1172,6 +1175,9 @@ def main() -> int:
     parser.add_argument("--tree-source", default="flash", choices=["flash", "submit"],
                         help="MD 建树来源：flash=零 LLM 结构（冒烟/口径修正）；"
                              "submit=submit_document 真实建树（PI0.4b/PI0.6，花 token）")
+    parser.add_argument("--submit-optimize", default="full", choices=["full", "merge"],
+                        help="submit 建树的 optimize 档（PI0.4b 对比 merge vs full；"
+                             "merge=确定性合并不改写标题、省 LLM expand）")
     parser.add_argument("--smoke-fake", action="store_true",
                         help="fake LLM 冒烟：零 token 跑通新管线与检索循环")
     parser.add_argument("--rebuild-pdf-tree", action="store_true",
@@ -1268,9 +1274,12 @@ def main() -> int:
     for rel in args.md_paths:
         doc = build_md_tree_v2(REPO_ROOT / rel, llm_model, cache_dir,
                                tree_source=args.tree_source,
-                               concurrency=poc_concurrency)
+                               concurrency=poc_concurrency,
+                               optimize=args.submit_optimize)
         docs.append(doc)
-        build_rows.append({"source_path": rel, "format": "md", "pipeline": "derived-pdf/" + args.tree_source,
+        build_rows.append({"source_path": rel, "format": "md",
+                           "pipeline": "derived-pdf/" + args.tree_source
+                                       + (f"/{args.submit_optimize}" if args.tree_source == "submit" else ""),
                            "node_count": len(doc.flat_nodes()),
                            "build_ms": doc.build_ms, "build_tokens": doc.build_tokens})
     if pdf_path.exists():
