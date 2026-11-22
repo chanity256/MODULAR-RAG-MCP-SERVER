@@ -2,7 +2,7 @@
 
 # PageIndex 树检索规格 (PAGEINDEX_TREE_RETRIEVAL_SPEC)
 
-> 版本：0.2 — 0.1 由 backlog 提案立项为可执行规格；0.2（2026-11-21）按规格评审修订（评审意见逐条对照基线代码核实后采纳）：消除 capabilities「逐字节不变」与新增 `longdoc_enabled` 字段的矛盾，写明需同步的既有测试断言，补齐错误分类、`ChatCapabilities` schema、配置锚定与入口预建、上下文位置头、前端改动面、trace 打点、同步命令删除边界、sidecar 契约边界与 PI0 可执行性细节，修正 Chat WS 路径与语料计数口径。PI0 为立项门（四路对照不达标即搁置），PI0 通过前 PI1 起不开工
+> 版本：0.2 — 0.1 由 backlog 提案立项为可执行规格；0.2（2026-11-21）按规格评审修订（评审意见逐条对照基线代码核实后采纳）：消除 capabilities「逐字节不变」与新增 `longdoc_enabled` 字段的矛盾，写明需同步的既有测试断言，补齐错误分类、`ChatCapabilities` schema、配置锚定与入口预建、上下文位置头、前端改动面、trace 打点、同步命令删除边界、sidecar 契约边界与 PI0 可执行性细节，修正 Chat WS 路径与语料计数口径。PI0 为立项门（四路对照不达标即搁置），PI0 通过前 PI1 起不开工；0.3（2026-11-22）PI0.3 四路对照完成，基线落盘第 10 章附录，D9 终裁延后至新增的 PI0.4（用户裁决），PI1 起仍不开工
 >
 > 起源与决策依据：由 backlog/pageindex-tree-retrieval_backlog.md 单文件晋升，原文见 git 历史；提案起源为会话内调研（2026-11-21，非文件来源：上游 [VectifyAI/PageIndex](https://github.com/VectifyAI/PageIndex) main `add6b17` 源码 + 本仓库 agentic_search / sidecar 架构核对）。依据 [03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md](../frozen/03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md)（进程隔离红线、HTTP sidecar 契约风格）、[18_AGENTIC_COLLECTION_ISOLATION_SPEC_frozen.md](../frozen/18_AGENTIC_COLLECTION_ISOLATION_SPEC_frozen.md)（collection 定界 D3/D5）、[15_MODE_ROUTER_SPEC_frozen.md](../frozen/15_MODE_ROUTER_SPEC_frozen.md)（Chat 模式常量六处登记、auto 候选口径、立项门先例）、[11_CHAT_MODE_COLORS_SPEC_frozen.md](../frozen/11_CHAT_MODE_COLORS_SPEC_frozen.md)（模式配色规则）、[16_ROOT_ANCHOR_SPEC_frozen.md](../frozen/16_ROOT_ANCHOR_SPEC_frozen.md)（相对路径按项目根解析）
 >
@@ -84,12 +84,12 @@
 | D1 | 本地还是云端 | **本地模式**（2026-11-21，用户拍板）。文档与树索引留在本机，仅 LLM 调用外发；云端（原文件上传 PageIndex、付费）不做 |
 | D2 | 首期接入面 | **Chat 新增模式 `longdoc`**（2026-11-21，用户拍板；模式名由初稿 `tree` 更名为 `longdoc`，后端能力命名 `tree_search` 不变）。MCP 独立工具、Hybrid 第四路融合不做；Query Playground 不做（2.2） |
 | D3 | Markdown 路径 | **自建 MD 树存储 + 检索循环**（2026-11-21，用户拍板）。MD 经预处理（绕开 #609）后调用上游 `md_to_tree` 建树，存入 sidecar 自建存储；PDF 走上游 `PageIndexClient.submit_document` 与 DocStore；检索循环两种格式统一自建（D7） |
-| D4 | 检索 / 摘要模型 | **sidecar 独立 env 配置，默认智谱 GLM（OpenAI 兼容端点，经 LiteLLM `openai/<model>` + `api_base`）**（规格设计决策，与 Sirchmunk sidecar「LLM 配置独立于 `settings.llm`」同口径）。PI0 实测工具调用 / JSON 输出质量，终裁回填本行；换模型只改 env，不改代码 |
+| D4 | 检索 / 摘要模型 | **sidecar 独立 env 配置，默认智谱 GLM（OpenAI 兼容端点，经 LiteLLM `openai/<model>` + `api_base`）**（规格设计决策，与 Sirchmunk sidecar「LLM 配置独立于 `settings.llm`」同口径）。PI0 实测工具调用 / JSON 输出质量，终裁回填本行；换模型只改 env，不改代码。**PI0 实测（2026-11-22）**：`openai/glm-5.3-flash`（Coding Plan 端点）下树检索逐层下钻全程 0 次非法 JSON 输出（telemetry `invalid_output: 0`）、选文档 / 选节点 / 页码证据读取正常，JSON 可用性初测通过；正式终裁与 D9 一并在 PI0.4 回填 |
 | D5 | 建树时机 | **对账同步命令 `scripts/pageindex_sync.py`**（规格设计决策）：以摄取历史 v2 success 记录为准，`file_hash` 变化即重建、历史中已不存在的即删除、非 `.pdf` / `.md` / `.markdown` 跳过并计数。首期不改摄取管线与 DocumentManager（04 规格的 7 阶段与删除链路不动）；摄取后自动触发列入 2.2 |
 | D6 | 上游版本 | **锁定 PyPI 精确版本 `0.7.4`**（2026-11-21 PI0.1 终裁：PyPI 最新稳定版，2026-11-19 发布，`requires_python >=3.10`；上游仓库 `pyproject.toml` 写 `0.2.10` 与发布口径不一致，按 PyPI 为准。`setup_venv.sh` 写死版本、`start_sidecar.sh` 启动日志打印实际版本，对齐 KE0 先例）。已实测该版本导出 `PageIndexClient.submit_document` / `get_document_structure` / `get_page_content` 与 `pageindex.page_index_md.md_to_tree`（含 `if_thinning` / `if_add_node_summary` / `if_add_node_id` 参数，PI1 建树所需齐备） |
 | D7 | 检索循环形态 | **自建「选文档 → 选节点 → 读原文 → 判是否足够」循环**（规格设计决策）：不用上游 `chat()`（会生成答案，与 AnswerGenerator 重叠）与 `agent_tools()`（只覆盖 DocStore 中的 PDF，D3 的 MD 存储用不上）。LLM 调用经注入的 `complete(prompt) -> str`，循环本体是不 import pageindex 的纯模块，可在主 venv 离线单测 |
 | D8 | 证据到引用 | **`RetrievalResult.metadata` 承载 `retrieval_route="longdoc"` / `source_path` / `page` / `page_end` / `section` / `line_start` / `line_end` / `node_id`；`Citation` 只增可选字段 `section` / `line_start` / `line_end`，值为 `None` 时 `to_dict()` 不输出该键**（规格设计决策）：既有 hybrid / agentic 引用的 `to_dict()` 逐字节不变，WS `sources` 帧只增不改 |
-| D9 | PI0 门槛 | **本规格只固定度量口径（3.6 第 4 条），数值门槛在 PI0 基线跑出后与用户共同拍板**（规格设计决策，沿用 MR D2 先例）。门槛终裁前 PI1 不开工；终裁回填本行与 PI0.3 行 |
+| D9 | PI0 门槛 | **本规格只固定度量口径（3.6 第 4 条），数值门槛在 PI0 基线跑出后与用户共同拍板**（规格设计决策，沿用 MR D2 先例）。门槛终裁前 PI1 不开工；终裁回填本行与 PI0.3 行。**2026-11-22 基线已出（第 10 章附录）**：树检索 md hit 0.28 低于 hybrid 0.40、P50（53s vs 0.8s）与单题 token（~6 万 vs 0）高一个数量级，locatable 为唯一优势（0.68 vs 0.52）；用户裁决终裁延后至 PI0.4（可选原型调优后复测），PI1 起仍不开工 |
 | D10 | auto 候选 | **`longdoc` 不进入 auto 候选**（规格设计决策，依据 1.2 第 2 条）：`_ALL_MODES` 保持三档并改名语义为「auto 候选与既有三档」，`longdoc` 单独追加到 capabilities `retrievals`；纳入候选需新增 criteria 文案并按 MR D2 门槛复核，另立提案 |
 
 ### 1.4 对提案的调整
@@ -302,7 +302,7 @@ sidecar 侧 env（`scripts/pageindex/env.example`）：`PAGEINDEX_API_TOKEN`、`
 3. **独立 `libs/tree_search/` 而非扩展 `libs/agentic_search/`**：两者请求模型（paths + FAST/DEEP vs source_paths + 节点预算）与证据形态（字符偏移 vs 章节 / 页 / 行）不同；独立后 AC / AR / SX 冻结契约与测试零改动，代价是 PathGuard / CollectionPathResolver 跨 lib 复用（直接 import，二者不依赖 sirchmunk）。
 4. **PI0 度量口径**（D9 只固定口径）：
    - 问题集：从最大的 3 篇 Markdown + 1 篇长 PDF（上游 `examples/documents/2023-annual-report.pdf`，只放 sidecar 工作区不入库）起草 20–30 条章节定位 / 跨节归纳题，每题标注目标章节（MD 行范围或 PDF 页范围），由用户逐条确认（MR0.2 先例）。
-   - PDF 对照的隔离：Hybrid 与方案 (a) 必须先摄取该 PDF 才能检索。PI0 使用临时配置文件，把向量库 / BM25 / 摄取历史 / 图片库路径指向临时目录，以独立 collection `pi0_poc` 摄取；Sirchmunk DEEP 一路把该 PDF 所在临时目录加入临时配置的 `agentic_search.allowed_roots`。跑完删除临时目录，不污染默认库，不入 git。MD 对照直接用默认库中已摄取的文档。
+   - PDF 对照的隔离：Hybrid 与方案 (a) 必须先摄取该 PDF 才能检索。PI0 使用临时配置文件，把向量库 / BM25 / 摄取历史 / 图片库路径指向临时目录，以独立 collection `pi0_poc` 摄取；Sirchmunk DEEP 一路把该 PDF 所在临时目录加入临时配置的 `agentic_search.allowed_roots`。跑完删除临时目录，不污染默认库，不入 git。MD 对照直接用默认库中已摄取的文档（PI0 实测默认库未含目标 4 篇，已按正常摄取路径补齐，见 10.2）。
    - 命中率：返回证据与目标范围有交集的题目占比。
    - 引用可定位率：引用能直接给出章节与行号（或页码）的占比；方案 (a) 用离线近似计算：把 Hybrid 命中 chunk 在源文件中定位后推导标题路径，不改摄取代码。
    - 延迟 P50 / P95、单题 token；Sirchmunk DEEP 取 telemetry，树检索取原型计数。
@@ -337,7 +337,8 @@ sidecar 侧 env（`scripts/pageindex/env.example`）：`PAGEINDEX_API_TOKEN`、`
 |------|------|----------|------|
 | PI0.1 | sidecar venv 与版本锁定：`setup_venv.sh` / `env.example` / `.gitignore`，D6 终裁 | `bash scripts/pageindex/setup_venv.sh` 在干净机器建出 `.venv-pageindex`，`pip show pageindex` 版本与脚本锁定一致；D6 行回填版本号 | 已完成（2026-11-21：D6 锁定 `0.7.4`；本机实测脚本建出 `.venv-pageindex`（Python 3.12），`pip show pageindex` = 0.7.4，上游接口导入核对通过；fastapi / uvicorn 一并装入 sidecar venv 供 PI2 使用） |
 | PI0.2 | 问题集起草与确认 | `tests/fixtures/pageindex/poc_questions.jsonl` 20–30 条，每条含目标章节范围，用户逐条确认（记录确认日期） | 已完成（2026-11-21 用户逐条确认定稿：30 条 = MD 25 + PDF 5，locate 21 + synthesize 9；PDF 为上游 `examples/documents/2023-annual-report.pdf`（美联储 2023 年报，222 页），落 `data/db/pageindex/poc/`（不入 git），印刷页码 + 6 = 物理页已抽样校准） |
-| PI0.3 | 四路对照与立项门终裁 | `poc_compare.py`（内置树检索原型，在 sidecar venv 独立运行，不依赖 PI1 / PI2，见 3.6 第 5 条）输出对照表（命中率 / 引用可定位率 / P50·P95 / 单题 token / 建树成本）落盘本规格附录；PDF 对照经临时隔离库摄取、跑完清理；D4、D9 终裁回填；不达标则本规格止于预研并建派生台账 | 未开始 |
+| PI0.3 | 四路对照与立项门终裁 | `poc_compare.py`（内置树检索原型，在 sidecar venv 独立运行，不依赖 PI1 / PI2，见 3.6 第 5 条）输出对照表（命中率 / 引用可定位率 / P50·P95 / 单题 token / 建树成本）落盘本规格附录；PDF 对照经临时隔离库摄取、跑完清理；D4、D9 终裁回填；不达标则本规格止于预研并建派生台账 | 已完成（2026-11-22：30 题 × 4 路全跑通，对照表落盘第 10 章附录，`poc_results.json` / `tree_*.jsonl` 落 `data/db/pageindex/poc/`（不入 git）；D4 实测回填；D9 未终裁——用户裁决转入 PI0.4 承接后续任务，PI1 起仍不开工。脚手架三轮修复见 commit `4463c4b`：每题独立预算 + 逐层下钻、md 按证据自身文件定位与同文件归属判定、PDF 页码离线定位（PageLocator）、隔离工作区避开 PathGuard `data/db` denied substring、md 基线语料补摄取） |
+| PI0.4 | PI0 后续任务与立项门终裁 | 承接 PI0.3 遗留（用户裁决 2026-11-22）：D9 数值门槛终裁（达标则 PI1 开工，不达标则本规格止于预研并建派生台账）；可选树检索原型调优（下钻策略 / 摘要长度 / 节点与 token 预算分配）后按同一问题集复测；PI0 过程发现（附录 10.3）的处置分流——产品侧派生项进派生台账、上游缺陷提 issue 候选 | 未开始 |
 | PI1 | sidecar 纯模块 `md_prep` / `tree_store` / `tree_loop` | 第 4 章 PI1 用例全过；纯模块 import 不引入 `pageindex` / `litellm` | 未开始 |
 | PI2 | sidecar 服务、`pi_adapter`、`start_sidecar.sh`、红线规则 | 本机启动后 `/status` 200、无 token 401；对 1 篇 MD + 1 篇 PDF 建树并检索返回带行号 / 页码证据；`python scripts/check_redlines.py` 0 违规（白名单仅 `pi_adapter.py` / `poc_compare.py`）且新规则正反样例单测通过；契约 fixture 替换为真实响应 | 未开始 |
 | PI3 | `libs/tree_search/` + `tree_search` 配置节 | MockTransport / stub 集成测试全过；默认配置下 `load_settings()` 结果除新增节外不变；非法配置 fail-fast 单测覆盖 3.3 每条校验 | 未开始 |
@@ -385,3 +386,39 @@ sidecar 侧 env（`scripts/pageindex/env.example`）：`PAGEINDEX_API_TOKEN`、`
 | R5 | 建树成本：1.7 MB Markdown 摘要 token 量可观 | PI0.3 单列建树成本；同步命令支持 `--collection` 分批；`file_hash` 未变不重建 |
 | R6 | sidecar 内并发：上游 DocStore 锁 + 单进程同步端点，不适合并发 | 首期单用户本机场景接受串行；需要并发时另议 |
 | R7 | #609 上游修复后预处理与上游行为重叠 | `md_prep` 规则幂等（对已规范的 ATX 输入无副作用），升级版本时复跑 PI1 用例 |
+
+## 10. 附录：PI0 四路对照基线（2026-11-22）
+
+### 10.1 对照表（30 题 = MD 25 + PDF 5，用户逐条确认定稿）
+
+| 路由 / 语料 | n | ok | hit | locatable | P50 | P95 | token/题 |
+|---|---|---|---|---|---|---|---|
+| tree / md | 25 | 25 | 0.28 | 0.68 | 52.9s | 145.4s | 59,870 |
+| hybrid / md | 25 | 25 | 0.40 | 0.52 | 0.77s | 1.43s | 0 |
+| agentic_deep / md | 25 | 25 | 0.08 | 0.32 | 6.1s | 10.5s | 32,612 |
+| plan_a / md | 25 | 25 | 0.40 | 0.52 | 0.78s | 1.14s | 0 |
+| tree / pdf | 5 | 5 | 1.00 | 1.00 | 10.0s | 32.0s | 2,080 |
+| hybrid / pdf | 5 | 5 | 1.00 | 1.00 | 0.58s | 0.73s | 0 |
+| agentic_deep / pdf | 5 | 0 | — | — | — | — | —（上游缺陷，见 10.3 ③，该路无效） |
+| plan_a / pdf | 5 | 5 | 1.00 | 1.00 | 0.61s | 0.79s | 0 |
+
+一次性建树成本（缓存复用后为零增量）：1.7 MB 篇 1,881 节点 61 分钟 / 470 KB 篇 253 节点 12 分钟 / 351 KB 篇 317 节点 10 分钟 / PDF 222 页 177 节点 33 秒。
+
+**解读**：MD 上树检索原型 hit 未超 hybrid（0.28 vs 0.40），locatable 为唯一优势（0.68 vs 0.52），代价是 P50 53 秒与单题 ~6 万 token（R3 风险实测坐实：大树逐层下钻 token 消耗巨大，1881 节点整树大纲单次调用即 ~30 万 token，不可行，故原型采用逐层下钻）；PDF 页定位类问题上 hybrid 已能答好，树检索无增量；agentic_deep 全面最弱。R4 的 P95 实测：树检索 145s（md），`timeout_s` 默认值需按此校准（PI0.4）。
+
+### 10.2 度量口径备注（与 3.6 第 4 条的差异澄清）
+
+- **md 基线语料**：3.6 假定「MD 对照直接用默认库中已摄取的文档」，实测默认库不含目标 4 篇——已按正常摄取路径补齐（SHA256 幂等），基线为「全默认库检索」，tree 路候选范围限 4 篇。
+- **同文件归属判定**：语料存在跨文件重复内容（章节拆分件），hit / locatable 只计「证据文件 == 题目目标文件」，跨文件命中单独计数（hybrid/md 250 条结果中 151 条跨文件）。
+- **PDF 页码**：摄取侧 markitdown 拍平页边界、chunker 无页追踪（产品链路无 `metadata.page`），hybrid / plan_a 页码由 `PageLocator` 离线回定位（pypdf 逐页去空白子串探针 + 多页消歧，方案 (a) 口径）；tree / pdf 页码取树节点 `start_index` / `end_index`（物理页）。
+- **agentic_deep / md 摄取库**：sidecar 按 `data/documents` 允许根检索；sidecar auth middleware 将 401 报为 500（10.3 ②），token 环境变量注入后正常。
+
+### 10.3 PI0 过程发现（处置分流进 PI0.4）
+
+| # | 发现 | 性质 | 建议处置 |
+|---|------|------|---------|
+| ① | PDF 空/扫描页文本 chunk 一路流到 embed 阶段才崩（`texts must be non-empty string`），IR 冻结契约对 pypdf 空文本「行为保持不变」、空文本按 load 失败记 `failed_stage` 只落在 markitdown loader | 产品缺陷（IR 健壮性） | 派生台账：摄取链路空文本防护（跳过或按 load 失败）+ 单测 |
+| ② | sirchmunk auth middleware 把 `HTTPException(401)` 变成 500 `INTERNAL_ERROR`（`sirchmunk/api/main.py:107`） | 上游缺陷 | 上游 issue 候选；本项目侧已用 env 注入 token 规避 |
+| ③ | sirchmunk DEEP 对 PDF 返回 summary 但证据片段恒空（"No source snippet was recorded"；另一分支报 `ConfidenceDecision` 参数缺失），md 正常 | 上游缺陷 | 上游 issue 候选；agentic_deep/pdf 路基线判无效 |
+| ④ | markitdown 无页边界 + chunker 无页追踪：产品若要 PDF 页码引用（PI5 验收项），需在摄取链路传递页码 metadata | 产品缺口 | PI1/PI5 设计时评估；短期引用页码依赖离线近似 |
+| ⑤ | PathGuard `denied_substrings` 含 `data/db`，任何建在 `data/db/` 下的临时语料目录都会被 collection 定界整体判越权（空定界集零证据） | 使用约束（非缺陷，fail-closed 按设计工作） | USAGE_GUIDE / PI2 运维文档写明：语料目录不得置于 `data/db/` 下 |
