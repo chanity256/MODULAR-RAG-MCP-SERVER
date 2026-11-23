@@ -134,6 +134,7 @@ docs/ 文档分两类：
 | [retrieval-trace-mining_backlog.md](backlog/retrieval-trace-mining_backlog.md) | 检索 Trace 挖掘管线提案（草案，未立项）：从 `logs/traces/` 与 `chat_sessions.db` 提取「问题 → 回答 → 所选检索模式」作 MODE_ROUTER 标注集扩充 / 持续校准数据源；已核实 trace 与会话库各自的数据现状，六个待研究问题（手选 vs 默认区分、弱标注口径、跨库 join、隐私、模式命名映射、时机依赖 MR0.2 门槛） |
 | [mode-router-followups_backlog.md](backlog/mode-router-followups_backlog.md) | 检索模式路由器遗留事项台账（MR 规格冻结遗留）：#1 同一问题集合 auto 与人工三选一的质量 / 延迟 / 成本对比记表（用户决议延后）；#2 接入 Jev（`typesafe` 后端，原 MR6，用户决议不接入，2026-11-19，仅留档）；#3 接入本地微调模型（`openai_compatible` 后端，原 MR7，待端点） |
 | [pageindex-followups_backlog.md](backlog/pageindex-followups_backlog.md) | PageIndex 树检索遗留事项台账（PI 规格开发中，PI0 收口起记录）：决议与已知限制 5 项（PDF 题无区分度不补、agentic_deep/pdf 无效路、主链路无 PDF 页码 metadata、`data/db` 语料约束、上游 DocStore 不去重）；上游 issue 草稿 3 份（401→500、DEEP 对 PDF 证据恒空、DocStore 不按内容去重）；产品缺陷候选池 2 项（摄取链路空文本防护、Chroma `images` 空 list 校验）；可选优化（flash 混合建树，用户裁决维持 submit 基线） |
+| [ingestion-empty-content-guard_backlog.md](backlog/ingestion-empty-content-guard_backlog.md) | 摄取异常内容前置防护提案（草案，机器起草 2026-11-23 待人工核实；起源 PI 台账候选池 + logs/app 一周异常互证）：Chroma 空 list metadata（`images` ×3 / `heading_outline` ×1）store 阶段整篇失败且重试不收敛，最小修复点 `chroma_store._chroma_safe_value` 丢弃空列表；空文本防护（PI 台账候选池 #1）关联待裁决 |
 
 ## reference/ — 使用参考
 
