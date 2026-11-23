@@ -1,12 +1,12 @@
 """树检索逐层下钻循环（PI1，纯标准库）。
 
 从 PI0 原型（``poc_compare.py`` ``TreeSearcher``，PI0.6 复测 hit 0.64 的
-形态）忠实移植为可注入的纯模块（规格 §3.2）：选文档 → 选节点 → 读原文
-→ 判是否足够闭环。LLM 经注入的 ``complete(prompt) -> {"text", "tokens"}``，
+形态）移植为可注入的纯模块（规格 §3.2）：选文档 → 选节点 → 读原文 → 判
+是否足够闭环。LLM 经注入的 ``complete(prompt) -> {"text", "tokens"}``，
 原文读取经注入的 ``read_node(doc, node) -> NodeRead``（D12 回映射细节由
 调用方实现：MD 证据 ``source_path`` 永为原 MD 路径，回定位失败
-``line_*`` 为 ``None``）；超长节点下钻的近似行区间经 ``node_span`` 注入
-（MD 接 ``HeadingIndex.locate``，PDF 传 ``None``）。
+``line_*`` 为 ``None``）。超长节点（文本超过 ``max_evidence_chars``）读取
+后优先下钻子节点，无余轮或无子节点则截断并标记。
 """
 
 from __future__ import annotations
@@ -116,22 +116,24 @@ def _estimate_tokens(prompt: str) -> int:
 
 def search(query: str, docs: list[LoopDoc], *, complete,
            read_node, max_nodes: int = 5, max_loops: int = 3,
-           max_token_budget: int = 32000, node_span: Callable | None = None,
+           max_token_budget: int = 32000,
            prefilter_threshold: int = PREFILTER_THRESHOLD,
            prefilter_keep: int = PREFILTER_KEEP,
            max_evidence_chars: int = MAX_EVIDENCE_CHARS,
            max_workers: int = 3) -> LoopResult:
-    """逐层下钻检索（预算在每次 LLM 调用前检查：预估超剩余预算不发起调用）。
+    """逐层下钻检索（预算在每次 LLM 调用前检查：预估超剩余预算不发起调用；
+    并行窗口内以预留计入在途调用的预估值）。
 
-    ``read_node(doc, node) -> NodeRead``；``node_span(doc, node) ->
-    (line_start, line_end) | None`` 供超长节点下钻判断（MD 传 heading 定位，
-    PDF 传 ``None``）。证据按选中顺序 ``score = 1 / rank``。
+    ``read_node(doc, node) -> NodeRead``。证据按选中顺序 ``score = 1 / rank``；
+    单节点文本超过 ``max_evidence_chars`` 时优先下钻子节点（有余轮时），
+    否则截断并标 ``truncated``。
     """
     started = time.perf_counter()
     candidates = list(docs)
     telemetry: dict = {}
     llm_calls = 0
     tokens = 0
+    reserved = 0  # 在途 LLM 调用的预估预留（并行窗口内预算可见，10.9 #8）
     lock = threading.Lock()
 
     def tel(key: str, n: int = 1) -> None:
@@ -139,28 +141,41 @@ def search(query: str, docs: list[LoopDoc], *, complete,
             telemetry[key] = telemetry.get(key, 0) + n
 
     def ask(prompt: str) -> str | None:
-        """调用前预算检查：预估超剩余预算则不发起调用（返回 None）。"""
-        nonlocal llm_calls, tokens
+        """调用前预算检查并预留预估值；预估超剩余预算则不发起调用。
+
+        返回 ``None`` 仅表示预算截停；``complete`` 返回的空文本按 ``""``
+        处理（走非法输出路径）。
+        """
+        nonlocal llm_calls, tokens, reserved
         estimate = _estimate_tokens(prompt)
         with lock:
-            if tokens + estimate > max_token_budget:
+            if tokens + reserved + estimate > max_token_budget:
                 telemetry["budget_stopped"] = telemetry.get("budget_stopped", 0) + 1
                 return None
-        result = complete(prompt)
+            reserved += estimate
+        try:
+            result = complete(prompt)
+        finally:
+            with lock:
+                reserved -= estimate
         with lock:
             llm_calls += 1
             tokens += int(result.get("tokens") or 0)
-        return result.get("text")
+        text = result.get("text")
+        return text if text is not None else ""
 
-    def ask_json(prompt: str) -> dict | None:
-        """LLM 输出非法 JSON 重试一次，仍非法记 ``invalid_output`` 返回 None。"""
+    def ask_json(prompt: str, required_keys: tuple[str, ...]) -> dict | None:
+        """LLM 输出非法 JSON 或缺预期键（10.9 #15）时重试一次，仍非法记
+        ``invalid_output`` 返回 None；预算截停不计 ``invalid_output``（#14）。"""
         for attempt in (1, 2):
             text = ask(prompt)
+            if text is None:
+                return None
             data = extract_json(text)
-            if isinstance(data, dict):
+            if isinstance(data, dict) and any(k in data for k in required_keys):
                 return data
-            if attempt == 1 and text is not None:
-                continue  # 非法 JSON（非预算截停）重试一次
+            if attempt == 1:
+                continue  # 非法 / 缺键：重试一次
             break
         tel("invalid_output")
         return None
@@ -174,12 +189,13 @@ def search(query: str, docs: list[LoopDoc], *, complete,
             "以下是可选文档列表。判断哪些文档可能包含回答问题所需的内容，"
             "返回 JSON：{\"doc_ids\": [索引]}。\n\n"
             f"问题：{query}\n\n文档列表（索引从 0 开始）：\n{listing}\n\n"
-            '只返回 JSON，例如 {"doc_ids": [0, 2]}'
-        )
+            '只返回 JSON，例如 {"doc_ids": [0, 2]}',
+            ("doc_ids",))
         ids = (data or {}).get("doc_ids") if isinstance(data, dict) else None
         if not isinstance(ids, list) or not ids:
             picked = candidates  # 选文档失败不终止：退回全候选
         else:
+            ids = list(dict.fromkeys(ids))  # 重复索引不重复调度（10.9 #18）
             picked = [candidates[i] for i in ids
                       if isinstance(i, int) and 0 <= i < len(candidates)] or candidates
 
@@ -233,8 +249,8 @@ def search(query: str, docs: list[LoopDoc], *, complete,
                 "下面是文档某一层级的候选节点列表（过多，请先压缩筛选）。\n"
                 f"保留与问题可能相关的最多 {prefilter_keep} 个节点，返回 JSON："
                 "{\"keep\": [\"0001\"]}。只返回 JSON。\n\n"
-                f"问题：{query}\n\n候选节点：\n" + listing
-            )
+                f"问题：{query}\n\n候选节点：\n" + listing,
+                ("keep",))
             keep = (data or {}).get("keep") if isinstance(data, dict) else None
             if isinstance(keep, list) and keep:
                 by_id = {str(n.get("node_id")): n for n in nodes}
@@ -255,13 +271,14 @@ def search(query: str, docs: list[LoopDoc], *, complete,
             "\"read\"，要看其子节点的放进 \"expand\"（只能选带＋的）。\n"
             "返回 JSON：{\"read\": [\"0000\"], \"expand\": [\"0001\"]}。"
             "只返回 JSON。\n\n"
-            f"问题：{query}\n文档：{doc.source_path}\n\n节点列表：\n" + "\n".join(lines)
-        )
+            f"问题：{query}\n文档：{doc.source_path}\n\n节点列表：\n" + "\n".join(lines),
+            ("read", "expand"))
         read_ids = data.get("read") if isinstance(data, dict) else None
         expand_ids = data.get("expand") if isinstance(data, dict) else None
         if not isinstance(read_ids, list) and not isinstance(expand_ids, list):
             return [], [], False
-        by_id = {str(n.get("node_id")): n for n in flat_nodes(doc.tree)}
+        # 只在本轮展示的节点中解析（10.9 #17）：引用未展示层级的 id 忽略
+        by_id = {str(n.get("node_id")): n for n in nodes}
         reads: list[dict] = []
         next_level: list[dict] = []
         for nid in (expand_ids or []):
@@ -307,20 +324,34 @@ def search(query: str, docs: list[LoopDoc], *, complete,
                     break
                 new_reads.append((doc, node))
 
-        # 3) 读原文（max_nodes 硬截断 + 超长下钻）
-        for doc, node in list(new_reads):
-            if node_span is not None and doc.format == "md":
-                # 超长节点优先下钻子节点，不急读（原型 400 行阈值）
-                span = node_span(doc, node)
-                if span and (span[1] - span[0] + 1) > 400 and node.get("nodes"):
-                    frontier.setdefault(doc.source_path, []).extend(
-                        node.get("nodes") or [])
-                    new_reads.remove((doc, node))
-                    progressed = True
-                    continue
+        # 3) 读原文（max_nodes 硬截断 + 超长节点下钻 / 截断，10.9 #9 #10）
+        remaining: list[tuple[LoopDoc, dict]] = []
+        for doc, node in new_reads:
             ev = read_one(doc, node)
-            if ev is not None:
-                evidence_by_node[(doc.source_path, node.get("node_id"))] = ev
+            if ev is None:
+                continue
+            text = ev["text"] or ""
+            if len(text) > max_evidence_chars and node.get("nodes") \
+                    and _loop + 1 < max_loops:
+                # 超长节点优先下钻子节点：撤销该证据、子节点入下一轮 frontier
+                # （无余轮时不下钻，避免证据整段丢失）
+                with lock:
+                    state["selected"] -= 1
+                    state["rank"] -= 1
+                frontier.setdefault(doc.source_path, []).extend(
+                    node.get("nodes") or [])
+                progressed = True
+                tel("oversize_drilled")
+                continue
+            if len(text) > max_evidence_chars:
+                # 无子节点或无余轮：截断并标记
+                ev["text"] = text[:max_evidence_chars]
+                ev["truncated"] = True
+                with lock:
+                    state["truncated"] = True
+            evidence_by_node[(doc.source_path, node.get("node_id"))] = ev
+            remaining.append((doc, node))
+        new_reads = remaining
 
         if not new_reads and not progressed:
             break
@@ -328,16 +359,17 @@ def search(query: str, docs: list[LoopDoc], *, complete,
             telemetry["max_nodes_capped"] = telemetry.get("max_nodes_capped", 0) + 1
             break
 
-        # 4) 判是否足够（有新证据时）：足够则提前收敛
-        if evidence_by_node:
+        # 4) 判是否足够：仅当结论可能改变走向时调用（有证据、下一轮仍有
+        # 可探索 frontier、且还有剩余轮次；10.9 #16）
+        if evidence_by_node and any(frontier.values()) and _loop + 1 < max_loops:
             snippets = "\n\n".join(
                 f"[{e['section']}] {e['text'][:500]}" for e in
                 sorted(evidence_by_node.values(), key=lambda x: x["score"], reverse=True))
             data = ask_json(
                 "基于已读到的证据，判断是否足够回答问题。返回 JSON："
                 "{\"sufficient\": true/false, \"missing\": \"还缺什么\"}。只返回 JSON。\n\n"
-                f"问题：{query}\n\n已有证据：\n{snippets[:6000]}"
-            )
+                f"问题：{query}\n\n已有证据：\n{snippets[:6000]}",
+                ("sufficient",))
             if isinstance(data, dict) and data.get("sufficient") is True:
                 telemetry["sufficient_stop"] = telemetry.get("sufficient_stop", 0) + 1
                 break

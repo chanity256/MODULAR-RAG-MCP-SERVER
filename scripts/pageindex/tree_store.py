@@ -9,8 +9,10 @@ derived_pdf」映射与 MD 标题索引缓存（规格 §3.2）。JSON 文件 + 
 
 from __future__ import annotations
 
+import copy
 import json
 import os
+import sys
 import threading
 from pathlib import Path
 
@@ -28,11 +30,24 @@ class TreeStore:
         if self.path.exists():
             try:
                 data = json.loads(self.path.read_text(encoding="utf-8"))
-                if isinstance(data, dict):
-                    self._records = data
             except (OSError, ValueError):
-                # 损坏文件不阻断启动：按空库处理，下次写入覆盖
+                data = None
+            if not isinstance(data, dict):
+                # 损坏文件（含合法 JSON 但非对象，如 [1, 2]）不阻断启动，
+                # 但先把原件留存为 ``<name>.corrupt``
+                # （10.9 #12：直接覆盖会让全部 source_path → doc_id / derived_pdf
+                # 映射永久丢失，D5 对账随即全部重提交且上游不去重）
+                try:
+                    os.replace(self.path,
+                               self.path.with_name(self.path.name + ".corrupt"))
+                except OSError:
+                    print(f"tree_store: corrupt store file could not be moved "
+                          f"aside: {self.path}", file=sys.stderr)
+                print(f"tree_store: corrupt store file moved aside, "
+                      f"starting empty: {self.path}", file=sys.stderr)
                 self._records = {}
+            else:
+                self._records = data
 
     # -- 内部 ---------------------------------------------------------------
 
@@ -57,15 +72,16 @@ class TreeStore:
     def get(self, source_path: str) -> dict | None:
         with self._lock:
             rec = self._records.get(source_path)
-            return dict(rec) if rec else None
+            # 深拷贝：嵌套的 headings 列表不得与内部存储共享（10.9 #20）
+            return copy.deepcopy(rec) if rec else None
 
     def upsert(self, record: dict) -> dict:
         """按 ``source_path`` 幂等插入或更新，返回存储后的记录副本。"""
         self._validate(record)
         with self._lock:
-            self._records[record["source_path"]] = dict(record)
+            self._records[record["source_path"]] = copy.deepcopy(record)
             self._flush_locked()
-            return dict(self._records[record["source_path"]])
+            return copy.deepcopy(self._records[record["source_path"]])
 
     def remove(self, source_path: str) -> dict | None:
         """删除记录并返回其副本（含 ``derived_pdf``，调用方连带删除派生
@@ -74,16 +90,16 @@ class TreeStore:
             rec = self._records.pop(source_path, None)
             if rec is not None:
                 self._flush_locked()
-            return dict(rec) if rec else None
+            return copy.deepcopy(rec) if rec else None
 
     def list_all(self) -> list[dict]:
         with self._lock:
-            return [dict(r) for r in self._records.values()]
+            return copy.deepcopy(list(self._records.values()))
 
     def find_by_hash(self, file_hash: str) -> dict | None:
         """按内容哈希找记录（对账同步判断「file_hash 未变不重建」）。"""
         with self._lock:
             for rec in self._records.values():
                 if rec.get("file_hash") == file_hash:
-                    return dict(rec)
+                    return copy.deepcopy(rec)
             return None

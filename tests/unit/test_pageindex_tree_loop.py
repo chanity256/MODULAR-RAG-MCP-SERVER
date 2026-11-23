@@ -75,7 +75,8 @@ def fake_read(doc, node, *, how="relocated", truncated=False):
 def test_single_doc_select_read_sufficient():
     doc = mkdoc(structure=[mknode("0000", "根", summary="根摘要",
                                   children=[mknode("0001", "子")])])
-    llm = FakeComplete(read=["0000"], sufficient=True)
+    # 同时展开根节点 → 下一轮仍有可探索 frontier，充分性判断才会被调用（10.9 #16）
+    llm = FakeComplete(read=["0000"], expand=["0000"], sufficient=True)
     result = search("q", [doc], complete=llm, read_node=fake_read)
     assert [e["node_id"] for e in result.evidences] == ["0000"]
     assert result.evidences[0]["score"] == 1.0
@@ -87,12 +88,37 @@ def test_single_doc_select_read_sufficient():
     assert result.telemetry["sufficient_stop"] == 1
 
 
+def test_sufficiency_gate_skipped_when_frontier_exhausted():
+    # 10.9 #16：只读未展开 → 无剩余可探索 frontier → 不再调用充分性判断
+    doc = mkdoc(structure=[mknode("0000", "根", children=[mknode("0001", "子")])])
+    llm = FakeComplete(read=["0000"], sufficient=True)
+    result = search("q", [doc], complete=llm, read_node=fake_read)
+    assert [e["node_id"] for e in result.evidences] == ["0000"]
+    assert result.llm_call_count == 1
+    assert "sufficient_stop" not in result.telemetry
+
+
 def test_section_path_nested():
     doc = mkdoc(structure=[mknode("0000", "根", children=[
         mknode("0001", "子节", children=[mknode("0002", "孙节")])])])
-    llm = FakeComplete(read=["0002"], sufficient=True)
-    result = search("q", [doc], complete=llm, read_node=fake_read)
+    import json
+    import re
+    calls = {"n": 0}
+
+    def complete(prompt):
+        calls["n"] += 1
+        if "节点列表" in prompt:
+            # 逐层展开到 0002 再读（10.9 #17：只能引用本轮展示的节点）
+            m = re.search(r"\- \[(\d{4})\]", prompt)
+            nid = m.group(1)
+            payload = {"read": [nid]} if nid == "0002" else {"expand": [nid]}
+            return {"text": json.dumps(payload), "tokens": 10}
+        raise AssertionError(f"unrouted prompt: {prompt[:80]}")
+
+    result = search("q", [doc], complete=complete, read_node=fake_read,
+                    max_loops=3)
     assert result.evidences[0]["section"] == "根 > 子节 > 孙节"
+    assert calls["n"] == 3  # 三轮各一次选节点；无证据不判足够
 
 
 def test_multi_doc_selection_routes_to_picked():
@@ -193,7 +219,6 @@ def test_invalid_json_retry_once_then_valid():
 
     def complete(prompt):
         llm.prompts.append(prompt)
-        import json
         calls["n"] += 1
         if calls["n"] == 1:
             return {"text": "抱歉我不会 JSON", "tokens": 10}  # 第一次非法
@@ -223,33 +248,121 @@ def test_prefilter_kicks_in_over_threshold():
     assert result.evidences[0]["node_id"] == "0000"
 
 
-def test_long_node_drills_down_instead_of_reading():
+def test_long_node_drills_down_when_loops_remain():
+    # 10.9 #9/#10：读到的文本超长且还有余轮 → 撤销证据、下钻子节点
     child = mknode("0001", "子")
     doc = mkdoc(structure=[mknode("0000", "长章节", children=[child])])
-
-    def node_span(d, node):
-        return (1, 1000) if node.get("node_id") == "0000" else None
+    import json
 
     def read_node(d, node):
-        raise AssertionError("超长节点应先下钻而不是直接读")
+        return NodeRead(text="x" * 200, line_start=1, line_end=1000,
+                        truncated=False, how="relocated")
+
+    def complete(prompt):
+        import re
+        m = re.search(r"\- \[(\d{4})\]", prompt)
+        return {"text": json.dumps({"read": [m.group(1)]}), "tokens": 10}
+
+    result = search("q", [doc], complete=complete, read_node=read_node,
+                    max_evidence_chars=100, max_loops=2)
+    # 0000 被下钻（无证据）；下一轮读子节点 0001，超长且无子节点 → 截断
+    assert result.telemetry["oversize_drilled"] == 1
+    assert [e["node_id"] for e in result.evidences] == ["0001"]
+    assert result.evidences[0]["truncated"] is True
+    assert len(result.evidences[0]["text"]) == 100
+    assert result.telemetry["truncated_evidence"] == 1
+    assert result.llm_call_count == 2  # 两轮各一次选节点
+
+
+def test_oversize_without_remaining_loops_truncates_in_place():
+    # 10.9 #10：无余轮时不下钻（避免证据整段丢失），就地截断并标记
+    doc = mkdoc(structure=[mknode("0000", "长章节", children=[mknode("0001", "子")])])
+
+    def read_node(d, node):
+        return NodeRead(text="x" * 200, line_start=1, line_end=1000,
+                        truncated=False, how="relocated")
 
     llm = FakeComplete(read=["0000"], sufficient=False)
     result = search("q", [doc], complete=llm, read_node=read_node,
-                    node_span=node_span, max_loops=1)
-    assert result.evidences == []
-    assert result.llm_call_count == 1  # 仅选节点；下钻推进了一层
+                    max_evidence_chars=100, max_loops=1)
+    assert "oversize_drilled" not in result.telemetry
+    assert [e["node_id"] for e in result.evidences] == ["0000"]
+    assert result.evidences[0]["truncated"] is True
+    assert len(result.evidences[0]["text"]) == 100
 
 
 def test_short_span_reads_normally():
     doc = mkdoc(structure=[mknode("0000", "短节")])
-
-    def node_span(d, node):
-        return (1, 50)
-
     llm = FakeComplete(read=["0000"], sufficient=True)
-    result = search("q", [doc], complete=llm, read_node=fake_read,
-                    node_span=node_span)
+    result = search("q", [doc], complete=llm, read_node=fake_read)
     assert len(result.evidences) == 1
+    assert result.evidences[0]["truncated"] is False
+
+
+def test_parallel_budget_reservation(monkeypatch):
+    # 10.9 #8：并行窗口内，在途调用的预估计入预算——第二个文档的选节点
+    # 调用被预算截停，而不是双双超预算发出
+    import tree_loop
+    monkeypatch.setattr(tree_loop, "_estimate_tokens", lambda prompt: 10)
+    d0 = mkdoc(source="/docs/0.md", structure=[mknode("0000", "零")], title="甲")
+    d1 = mkdoc(source="/docs/1.md", structure=[mknode("0000", "零")],
+               doc_id="pi-2", title="甲")
+    llm = FakeComplete(doc_ids=[0, 1], read=["0000"], sufficient=False)
+    # FakeComplete 每次实报 tokens=100；预算 = 选文档实报 100 + 一次选节点
+    # 预估值 10：第二个并发的选节点调用必被截停
+    result = search("q", [d0, d1], complete=llm, read_node=fake_read,
+                    max_token_budget=110)
+    assert result.llm_call_count == 2
+    assert result.telemetry["budget_stopped"] >= 1
+    assert len(result.evidences) == 1  # 只有一个文档实际读到了证据
+
+
+def test_doc_ids_dedup():
+    # 10.9 #18：选文档返回重复索引 → 不重复调度
+    d0 = mkdoc(source="/docs/0.md", structure=[mknode("0000", "零")])
+    d1 = mkdoc(source="/docs/1.md", structure=[mknode("0000", "壹")],
+               doc_id="pi-2")
+    llm = FakeComplete(doc_ids=[1, 1, 1], read=["0000"], sufficient=False)
+    result = search("q", [d0, d1], complete=llm, read_node=fake_read,
+                    max_loops=1)
+    # 选文档 1 次 + 单文档选节点 1 次（重复索引不产生第二次选节点调用）
+    assert result.llm_call_count == 2
+    assert [e["source_path"] for e in result.evidences] == ["/docs/1.md"]
+
+
+def test_ids_outside_displayed_frontier_ignored():
+    # 10.9 #17：引用未在本轮展示的节点 id（子层 / 不存在）一律忽略
+    doc = mkdoc(structure=[mknode("0000", "根", children=[mknode("0001", "子")])])
+    llm = FakeComplete(read=["0001"], expand=["9999"], sufficient=False)
+    result = search("q", [doc], complete=llm, read_node=fake_read, max_loops=2)
+    assert result.evidences == []
+    assert result.llm_call_count == 1  # 无证据无进展，第二轮直接终止
+
+
+def test_schema_missing_keys_retried_then_degraded():
+    # 10.9 #15：JSON 合法但缺预期键 → 同样重试一次，仍非法记 invalid_output
+    doc = mkdoc(structure=[mknode("0000", "根")])
+    calls = {"n": 0}
+
+    def complete(prompt):
+        calls["n"] += 1
+        return {"text": '{"unexpected": 1}', "tokens": 10}
+
+    result = search("q", [doc], complete=complete, read_node=fake_read)
+    assert result.evidences == []
+    assert result.telemetry["invalid_output"] == 1
+    assert calls["n"] == 2  # 同一 prompt 重试一次
+
+
+def test_single_key_response_accepted():
+    # 10.9 #15：只有 read 键（无 expand）也算合法输出
+    doc = mkdoc(structure=[mknode("0000", "根")])
+
+    def complete(prompt):
+        return {"text": '{"read": ["0000"]}', "tokens": 10}
+
+    result = search("q", [doc], complete=complete, read_node=fake_read)
+    assert result.evidences[0]["node_id"] == "0000"
 
 
 def test_unlocated_and_truncated_telemetry():
@@ -266,6 +379,20 @@ def test_unlocated_and_truncated_telemetry():
     assert result.telemetry["truncated_evidence"] == 1
     unlocated = next(e for e in result.evidences if e["node_id"] == "0000")
     assert unlocated["line_start"] is None and unlocated["line_end"] is None
+
+
+def test_page_fallback_telemetry():
+    # §4 缺口补测（10.9 #13⑥）：MD 读取回退页码证据时记 page_fallback
+    doc = mkdoc(structure=[mknode("0000", "根")])
+
+    def read_node(d, node):
+        return NodeRead(text="t", line_start=None, line_end=None,
+                        truncated=False, how="page_fallback")
+
+    llm = FakeComplete(read=["0000"], sufficient=False)
+    result = search("q", [doc], complete=llm, read_node=read_node)
+    assert result.telemetry["page_fallback"] == 1
+    assert result.evidences[0]["line_start"] is None
 
 
 def test_scores_sorted_desc():

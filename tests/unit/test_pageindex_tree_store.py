@@ -72,13 +72,39 @@ def test_find_by_hash(tmp_path):
     assert store.find_by_hash("missing") is None
 
 
-def test_corrupt_file_treated_as_empty(tmp_path):
+def test_corrupt_file_moved_aside_not_overwritten(tmp_path):
+    # 10.9 #12：损坏文件先留存为 .corrupt 再按空库继续，防止下次写入
+    # 覆盖掉全部 source_path → doc_id / derived_pdf 映射
     p = tmp_path / "store.json"
     p.write_text("{not json", encoding="utf-8")
     store = TreeStore(p)
     assert store.list_all() == []
-    store.upsert(rec())  # 下次写入覆盖损坏内容
+    assert p.with_name("store.json.corrupt").read_text(encoding="utf-8") == "{not json"
+    assert not p.exists()  # 原文件已被移走，不会被静默覆盖
+    store.upsert(rec())
     assert store.get("/docs/a.md") is not None
+    assert p.with_name("store.json.corrupt").exists()
+
+
+def test_corrupt_store_still_valid_json_but_not_dict(tmp_path):
+    p = tmp_path / "store.json"
+    p.write_text("[1, 2]", encoding="utf-8")
+    store = TreeStore(p)
+    assert store.list_all() == []
+    assert p.with_name("store.json.corrupt").exists()
+
+
+def test_records_are_deep_copied(tmp_path):
+    # 10.9 #20：嵌套 headings 列表不得与内部存储共享
+    store = TreeStore(tmp_path / "store.json")
+    r = rec()
+    store.upsert(r)
+    r["headings"].append({"level": 2, "title": "X", "line": 2, "parents": []})
+    assert len(store.get("/docs/a.md")["headings"]) == 1  # 写入侧隔离
+    got = store.get("/docs/a.md")
+    got["headings"].append({"level": 2, "title": "Y", "line": 3, "parents": []})
+    assert len(store.get("/docs/a.md")["headings"]) == 1  # 读出侧隔离
+    assert len(store.list_all()[0]["headings"]) == 1
 
 
 def test_concurrent_upserts_produce_valid_store(tmp_path):

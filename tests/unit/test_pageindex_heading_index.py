@@ -10,6 +10,48 @@ sys.path.insert(0, str(PAGEINDEX_DIR))
 from heading_index import HeadingIndex, build_heading_index, normalize_title  # noqa: E402
 
 
+def test_atx_closing_hashes_stripped():
+    # 10.9 #7：闭合井号序列不出现在标题里（CommonMark：序列前须有空白）
+    md = "## Foo ##\nbody\n## C#\nc2\n## Bar ##tail\n"
+    heads = build_heading_index(md)
+    assert [h["title"] for h in heads] == ["Foo", "C#", "Bar ##tail"]
+    idx = HeadingIndex(md)
+    assert idx.locate("Foo") == (1, 2)
+
+
+def test_locate_longest_parent_suffix_beats_shorter():
+    # 10.9 #6：祖先较少的候选也能对齐到短后缀，须取最长匹配而非 cands[0]
+    md = "# A\n## Dup\nx\n# B\n## A\n### Dup\ny\n"
+    idx = HeadingIndex(md)
+    assert idx.locate("Dup", ["B", "A"]) == (6, 8)   # B > A > Dup，而非 A > Dup
+
+
+def test_locate_ambiguous_after_narrowing_returns_none():
+    # 两个候选与父路径同长对齐 → 歧义返回 None（规格 3.2：仍歧义返回 None）
+    md = "# A\n## B\n## B\n"
+    idx = HeadingIndex(md)
+    assert idx.locate("B", ["A"]) is None
+
+
+def test_bom_does_not_hide_first_heading():
+    # 10.9 #21：UTF-8 BOM 不剥离会丢首个 ATX 标题
+    heads = build_heading_index("# Title\nbody\n## Sub\n")
+    assert [h["title"] for h in heads] == ["Title", "Sub"]
+    heads = build_heading_index("﻿# Title\nbody\n## Sub\n")
+    assert [h["title"] for h in heads] == ["Title", "Sub"]
+    assert heads[0]["line"] == 1
+
+
+def test_setext_false_positives_rejected():
+    # 10.9 #22：下划线行的上一行必须是段落行
+    assert build_heading_index("```\ncode\n```\n---\nafter\n") == []
+    assert build_heading_index("1. item\n---\n") == []
+    assert build_heading_index("- item\n===\n") == []
+    assert build_heading_index("> quote\n---\n") == []
+    # 段落行后接 --- 仍是合法 Setext（保持 CommonMark 行为）
+    assert [h["title"] for h in build_heading_index("Title\n---\n")] == ["Title"]
+
+
 def test_atx_levels_and_line_spans():
     md = "# A\na1\n## B\nb1\nb2\n### C\nc1\n## D\nd1"
     idx = HeadingIndex(md)

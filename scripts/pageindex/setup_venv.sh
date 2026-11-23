@@ -18,6 +18,9 @@ echo "== install pageindex==$PINNED_VERSION into sidecar venv =="
 "$VENV_DIR/bin/pip" install "pageindex==$PINNED_VERSION"
 # sidecar 服务自身依赖（PI2 server.py 用；独立于 pageindex 的依赖链单独声明）
 "$VENV_DIR/bin/pip" install fastapi "uvicorn[standard]"
+# md_render 渲染链依赖（10.9 #11：pageindex 只声明 PyPDF2，pypdf / pypdfium2
+# 须显式安装，否则干净 venv 上每次 MD 渲染 ModuleNotFoundError）
+"$VENV_DIR/bin/pip" install pypdf pypdfium2
 
 echo "== verify install =="
 "$VENV_DIR/bin/python" -c "from importlib.metadata import version; print('pageindex', version('pageindex'))"

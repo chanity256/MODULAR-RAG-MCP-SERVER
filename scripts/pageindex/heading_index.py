@@ -12,10 +12,14 @@ from __future__ import annotations
 import re
 import unicodedata
 
-ATX_RE = re.compile(r"^(#{1,6})\s+(.*\S)\s*#*\s*$")
+# 闭合井号序列（CommonMark）：标题文本懒惰匹配，可选的闭合序列前须有空白、
+# 后只允许空白（`## Foo ##` → `Foo`；`## C#` 仍为 `C#`）。
+ATX_RE = re.compile(r"^(#{1,6})\s+(.+?)(?:\s+#+\s*)?$")
 FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
 SETEXT_EQ_RE = re.compile(r"=+")
 SETEXT_DASH_RE = re.compile(r"-{2,}")
+# Setext 下划线的上一行必须是段落行：排除列表项、引用、围栏与 ATX（10.9 #22）
+SETEXT_NOT_PARAGRAPH_RE = re.compile(r"^(?:[-*+]|\d{1,9}[.)])\s")
 
 # PDF 文本抽取会把部分汉字映射为 CJK 部件 Supplement 码位（PI0.4a 实测：
 # 见→⻅ 门→⻔ 风→⻛ 长→⻓ 等），标题归一化需先映射回正字。
@@ -39,9 +43,10 @@ def build_heading_index(md_text: str) -> list[dict]:
     """解析 ATX + Setext 标题，跳过围栏代码块与 front matter、空标题。
 
     返回按行序的 ``{"level", "title", "line", "parents": [祖先标题...]}``
-    （``line`` 为标题所在行，1 起计；Setext 标题 ``line`` 记下划线行，
-    与 POC 口径一致）。
+    （``line`` 为标题所在行，1 起计；Setext 标题 ``line`` 记标题行，即
+    下划线行的上一行）。
     """
+    md_text = md_text.lstrip("\ufeff")  # BOM：不剥离则首个 ATX 标题丢失（10.9 #21）
     lines = md_text.split("\n")
     # front matter：文件开头 --- 包围的 YAML 块整体跳过（PI0.4a：其中
     # `---` 会被误判为 Setext 下划线）
@@ -75,16 +80,21 @@ def build_heading_index(md_text: str) -> list[dict]:
                 heads.append({"level": len(m.group(1)), "title": title, "line": i + 1})
             i += 1
             continue
-        # Setext：当前行是上一非空行的下划线（= 一级 / - 二级）
+        # Setext：当前行是上一段落行的下划线（= 一级 / - 二级）；上一行须为
+        # 段落行（非空、非围栏 / ATX / 列表项 / 引用），否则是 thematic break
+        # 或列表延续（CommonMark 口径，10.9 #22）
         if stripped and i > start and lines[i - 1].strip():
             prev = lines[i - 1].strip()
+            is_paragraph = (not FENCE_RE.match(prev) and not ATX_RE.match(prev)
+                            and not SETEXT_NOT_PARAGRAPH_RE.match(prev)
+                            and not prev.startswith(">"))
             level = None
-            if SETEXT_EQ_RE.fullmatch(stripped):
+            if is_paragraph and SETEXT_EQ_RE.fullmatch(stripped):
                 level = 1
-            elif SETEXT_DASH_RE.fullmatch(stripped) and len(prev) <= 200 \
-                    and not prev.startswith(("#", "-", "*", "+", ">")):
+            elif is_paragraph and SETEXT_DASH_RE.fullmatch(stripped) \
+                    and len(prev) <= 200:
                 level = 2
-            if level and not ATX_RE.match(prev) and prev:
+            if level:
                 heads.append({"level": level, "title": prev, "line": i})
             i += 1
             continue
@@ -144,16 +154,19 @@ class HeadingIndex:
             pk = [normalize_title(p) for p in parent_path if normalize_title(p)]
             if not pk:
                 return []
-            narrowed = []
+            # 父路径尾部对齐（Flash 树可能跳层），取最长匹配；并列即歧义
+            # （10.9 #6：祖先较少的候选也能对齐到短后缀，不得取 cands[0]）
+            best: list[int] = []
+            best_n = 0
             for i in cands:
                 parents = [normalize_title(p) for p in self.heads[i]["parents"]]
-                # 父路径尾部对齐（Flash 树可能跳层）
                 n = min(len(parents), len(pk))
                 if n and parents[-n:] == pk[-n:]:
-                    narrowed.append(i)
-            if not narrowed:
-                return []  # 消歧失败仍歧义：返回 None
-            cands = narrowed
+                    if n > best_n:
+                        best_n, best = n, [i]
+                    elif n == best_n:
+                        best.append(i)
+            return best if len(best) == 1 else []  # 并列同长匹配 → 歧义 None
         return cands
 
     def locate(self, title: str, parent_path: list[str] | None = None) -> tuple[int, int] | None:

@@ -18,7 +18,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -81,7 +80,9 @@ class RenderResult:
 
 
 def _norm_page_text(s: str) -> str:
-    return re.sub(r"\s+", "", unicodedata.normalize("NFKC", s))
+    # 与标题键（normalize_title）同一归一化：部件形映射 + 强调符剔除 +
+    # 去空白，保证 map_headings_to_pages 的子串匹配两侧一致（10.9 #3）
+    return normalize_title(s)
 
 
 def resolve_chromium(env: dict | None = None) -> str | None:
@@ -122,7 +123,7 @@ def chromium_command(out_pdf: Path, html_path: Path, user_data_dir: Path,
             "--no-default-browser-check", "--hide-scrollbars",
             f"--user-data-dir={user_data_dir}",
             f"--print-to-pdf={out_pdf}", "--no-pdf-header-footer",
-            "file://" + str(html_path)]
+            html_path.resolve().as_uri()]  # 百分号编码（空格 / # / Windows，10.9 #25）
 
 
 def _default_runner(cmd: list[str], timeout_s: float):
@@ -131,7 +132,11 @@ def _default_runner(cmd: list[str], timeout_s: float):
 
 def _default_page_texts(pdf_path: Path) -> list[str]:
     """pypdfium2 全文提取（懒加载，零 LLM；可注入替换）。"""
-    import pypdfium2 as pdfium
+    try:
+        import pypdfium2 as pdfium
+    except ImportError as exc:  # sidecar venv 未装（10.9 #11）
+        raise RenderToolMissing(
+            f"pypdfium2 not installed for page-text extraction: {pdf_path}") from exc
 
     doc = pdfium.PdfDocument(str(pdf_path))
     texts: list[str] = []
@@ -146,7 +151,8 @@ def _default_page_texts(pdf_path: Path) -> list[str]:
     return texts
 
 
-def _run_step(runner: Callable, cmd: list[str], timeout_s: float, what: str) -> None:
+def _run_step(runner: Callable, cmd: list[str], timeout_s: float, what: str):
+    """执行一步子进程并做三类错误分型；返回 ``runner`` 的结果供调用方取输出。"""
     try:
         proc = runner(cmd, timeout_s)
     except FileNotFoundError as exc:
@@ -156,14 +162,16 @@ def _run_step(runner: Callable, cmd: list[str], timeout_s: float, what: str) -> 
     if proc.returncode != 0:
         raise RenderFailed(f"{what} failed (rc={proc.returncode}): "
                            f"{(proc.stderr or '')[-2000:]}")
+    return proc
 
 
 def map_headings_to_pages(headings: list[dict], page_texts: list[str]
                           ) -> tuple[list[int | None], int]:
     """标题 → 物理页（0 起计）单调顺序匹配：标题 i 必须落在指针页之后；
-    同页允许同级标题连排（指针不回退）。先全页精确匹配，未命中再用
-    相邻页拼接窗口兜底（标题文本被分页截断的情形；窗口命中记后页，
-    即标题起始页）。返回 (mapping, misses)。"""
+    同页允许同级标题连排（指针不回退）。逐页先查全页精确匹配，未命中再查
+    该页与下页的拼接窗口（标题文本被分页截断的情形）：窗口命中且键不在
+    下页全页出现时记起始页 ``p``——若键完整落在下页，留给下一轮精确匹配，
+    避免截断标题被吸到后文同名标题（10.9 #4）。返回 (mapping, misses)。"""
     joined = [page_texts[i] + (page_texts[i + 1] if i + 1 < len(page_texts) else "")
               for i in range(len(page_texts))]
     mapping: list[int | None] = []
@@ -177,11 +185,10 @@ def map_headings_to_pages(headings: list[dict], page_texts: list[str]
                 if key in page_texts[p]:
                     found = p
                     break
-            if found is None:
-                for p in range(ptr, len(joined)):
-                    if key in joined[p]:
-                        found = p  # 跨页截断标题：记其起始页
-                        break
+                if p + 1 < len(page_texts) and key in joined[p] \
+                        and key not in page_texts[p + 1]:
+                    found = p  # 跨页截断标题：记其起始页
+                    break
         if found is None:
             misses += 1
             mapping.append(None)
@@ -195,7 +202,10 @@ def write_bookmarks(src_pdf: Path, out_pdf: Path, headings: list[dict],
                     mapping: list[int | None]) -> int:
     """按标题层级写入 PDF Bookmarks（Outline）；页映射 miss 的标题跳过。
     返回写入条数。``out_pdf`` 与 ``src_pdf`` 可同路径（先写临时再替换）。"""
-    from pypdf import PdfReader, PdfWriter
+    try:
+        from pypdf import PdfReader, PdfWriter
+    except ImportError as exc:  # sidecar venv 未装（10.9 #11）
+        raise RenderToolMissing("pypdf not installed for outline injection") from exc
 
     reader = PdfReader(str(src_pdf))
     writer = PdfWriter()
@@ -203,13 +213,23 @@ def write_bookmarks(src_pdf: Path, out_pdf: Path, headings: list[dict],
     parent_stack: dict[int, object] = {}
     n_written = 0
     for h, page_no in zip(headings, mapping):
+        level = h["level"]
         if page_no is None:
+            # miss 的标题不写入，但要清除栈中该层级及更深的条目，防止其
+            # 子标题挂到前一个同级兄弟上（10.9 #5）
+            for lv in [stale for stale in parent_stack if stale >= level]:
+                del parent_stack[lv]
             continue
-        parent = parent_stack.get(h["level"] - 1)
+        # 父节点取栈中最近的更浅层级（层级跳跃时子标题不升为顶层）
+        parent = None
+        for lv in range(level - 1, 0, -1):
+            if lv in parent_stack:
+                parent = parent_stack[lv]
+                break
         item = writer.add_outline_item(title=h["title"], page_number=page_no,
                                        parent=parent)
-        parent_stack[h["level"]] = item
-        for lv in [l for l in parent_stack if l > h["level"]]:
+        parent_stack[level] = item
+        for lv in [stale for stale in parent_stack if stale > level]:
             del parent_stack[lv]
         n_written += 1
     tmp = out_pdf.parent / (out_pdf.name + ".tmp")
@@ -222,41 +242,52 @@ def write_bookmarks(src_pdf: Path, out_pdf: Path, headings: list[dict],
 def render(md_path: str | os.PathLike[str], out_pdf: str | os.PathLike[str], *,
            runner: Callable | None = None,
            page_texts_fn: Callable[[Path], list[str]] | None = None,
-           pandoc_bin: str = "pandoc",
+           pandoc_bin: str | None = None,
            chrome_bin: str | None = None,
            timeout_s: float | None = None) -> RenderResult:
     """MD → 派生 PDF（v3：注入原 MD 标题树 Bookmarks）。
 
     ``runner(cmd, timeout_s) -> CompletedProcess``；``page_texts_fn(pdf_path)
     -> [页归一化文本]``。Chrome 无法直接读 macOS TCC 保护目录（~/Desktop）：
-    HTML 与 PDF 均经临时目录中转，产物原子落到 ``out_pdf``。
+    HTML 与 PDF 均经临时目录中转，产物原子落到 ``out_pdf``。不可信 MD 的
+    防护（10.9 #1）：pandoc 关闭 ``raw_html`` 扩展（HTML 块 / 内联脚本不入
+    文档），暂存 HTML 注入严格 CSP，Chromium 仅打开该暂存页。
     """
     md_path = Path(md_path)
     out_pdf = Path(out_pdf)
     runner = runner or _default_runner
     page_texts_fn = page_texts_fn or _default_page_texts
+    pandoc_bin = pandoc_bin or os.environ.get("PAGEINDEX_PANDOC") or "pandoc"
     timeout_s = timeout_s or float(os.environ.get("PAGEINDEX_RENDER_TIMEOUT_S", "600"))
     started = time.perf_counter()
+    try:  # Outline 注入依赖 pypdf：进入转换前先 fail-fast（10.9 #11）
+        import pypdf  # noqa: F401
+    except ImportError as exc:
+        raise RenderToolMissing("pypdf not installed for outline injection") from exc
 
-    # 1) pandoc：GFM → HTML5（列表传参，不经 shell）
-    try:
-        html_proc = runner([pandoc_bin, "-f", "gfm", "-t", "html5", "--wrap=none",
-                            str(md_path)], timeout_s)
-    except FileNotFoundError as exc:
-        raise RenderToolMissing(f"pandoc not found: {pandoc_bin}") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise RenderTimeout(f"pandoc timed out after {timeout_s:g}s") from exc
-    if html_proc.returncode != 0:
-        raise RenderFailed(f"pandoc failed (rc={html_proc.returncode}): "
-                           f"{(html_proc.stderr or '')[-2000:]}")
+    # 1) pandoc：GFM − raw_html → HTML5（列表传参，不经 shell；standalone +
+    #    embed-resources 让相对路径图片内嵌为 data URI，10.9 #24）
+    html_proc = _run_step(runner, [
+        pandoc_bin, "-f", "gfm-raw_html", "-t", "html5", "--wrap=none",
+        "--standalone", "--embed-resources", f"--resource-path={md_path.parent}",
+        str(md_path)], timeout_s, "pandoc")
 
     with tempfile.TemporaryDirectory(prefix="pi_render_") as stage:
         stage_path = Path(stage)
         staged_html = stage_path / "doc.html"
-        staged_html.write_text(
-            '<!doctype html><html><head><meta charset="utf-8"><style>'
-            + PRINT_CSS + "</style></head><body>" + html_proc.stdout
-            + "</body></html>", encoding="utf-8")
+        body = html_proc.stdout
+        # CSP：禁脚本 / 外链 / frame；样式只允许内联（打印 CSS），图片仅 data:
+        csp_meta = ('<meta http-equiv="Content-Security-Policy" '
+                    'content="default-src \'none\'; style-src \'unsafe-inline\'; '
+                    'img-src data:">')
+        inject = csp_meta + "<style>" + PRINT_CSS + "</style>"
+        head = re.search(r"<head\b[^>]*>", body, re.IGNORECASE)
+        if head:
+            html = body[:head.end()] + inject + body[head.end():]
+        else:  # 非 standalone 输出的兜底
+            html = ("<!doctype html><html><head>" + inject +
+                    "</head><body>" + body + "</body></html>")
+        staged_html.write_text(html, encoding="utf-8")
 
         # 2) Chromium 渲染（独立临时 user-data-dir）
         chrome = chrome_bin or resolve_chromium()
@@ -273,7 +304,8 @@ def render(md_path: str | os.PathLike[str], out_pdf: str | os.PathLike[str], *,
 
         # 3) 页映射 + Bookmarks 注入（v3 终裁方案，PI0.4a 实测回定位 ~95%）
         page_texts = page_texts_fn(staged_pdf)
-        headings = build_heading_index(md_path.read_text(encoding="utf-8"))
+        headings = build_heading_index(
+            md_path.read_text(encoding="utf-8-sig"))  # utf-8-sig 剥 BOM（10.9 #21）
         mapping, misses = map_headings_to_pages(headings, page_texts)
         buf = stage_path / "with_outline.pdf"
         n_bookmarks = write_bookmarks(staged_pdf, buf, headings, mapping)
