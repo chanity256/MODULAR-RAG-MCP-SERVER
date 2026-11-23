@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import re
+import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -42,6 +43,7 @@ __all__ = [
     "IngestionVersionPolicyConfig",
     "IngestionSourceFiltersConfig",
     "ModeRouterSettings",
+    "TreeSearchConfig",
     "resolve_ingestion_versions",
     "Settings",
     "load_settings",
@@ -406,6 +408,34 @@ class ModeRouterSettings:
 
 
 @dataclass
+class TreeSearchConfig:
+    """PageIndex 树检索（独立 HTTP sidecar）配置（可选节，PAGEINDEX_TREE_RETRIEVAL_SPEC §3.3）。
+
+    默认 ``enabled=False``：零加载，Chat 不出现 Longdoc 模式，capabilities 既有
+    键与值不变。sidecar 经 HTTP 调用（Bearer + 127.0.0.1）；主 venv 永不
+    ``import pageindex``（红线，与 Sirchmunk 同构）。
+    """
+
+    enabled: bool = False
+    backend: str = "pageindex_http"
+    base_url: str = "http://127.0.0.1:8585"
+    api_token: str | None = None
+    # 整次 /search 总超时（PI0.6 实测校准：tree max 198.6s / P95 137.4s）。
+    timeout_s: float = 240.0
+    # pageindex_sync 单文档 /index 超时（MD 含转换；PI0.6 校准：最慢单篇 merge
+    # 972s @306 页、并发 3）。
+    index_timeout_s: float = 1800.0
+    max_nodes: int = 5
+    max_loops: int = 3
+    max_token_budget: int = 32000
+    # PathGuard 白名单根目录（enabled 时必须非空；相对根按项目根锚定）。
+    allowed_roots: list[str] = field(default_factory=list)
+    # 白名单内的强制排除子串（fail-closed，宁可误拒）。
+    denied_substrings: list[str] = field(default_factory=lambda: [".env", ".git", "data/db"])
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class Settings:
     """全局配置聚合，供各工厂/模块读取。"""
 
@@ -422,6 +452,7 @@ class Settings:
     agentic_search: AgenticSearchConfig = field(default_factory=AgenticSearchConfig)
     chat: ChatSettings = field(default_factory=ChatSettings)
     mode_router: ModeRouterSettings = field(default_factory=ModeRouterSettings)
+    tree_search: TreeSearchConfig = field(default_factory=TreeSearchConfig)
     api: ApiSettings = field(default_factory=ApiSettings)
     # 原始配置（便于后续模块读取未显式建模的字段）
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
@@ -1090,6 +1121,106 @@ def _build_mode_router(sec: dict[str, Any]) -> ModeRouterSettings:
     )
 
 
+# PageIndex 树检索可用 backend（3.3「未知 backend fail-fast」；settings 不 import
+# libs，故以常量登记，mode_router delivered-backend 先例）。
+_TREE_SEARCH_BACKENDS = ("pageindex_http", "fake")
+
+# sidecar 只允许 loopback（3.3：不做字符串前缀匹配，拒 `http://127.0.0.1.evil.com`）。
+_TREE_SEARCH_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def _build_tree_search(sec: dict[str, Any]) -> TreeSearchConfig:
+    """tree_search 为可选节，缺失时由调用方传空 dict 走默认值（PAGEINDEX_TREE_RETRIEVAL_SPEC §3.3）。"""
+    enabled = _opt(sec, "enabled", False)
+    if not isinstance(enabled, bool):
+        raise ConfigError(f"config field 'tree_search.enabled' must be a boolean, got {enabled!r}")
+    backend = _opt(sec, "backend", "pageindex_http")
+    if not isinstance(backend, str) or backend not in _TREE_SEARCH_BACKENDS:
+        raise ConfigError(
+            f"config field 'tree_search.backend' must be one of "
+            f"{'/'.join(_TREE_SEARCH_BACKENDS)}, got {backend!r}"
+        )
+    base_url = _opt(sec, "base_url", "http://127.0.0.1:8585")
+    if not isinstance(base_url, str) or not base_url.startswith(("http://", "https://")):
+        raise ConfigError(
+            "config field 'tree_search.base_url' must be an http(s) URL, got %r" % (base_url,)
+        )
+    api_token = _opt(sec, "api_token")
+    if api_token is not None and (not isinstance(api_token, str) or not api_token.strip()):
+        raise ConfigError("config field 'tree_search.api_token' must be a non-empty string")
+
+    def _positive_number(key: str, default: float) -> float:
+        value = _opt(sec, key, default)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+            raise ConfigError(f"config field 'tree_search.{key}' must be a positive number")
+        return float(value)
+
+    def _positive_int(key: str, default: int) -> int:
+        value = _opt(sec, key, default)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ConfigError(f"config field 'tree_search.{key}' must be a positive integer")
+        return value
+
+    timeout_s = _positive_number("timeout_s", 240.0)
+    index_timeout_s = _positive_number("index_timeout_s", 1800.0)
+    max_nodes = _positive_int("max_nodes", 5)
+    max_loops = _positive_int("max_loops", 3)
+    max_token_budget = _positive_int("max_token_budget", 32000)
+
+    allowed_roots_raw = _opt(sec, "allowed_roots", [])
+    if not isinstance(allowed_roots_raw, list) or any(
+        not isinstance(r, str) or not r.strip() for r in allowed_roots_raw
+    ):
+        raise ConfigError(
+            "config field 'tree_search.allowed_roots' must be a list of non-empty strings"
+        )
+    denied_raw = _opt(sec, "denied_substrings", [".env", ".git", "data/db"])
+    if not isinstance(denied_raw, list) or any(not isinstance(d, str) for d in denied_raw):
+        raise ConfigError(
+            "config field 'tree_search.denied_substrings' must be a list of strings"
+        )
+
+    # 跨字段要求放最后：先保证各字段自身格式合法，再校验 enabled 组合约束。
+    if enabled:
+        parsed = urllib.parse.urlsplit(base_url)
+        if parsed.scheme != "http" or (parsed.hostname or "") not in _TREE_SEARCH_LOOPBACK_HOSTS:
+            raise ConfigError(
+                "config field 'tree_search.base_url' must be an http URL on loopback "
+                "(127.0.0.1 / localhost / ::1) when enabled=true"
+            )
+        if not allowed_roots_raw:
+            raise ConfigError(
+                "config field 'tree_search.allowed_roots' must be non-empty when enabled=true"
+            )
+        if api_token is None or _is_unresolved_env(api_token):
+            raise ConfigError(
+                "config field 'tree_search.api_token' is required when enabled=true"
+                " (unresolved ${...} placeholders count as missing)"
+            )
+
+    # 白名单按项目根锚定（ROOT_ANCHOR_SPEC RA2，与 agentic_search 同法）。
+    allowed_roots = [str(resolve_data_path(raw_root)) for raw_root in allowed_roots_raw]
+
+    known = {
+        "enabled", "backend", "base_url", "api_token", "timeout_s", "index_timeout_s",
+        "max_nodes", "max_loops", "max_token_budget", "allowed_roots", "denied_substrings",
+    }
+    return TreeSearchConfig(
+        enabled=enabled,
+        backend=backend,
+        base_url=base_url,
+        api_token=api_token,
+        timeout_s=timeout_s,
+        index_timeout_s=index_timeout_s,
+        max_nodes=max_nodes,
+        max_loops=max_loops,
+        max_token_budget=max_token_budget,
+        allowed_roots=allowed_roots,
+        denied_substrings=list(denied_raw),
+        extra=_extra(sec, known),
+    )
+
+
 def _build_api(sec: dict[str, Any]) -> ApiSettings:
     """api 为可选节，缺失时由调用方传空 dict 走默认值。"""
     defaults = ApiSettings()
@@ -1177,6 +1308,12 @@ def validate_settings(settings: Settings) -> None:
         raise ConfigError(
             "config field 'chat.default_retrieval' value 'auto' requires mode_router.enabled=true"
         )
+    # 跨节校验（PAGEINDEX_TREE_RETRIEVAL_SPEC §3.2 / §3.3）：默认检索模式
+    # longdoc 要求树检索 sidecar 已启用。
+    if settings.chat.default_retrieval == "longdoc" and not settings.tree_search.enabled:
+        raise ConfigError(
+            "config field 'chat.default_retrieval' value 'longdoc' requires tree_search.enabled=true"
+        )
 
 
 def load_settings(path: str | os.PathLike[str] | None = None) -> Settings:
@@ -1236,6 +1373,9 @@ def load_settings(path: str | os.PathLike[str] | None = None) -> Settings:
     mode_router_sec = data.get("mode_router") or {}
     if not isinstance(mode_router_sec, dict):
         raise ConfigError("config section 'mode_router' must be a mapping")
+    tree_search_sec = data.get("tree_search") or {}
+    if not isinstance(tree_search_sec, dict):
+        raise ConfigError("config section 'tree_search' must be a mapping")
     api_sec = data.get("api") or {}
     if not isinstance(api_sec, dict):
         raise ConfigError("config section 'api' must be a mapping")
@@ -1245,6 +1385,7 @@ def load_settings(path: str | os.PathLike[str] | None = None) -> Settings:
     agentic_search = _build_agentic_search(agentic_sec)
     chat = _build_chat(chat_sec)
     mode_router = _build_mode_router(mode_router_sec)
+    tree_search = _build_tree_search(tree_search_sec)
     api = _build_api(api_sec)
 
     settings = Settings(
@@ -1261,6 +1402,7 @@ def load_settings(path: str | os.PathLike[str] | None = None) -> Settings:
         agentic_search=agentic_search,
         chat=chat,
         mode_router=mode_router,
+        tree_search=tree_search,
         api=api,
         raw=data,
     )

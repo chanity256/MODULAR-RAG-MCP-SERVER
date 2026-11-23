@@ -159,6 +159,29 @@ mode_router:
   min_confidence: null           # D8：低于该值回退 fallback_retrieval；null 不启用（D8 终裁默认 null）
   fallback_retrieval: hybrid     # 决策失败 / 超时 / 输出非法 / 低置信度时的兜底模式
 
+# PageIndex 树检索（独立 HTTP sidecar，可选节，PAGEINDEX_TREE_RETRIEVAL_SPEC §3.3；
+# 缺失走默认，非法值启动即报错）。enabled=false 时零加载，Chat 不出现 Longdoc 模式。
+# 启用前置：sidecar venv（scripts/pageindex/setup_venv.sh）+ 启动（start_sidecar.sh）
+# + 索引同步（scripts/pageindex_sync.py）；建树会把文档全文发给 sidecar 配置的
+# LLM（隐私见规格 §8）。
+tree_search:
+  enabled: false                 # true 需先启动 sidecar 并设置 PAGEINDEX_API_TOKEN
+  backend: pageindex_http        # 唯一生产后端（fake 仅供测试注入）
+  base_url: http://127.0.0.1:8585
+  api_token: ${PAGEINDEX_API_TOKEN}  # 从环境变量解析，不落盘；enabled=true 时必须可解析
+  timeout_s: 240                 # 整次 /search 总超时（PI0.6 实测校准：tree max 198.6s / P95 137.4s）
+  index_timeout_s: 1800          # pageindex_sync 单文档 /index 超时（PI0.6 校准：最慢单篇 merge 972s）
+  max_nodes: 5                   # 单次检索证据节点硬截断
+  max_loops: 3                   # 检索循环最大轮数
+  max_token_budget: 32000        # 单次检索 LLM token 预算
+  allowed_roots:                 # PathGuard 白名单（enabled 时必须非空）
+    - ./data/documents
+    - ./data/uploads             # 注意：建树时文档全文发给 sidecar LLM（隐私见规格 §8）
+  denied_substrings:             # 白名单内仍强制排除（fail-closed）
+    - .env
+    - .git
+    - data/db
+
 # Web API 配置（可选节，WEBUI_CHAT_SPEC §7.1；缺失走默认，非法值启动即报错）
 api:
   enabled: false            # 只影响 scripts/start_api.py
