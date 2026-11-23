@@ -308,6 +308,8 @@ main ──▶ measure_process.py 读 git 历史 → docs/analysis/process-metri
 - `droid.yml` 也监听 PR 的 opened / edited：PR 标题或正文含 `@droid` 字样就会触发一次 Droid 执行，PR 描述中提及该触发词时用「tag 响应」等说法代替。
 - **严重度改为 P0–P3（2026-11-14，使用者决定）**：第一次真实 review（PR #10，参考手册）输出的是 droid-action 自带的 `[P1]`–`[P3]` 标签，没有用当时 `REVIEW.md` 规定的 Important / Nit；排序大致按级别，security pass 的发现单独追加在后。为让验收口径与工具的实际输出一致，`REVIEW.md` 与 `review-guidelines` SKILL.md 的严重度改为 P0–P3：Important 对应 P0 / P1，Nit 对应 P3，新增 P2 表示影响有限的真实问题；「最多 5 条 Nit」改为「最多 5 条 P3」，合并纪律改为 P0 / P1 必须修复或书面说明。auto-coder 的 PR 流程与 `test_guard.py` 注释同步改口径。该改动位于 `.factory/skills/**`，PR #10 因此跑一次付费 agent evals。SD2.2 行与附录中的 Important 是历史记录，不回改。
 
+- **审查模型切到使用者 BYOK GLM（2026-11-23，成本决策）**：PR review 实测（如 PR #35）由 `review_depth: shallow` 预设经 droid-action 解析为 tier 别名 `oss-latest-premium` → 实际模型 Kimi K3，Factory credits 消耗偏高。`droid-review.yml` 新增「Configure BYOK review model」步骤：把 `evals/ci/factory-settings.json` 加上 `apiKeyHelper`（key 文件 `$HOME/.factory/review-keys/`，umask 077，key 不进 agent 会话环境变量，沿 SD3.6 基线教训）写入 droid exec 真正读取的 `~/.factory/settings.json`（droid-action 的 `settings` 输入只写 `~/.factory/droid/settings.json`，是 MCP 注册路径，故不经过该输入）；`review_model` / `security_model` 固定为 `custom:glm-5.3-Flash-0`（CI settings 唯一条目的 id，与 agent-evals.yml 的 `EVAL_MODEL` 同一模型与端点），两趟 review pass 与 security pass 全部计费到使用者智谱额度（`factory_credits` 为 0）。`droid-action` 对 `custom:` 前缀模型不做别名校验、按组织策略 `allowCustomModels` 门控（若被策略拒绝会回退组织默认模型并在追踪评论注明）。`droid.yml`（`@droid` 响应）不改，仍走 Factory 默认模型。锁定：`tests/unit/test_review_guidelines.py::test_review_uses_byok_glm`（含 workflow 引用的模型 id 与 settings 文件条目一致）。
+
 ### 3.3 SD3 — 回归与 agent evals
 
 QA 计划测的是**产品行为**，改了 skill 文本，`ingest.py` 的输出不会变，所以这些用例测不出 agent 被改坏了没有。拆成两项：

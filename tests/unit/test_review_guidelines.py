@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -76,6 +77,23 @@ class TestDroidWorkflows:
         assert opts["automatic_security_review"] is True
         assert opts["review_depth"] == "shallow"
         assert opts["factory_api_key"] == API_KEY_EXPR
+
+    def test_review_uses_byok_glm(self):
+        # SD2.3（2026-11-23 成本决策）：review 与 security review 都固定走使用者的
+        # BYOK GLM——CI settings 唯一条目（evals/ci/factory-settings.json）的
+        # custom:<displayName>-<index> id，key 经 apiKeyHelper 读文件、不进 agent 会话环境。
+        data = _load(DROID_REVIEW)
+        steps = data["jobs"]["droid-review"]["steps"]
+        byok = [s for s in steps if str(s.get("name", "")).startswith("Configure BYOK")]
+        assert len(byok) == 1
+        assert byok[0]["env"] == {"ZHIPU_API_KEY": "${{ secrets.ZHIPU_API_KEY }}"}
+        script = str(byok[0]["run"])
+        assert "evals/ci/factory-settings.json" in script
+        assert "$HOME/.factory/settings.json" in script
+        settings = json.loads((REPO_ROOT / "evals" / "ci" / "factory-settings.json").read_text(encoding="utf-8"))
+        model_id = settings["customModels"][0]["id"]
+        opts = _droid_step(data, "droid-review")["with"]
+        assert opts["review_model"] == opts["security_model"] == model_id == "custom:glm-5.3-Flash-0"
 
     def test_tag_requires_mention(self):
         data = _load(DROID_TAG)
