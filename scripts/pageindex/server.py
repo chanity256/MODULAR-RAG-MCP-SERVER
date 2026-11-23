@@ -23,10 +23,18 @@ from __future__ import annotations
 
 import hmac
 import os
+import re
 import sys
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
+
+#: ``file_hash`` 须为 64 位小写 hex SHA256（主 venv ``hexdigest()`` 口径）；
+#: 直接拼进派生 PDF 路径（D12①），不放行任意串防路径穿越。
+SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+
+#: 请求体须为 JSON 对象（非法 JSON / 非对象一律信封报错，不裸抛 500）。
+_BODY_ERROR = "request body must be a JSON object"
 
 try:  # 同目录导入（RenderError 为纯模块，供 /index 错误分型）
     from md_render import RenderError
@@ -84,13 +92,20 @@ def create_app(adapter, token: str) -> FastAPI:
     @app.post("/api/v1/index")
     async def index(request: Request):
         _authorized(request, token)
-        body = await request.json()
+        try:
+            body = await request.json()
+        except Exception:
+            return envelope(False, error=_BODY_ERROR)
+        if not isinstance(body, dict):
+            return envelope(False, error=_BODY_ERROR)
         source_path = body.get("source_path")
         file_hash = body.get("file_hash")
         if not source_path or not file_hash:
             return envelope(False, error="source_path and file_hash are required")
         if not Path(source_path).is_absolute():
             return envelope(False, error="source_path must be absolute")
+        if not isinstance(file_hash, str) or not SHA256_HEX.fullmatch(file_hash):
+            return envelope(False, error="file_hash must be a 64-char hex SHA256")
         try:
             data = adapter.index(source_path, file_hash)
         except RenderError as exc:  # MD 转换失败：render: 前缀区分（§3.4 / R9）
@@ -107,7 +122,12 @@ def create_app(adapter, token: str) -> FastAPI:
     @app.post("/api/v1/index/delete")
     async def index_delete(request: Request):
         _authorized(request, token)
-        body = await request.json()
+        try:
+            body = await request.json()
+        except Exception:
+            return envelope(False, error=_BODY_ERROR)
+        if not isinstance(body, dict):
+            return envelope(False, error=_BODY_ERROR)
         source_path = body.get("source_path")
         if not source_path:
             return envelope(False, error="source_path is required")
@@ -123,7 +143,12 @@ def create_app(adapter, token: str) -> FastAPI:
     @app.post("/api/v1/search")
     async def search(request: Request):
         _authorized(request, token)
-        body = await request.json()
+        try:
+            body = await request.json()
+        except Exception:
+            return envelope(False, error=_BODY_ERROR)
+        if not isinstance(body, dict):
+            return envelope(False, error=_BODY_ERROR)
         query = body.get("query")
         source_paths = body.get("source_paths")
         if not isinstance(query, str) or not query.strip():
@@ -132,9 +157,13 @@ def create_app(adapter, token: str) -> FastAPI:
                 not isinstance(source_paths, list)
                 or not all(isinstance(p, str) for p in source_paths)):
             return envelope(False, error="source_paths must be null or a list of strings")
-        max_nodes = int(body.get("max_nodes") or 5)
-        max_loops = int(body.get("max_loops") or 3)
-        max_token_budget = int(body.get("max_token_budget") or 32000)
+        try:
+            max_nodes = int(body.get("max_nodes") or 5)
+            max_loops = int(body.get("max_loops") or 3)
+            max_token_budget = int(body.get("max_token_budget") or 32000)
+        except (TypeError, ValueError):
+            return envelope(False, error="max_nodes/max_loops/max_token_budget "
+                                         "must be integers")
         if source_paths is not None and not source_paths:
             # fail-closed 纵深防御（§3.4）：空定界集绝不退化为全量检索
             return envelope(True, {"evidences": [], "llm_call_count": 0,

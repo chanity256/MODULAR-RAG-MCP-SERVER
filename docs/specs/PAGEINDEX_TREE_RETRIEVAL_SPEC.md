@@ -264,7 +264,7 @@ tree_search:
 
 进程入口：`scripts/start_api.py` 与 `scripts/pageindex_sync.py` 在 `load_settings()` 后对 `settings.tree_search` 调 `ensure_local_roots`（AR1 先例；`enabled: false` 时为空操作），避免干净环境下 `./data/uploads` 尚不存在导致 `PathGuard` 构造失败。MCP server 与 `scripts/query.py` 不感知 `longdoc`（2.2），不加。
 
-sidecar 侧 env（`scripts/pageindex/env.example`）：`PAGEINDEX_API_TOKEN`、`PAGEINDEX_HOST` / `PAGEINDEX_PORT`、`PAGEINDEX_STORAGE`（默认 `data/db/pageindex`）、`LLM_MODEL` / `LLM_API_BASE` / `LLM_API_KEY`（D4）；0.4 增 `PAGEINDEX_PANDOC` / `PAGEINDEX_CHROMIUM`（可选，覆盖 pandoc 与 Chromium 可执行文件路径，D11）与 `PAGEINDEX_RENDER_TIMEOUT_S`（单篇转换超时）。派生 PDF 目录固定为 `<PAGEINDEX_STORAGE>/derived/`（D12），不单独配置。
+sidecar 侧 env（`scripts/pageindex/env.example`）：`PAGEINDEX_API_TOKEN`、`PAGEINDEX_HOST` / `PAGEINDEX_PORT`、`PAGEINDEX_STORAGE`（默认 `data/db/pageindex`）、`LLM_MODEL` / `LLM_API_BASE` / `LLM_API_KEY`（D4）、`PAGEINDEX_SUMMARY_CONCURRENCY`（建树摘要并发，默认 3——3.2 显式低并发防上游默认 128 触发低 RPM 账户 429；PI2 补登）；0.4 增 `PAGEINDEX_PANDOC` / `PAGEINDEX_CHROMIUM`（可选，覆盖 pandoc 与 Chromium 可执行文件路径，D11）与 `PAGEINDEX_RENDER_TIMEOUT_S`（单篇转换超时）。派生 PDF 目录固定为 `<PAGEINDEX_STORAGE>/derived/`（D12），不单独配置。
 
 ### 3.4 sidecar HTTP 契约
 
@@ -274,11 +274,13 @@ sidecar 侧 env（`scripts/pageindex/env.example`）：`PAGEINDEX_API_TOKEN`、`
 |------|------|------------|
 | `GET /api/v1/status` | — | `{version, pageindex_version, model, documents}` |
 | `GET /api/v1/documents` | — | `[{source_path, file_hash, format, doc_id, node_count, indexed_at, derived_pdf?}]`（`derived_pdf` 仅 MD，供运维排查；主 venv 不得把它当证据路径） |
-| `POST /api/v1/index` | `{source_path(绝对), file_hash}` | `{doc_id, format, node_count, llm_tokens, render_ms?, derived_pages?}`（后两项仅 MD）；同 `file_hash` 已存在则幂等返回；MD 转换失败返回 `success=false`，`error` 以 `render:` 前缀区分 |
+| `POST /api/v1/index` | `{source_path(绝对), file_hash(64 位小写 hex SHA256)}` | `{doc_id, format, node_count, llm_tokens, render_ms?, derived_pages?}`（后两项仅 MD）；同 `file_hash` 已存在则幂等返回；MD 转换失败返回 `success=false`，`error` 以 `render:` 前缀区分 |
 | `POST /api/v1/index/delete` | `{source_path(绝对)}` | `{removed: bool}` |
 | `POST /api/v1/search` | `{query, source_paths: [绝对] \| null, max_nodes, max_loops, max_token_budget}` | `{evidences: [TreeEvidence], llm_call_count, total_llm_tokens, telemetry}` |
 
 删除走 `POST` 子路径，不用带 JSON body 的 `DELETE`：`httpx.Client.delete()` 不接受 `json=`（须改用 `client.request("DELETE", ...)`），部分代理与工具对 DELETE body 兼容性差；也不用 query param，避免绝对路径进入访问日志。
+
+请求体校验（PI2 审查修复口径）：非法 JSON / 非对象 body 与 `max_nodes` / `max_loops` / `max_token_budget` 非整数均返回 `success=false` 信封（不裸抛 500）；`file_hash` 非 64 位小写 hex（主 venv `hexdigest()` 口径）一律拒绝——该值直接拼入派生 PDF 路径（D12①），放行任意串即路径穿越写。
 
 `source_paths` 三种取值：
 

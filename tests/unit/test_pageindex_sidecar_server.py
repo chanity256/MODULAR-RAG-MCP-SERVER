@@ -23,6 +23,9 @@ from md_render import RenderFailed  # noqa: E402
 from server import create_app, ensure_loopback, envelope  # noqa: E402
 
 TOKEN = "test-token"
+#: PI2 审查修复后 ``file_hash`` 须为 64 位小写 hex SHA256（server 校验）。
+HASH_A = "aa" * 32
+HASH_B = "bb" * 32
 
 
 @dataclass
@@ -38,9 +41,10 @@ class FakeAdapter:
 
     def __init__(self):
         self.records = [{
-            "source_path": "/repo/data/documents/a.md", "file_hash": "h1",
+            "source_path": "/repo/data/documents/a.md", "file_hash": HASH_A,
             "format": "md", "doc_id": "d1", "node_count": 10,
-            "indexed_at": "2026-11-23T00:00:00", "derived_pdf": "/db/derived/h1.pdf",
+            "indexed_at": "2026-11-23T00:00:00",
+            "derived_pdf": f"/db/derived/{HASH_A}.pdf",
         }]
         self.index_calls: list[tuple[str, str]] = []
         self.delete_calls: list[str] = []
@@ -128,7 +132,7 @@ def test_status_envelope():
 def test_documents_envelope():
     data = client_for(FakeAdapter()).get("/api/v1/documents", headers=auth()).json()
     assert data["success"] is True
-    assert data["data"][0]["derived_pdf"] == "/db/derived/h1.pdf"  # 仅 MD
+    assert data["data"][0]["derived_pdf"] == f"/db/derived/{HASH_A}.pdf"  # 仅 MD
 
 
 def test_index_request_validation():
@@ -138,8 +142,29 @@ def test_index_request_validation():
                           json={"source_path": "/x.md"}).json()
     assert missing["success"] is False and "required" in missing["error"]
     relative = client.post("/api/v1/index", headers=auth(),
-                           json={"source_path": "rel/a.md", "file_hash": "h"}).json()
+                           json={"source_path": "rel/a.md",
+                                 "file_hash": HASH_A}).json()
     assert relative["success"] is False and "absolute" in relative["error"]
+    assert adapter.index_calls == []
+
+
+def test_index_rejects_non_hex_file_hash():
+    """file_hash 直接拼进派生 PDF 路径（D12①），非 64 位 hex 一律拒绝（路径穿越防护）。"""
+    adapter = FakeAdapter()
+    client = client_for(adapter)
+    traversal = client.post("/api/v1/index", headers=auth(),
+                            json={"source_path": "/repo/data/documents/a.md",
+                                  "file_hash": "../../tmp/pwn"}).json()
+    assert traversal["success"] is False
+    assert traversal["error"] == "file_hash must be a 64-char hex SHA256"
+    short = client.post("/api/v1/index", headers=auth(),
+                        json={"source_path": "/repo/data/documents/a.md",
+                              "file_hash": "abc"}).json()
+    assert short["success"] is False
+    non_str = client.post("/api/v1/index", headers=auth(),
+                          json={"source_path": "/repo/data/documents/a.md",
+                                "file_hash": 123}).json()
+    assert non_str["success"] is False
     assert adapter.index_calls == []
 
 
@@ -147,12 +172,13 @@ def test_index_success_passthrough():
     adapter = FakeAdapter()
     data = client_for(adapter).post(
         "/api/v1/index", headers=auth(),
-        json={"source_path": "/repo/data/documents/b.md", "file_hash": "h2"}).json()
+        json={"source_path": "/repo/data/documents/b.md",
+              "file_hash": HASH_B}).json()
     assert data == {"success": True, "error": None,
                     "data": {"doc_id": "d9", "format": "md", "node_count": 4,
                              "llm_tokens": 1234, "render_ms": 9000.5,
                              "derived_pages": 306}}
-    assert adapter.index_calls == [("/repo/data/documents/b.md", "h2")]
+    assert adapter.index_calls == [("/repo/data/documents/b.md", HASH_B)]
 
 
 def test_index_render_error_uses_render_prefix():
@@ -160,7 +186,8 @@ def test_index_render_error_uses_render_prefix():
     adapter.index_error = RenderFailed("pandoc failed (rc=1)")
     data = client_for(adapter).post(
         "/api/v1/index", headers=auth(),
-        json={"source_path": "/repo/data/documents/a.md", "file_hash": "h1"}).json()
+        json={"source_path": "/repo/data/documents/a.md",
+              "file_hash": HASH_A}).json()
     assert data["success"] is False
     assert data["error"].startswith("render: ")
 
@@ -170,7 +197,8 @@ def test_index_unexpected_error_is_envelope_not_stack():
     adapter.index_error = RuntimeError("boom")
     data = client_for(adapter).post(
         "/api/v1/index", headers=auth(),
-        json={"source_path": "/repo/data/documents/a.md", "file_hash": "h1"}).json()
+        json={"source_path": "/repo/data/documents/a.md",
+              "file_hash": HASH_A}).json()
     assert data["success"] is False and "RuntimeError" in data["error"]
 
 
@@ -250,6 +278,34 @@ def test_search_request_validation():
                             json={"query": "q", "source_paths": [1, 2]}).json()
     assert bad_paths["success"] is False
     assert adapter.search_calls == []
+
+
+def test_search_non_integer_limits_is_envelope_not_500():
+    """max_nodes / max_loops / max_token_budget 非整数走信封（PI2 审查修复：
+    强转此前在 try 块外，ValueError 会裸抛为非信封 500）。"""
+    adapter = FakeAdapter()
+    client = client_for(adapter)
+    bad = client.post("/api/v1/search", headers=auth(),
+                      json={"query": "q", "max_nodes": "abc"}).json()
+    assert bad["success"] is False
+    assert "must be integers" in bad["error"]
+    assert adapter.search_calls == []
+
+
+def test_non_object_body_is_envelope_not_500():
+    """合法 JSON 但非对象（数组 / 字符串）与非法 JSON 一律信封报错。"""
+    adapter = FakeAdapter()
+    client = client_for(adapter)
+    json_headers = {**auth(), "Content-Type": "application/json"}
+    list_body = client.post("/api/v1/search", headers=auth(), json=[1, 2]).json()
+    assert list_body["success"] is False and "JSON object" in list_body["error"]
+    malformed = client.post("/api/v1/index", headers=json_headers,
+                            content=b"{not json").json()
+    assert malformed["success"] is False and "JSON object" in malformed["error"]
+    delete_list = client.post("/api/v1/index/delete", headers=auth(),
+                              json=["x"]).json()
+    assert delete_list["success"] is False and "JSON object" in delete_list["error"]
+    assert adapter.index_calls == [] and adapter.search_calls == []
 
 
 def test_search_adapter_error_is_envelope():

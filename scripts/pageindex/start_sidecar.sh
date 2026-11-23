@@ -9,6 +9,11 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 VENV_DIR="${1:-${PAGEINDEX_VENV:-$REPO_ROOT/.venv-pageindex}}"
 ENV_FILE="${2:-${PAGEINDEX_ENV_FILE:-$REPO_ROOT/.env-pageindex}}"
 
+# 相对参数按调用方 CWD 绝对化：下方存在性检查与 cd 到仓库根后的
+# source / exec 必须指向同一路径（否则非仓库根启动时检查通过、执行失败）。
+[ "$VENV_DIR" = "${VENV_DIR#/}" ] && VENV_DIR="$PWD/$VENV_DIR"
+[ "$ENV_FILE" = "${ENV_FILE#/}" ] && ENV_FILE="$PWD/$ENV_FILE"
+
 [ -x "$VENV_DIR/bin/python" ] || { echo "pageindex venv missing at $VENV_DIR (run scripts/pageindex/setup_venv.sh first)"; exit 1; }
 [ -f "$ENV_FILE" ] || { echo "env file $ENV_FILE missing (cp scripts/pageindex/env.example $ENV_FILE)"; exit 1; }
 
