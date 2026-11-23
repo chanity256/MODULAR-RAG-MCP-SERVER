@@ -38,7 +38,7 @@
     "telemetry": {
       "invalid_output": 0,
       "unlocated": 0,
-      "unindexed": [],
+      "unindexed": 0,
       "truncated_evidence": 0,
       "budget_stopped": 0,
       "max_nodes_capped": 0

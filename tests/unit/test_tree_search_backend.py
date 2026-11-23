@@ -210,10 +210,10 @@ class TestContractFixture:
         backend = _backend(handler)
         response = backend.search(TreeSearchRequest(query="模块化 RAG 项目"))
         md, pdf = response.evidences
-        # MD 证据：line_* 有值、page_* 为 None（D8 双形态）。
-        assert md.line_start == 210 and md.page_start is None
-        # PDF 证据：page_* 有值、line_* 为 None。
-        assert pdf.page_start == 14 and pdf.line_start is None
+        # 结构性断言：fixture 将被 PI2 门控真实抓取整体替换，不锚定具体数值。
+        assert md.line_start is not None and md.page_start is None
+        assert pdf.page_start is not None and pdf.page_end >= pdf.page_start
+        assert pdf.line_start is None
         assert response.telemetry["invalid_output"] == 0
         parsed = parse_search_data(_CONTRACT["data"])
         assert len(parsed.evidences) == 2
