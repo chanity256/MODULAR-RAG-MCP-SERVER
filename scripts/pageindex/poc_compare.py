@@ -1175,9 +1175,10 @@ def main() -> int:
     parser.add_argument("--tree-source", default="flash", choices=["flash", "submit"],
                         help="MD 建树来源：flash=零 LLM 结构（冒烟/口径修正）；"
                              "submit=submit_document 真实建树（PI0.4b/PI0.6，花 token）")
-    parser.add_argument("--submit-optimize", default="full", choices=["full", "merge"],
-                        help="submit 建树的 optimize 档（PI0.4b 对比 merge vs full；"
-                             "merge=确定性合并不改写标题、省 LLM expand）")
+    parser.add_argument("--submit-optimize", default="merge", choices=["full", "merge"],
+                        help="submit 建树的 optimize 档（PI0.4b 对比：结构与回定位完全一致、"
+                             "merge 省 0.9%% token 与 1.1 分钟，2026-11-22 用户终裁 merge 为默认档；"
+                             "full 仅作对照复现时显式传入）")
     parser.add_argument("--smoke-fake", action="store_true",
                         help="fake LLM 冒烟：零 token 跑通新管线与检索循环")
     parser.add_argument("--rebuild-pdf-tree", action="store_true",
@@ -1350,11 +1351,23 @@ def main() -> int:
     # 退回上一轮 poc_results.json 的评分行。
     prior_tree_telemetry: dict | None = None
     if "tree" not in routes:
+        # 与主循环同口径：md 的内容等价口径需要目标文件全文归一化文本
+        # （PI0.6 复测发现：部分重跑漏传会把 tree 的 hitEq 压到与严格口径相同）。
+        tree_target_norm: dict[str, str | None] = {}
+        for source in sources:
+            if source == "md":
+                parts = [norm_text((REPO_ROOT / rel).read_text(encoding="utf-8"))
+                         for rel in args.md_paths if (REPO_ROOT / rel).exists()]
+                tree_target_norm[source] = "\n".join(parts)
+            else:
+                tree_target_norm[source] = None
         for source in sources:
             tree_path = out_dir / f"tree_{source}.jsonl"
             if tree_path.exists():
                 recs = [json.loads(l) for l in tree_path.read_text(encoding="utf-8").splitlines() if l.strip()]
-                all_scored[f"tree/{source}"] = score_questions(recs, questions, source, "tree")
+                all_scored[f"tree/{source}"] = score_questions(
+                    recs, questions, source, "tree",
+                    target_text_norm=tree_target_norm[source])
                 print(f"[poc] rescored tree from {tree_path.name} ({len(recs)} 题)", file=sys.stderr)
             else:
                 prev = out_dir / "poc_results.json"
