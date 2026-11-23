@@ -144,6 +144,59 @@ class TestMcpStdout:
         assert redlines.check_mcp_stdout(tmp_path) == []
 
 
+class TestPageindexImport:
+    """PI2：``no-pageindex-import`` 规则（pageindex / litellm 及子模块）。"""
+
+    def test_flags_import_forms(self, tmp_path):
+        _write(tmp_path, "src/a.py", "import pageindex\n")
+        _write(tmp_path, "scripts/b.py", "from pageindex.flash import x\n")
+        _write(tmp_path, "scripts/c.py", "import litellm\n")
+        _write(tmp_path, "tests/d.py", "import importlib\nimportlib.import_module('litellm')\n")
+        _write(tmp_path, "main.py", "__import__('pageindex.utils')\n")
+        got = _rules(redlines.check_pageindex_imports(tmp_path))
+        assert {(p, ln) for _, p, ln in got} == {
+            ("src/a.py", 1), ("scripts/b.py", 1), ("scripts/c.py", 1),
+            ("tests/d.py", 2), ("main.py", 1),
+        }
+        assert all(rule == "no-pageindex-import" for rule, _, _ in got)
+
+    def test_docstring_and_strings_are_not_imports(self, tmp_path):
+        _write(tmp_path, "src/libs/tree_search/http_backend.py", '''\
+            """主 venv 永不
+            import pageindex——所有上游耦合收敛在 sidecar 适配层。"""
+            BACKEND = "pageindex_http"
+            import pageindex_like_but_different
+            SUMMARY = "litellm.completion 的文档说明"
+            ''')
+        assert redlines.check_pageindex_imports(tmp_path) == []
+
+    def test_sidecar_venv_is_skipped(self, tmp_path):
+        _write(tmp_path, "scripts/.venv-pageindex/lib/site.py", "import pageindex\n")
+        assert redlines.check_pageindex_imports(tmp_path) == []
+
+    def test_whitelist_allows_exact_files(self, tmp_path):
+        _write(tmp_path, "scripts/pageindex/pi_adapter.py", "import litellm\n")
+        _write(tmp_path, "scripts/pageindex/poc_compare.py", "from pageindex import PageIndexClient\n")
+        assert redlines.check_pageindex_imports(tmp_path) == []
+
+    def test_whitelist_does_not_cover_siblings(self, tmp_path):
+        """白名单不得放宽到目录：同目录其他 .py 仍被拦截。"""
+        _write(tmp_path, "scripts/pageindex/server.py", "import pageindex\n")
+        _write(tmp_path, "scripts/pageindex/pi_adapter_impl.py", "import pageindex\n")
+        got = _rules(redlines.check_pageindex_imports(tmp_path))
+        assert got == [
+            ("no-pageindex-import", "scripts/pageindex/pi_adapter_impl.py", 1),
+            ("no-pageindex-import", "scripts/pageindex/server.py", 1),
+        ]
+
+    def test_whitelist_entries_are_scoped_and_cited(self):
+        """白名单条目必须限定在 scripts/pageindex/ 的 .py 且带规格引用。"""
+        assert redlines.PAGEINDEX_IMPORT_EXEMPTIONS, "whitelist must be explicit, not implicit"
+        for path, ref in redlines.PAGEINDEX_IMPORT_EXEMPTIONS.items():
+            assert path.startswith("scripts/pageindex/") and path.endswith(".py")
+            assert "PAGEINDEX_TREE_RETRIEVAL" in ref
+
+
 def test_real_repository_has_no_violations():
     assert [str(v) for v in redlines.check_repo(REPO_ROOT)] == []
 

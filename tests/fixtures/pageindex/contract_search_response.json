@@ -1,0 +1,47 @@
+{
+  "_meta": {
+    "note": "合成契约样例：按 PI2 server /search 响应 shape 构造（MD 证据带 line_*、PDF 证据带 page_*）；PI2 门控真实抓取后整体替换本文件，字段集合不变。",
+    "spec": "docs/specs/PAGEINDEX_TREE_RETRIEVAL_SPEC.md §3.4",
+    "shape": "{success, data: {evidences: [TreeEvidence x10], llm_call_count, total_llm_tokens, telemetry}}"
+  },
+  "success": true,
+  "error": null,
+  "data": {
+    "evidences": [
+      {
+        "source_path": "/repo/data/documents/章节拆分/应用开发项目与开源架构解析.md",
+        "doc_id": "pi-a93db52fexample",
+        "node_id": "0007",
+        "text": "3 模块化RAG项目：按 loader → splitter → embed → store 分层的模块化单体架构……",
+        "score": 1.0,
+        "section": "3 模块化RAG项目 > 3.2 模块划分",
+        "page_start": null,
+        "page_end": null,
+        "line_start": 210,
+        "line_end": 342
+      },
+      {
+        "source_path": "/repo/data/db/pageindex/poc/2023-annual-report.pdf",
+        "doc_id": "pi-77b31c0aexample",
+        "node_id": "0012",
+        "text": "Monetary policy: The Federal Reserve raised the target range ……",
+        "score": 0.8,
+        "section": "Monetary Policy Report > Policy Outlook",
+        "page_start": 14,
+        "page_end": 16,
+        "line_start": null,
+        "line_end": null
+      }
+    ],
+    "llm_call_count": 4,
+    "total_llm_tokens": 8412,
+    "telemetry": {
+      "invalid_output": 0,
+      "unlocated": 0,
+      "unindexed": [],
+      "truncated_evidence": 0,
+      "budget_stopped": 0,
+      "max_nodes_capped": 0
+    }
+  }
+}

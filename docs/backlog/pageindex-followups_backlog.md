@@ -2,7 +2,7 @@
 
 > 起源：[PAGEINDEX_TREE_RETRIEVAL_SPEC](../specs/PAGEINDEX_TREE_RETRIEVAL_SPEC.md)（PI 系列，开发中）。PI0 立项门收口（2026-11-23 D9 终裁达标，PI1 开工）时，按 PI0.7 任务把过程发现「派生台账条目、上游 issue 草稿、单测锁定项各自归位」；PI1–PI7 执行期间的新遗留继续记入本台账。
 >
-> 性质：第 1 类是决议与已知限制记录（非候选）；第 2 类是上游 issue 草稿（提交与否由用户决定，本项目侧已有规避）；第 3 类是可行动的候选池，推进任何一项按 [README 约定](README.md)另立提案；第 4 类是裁决保留的可选优化。
+> 性质：第 1 类是决议与已知限制记录（非候选）；第 2 类是上游 issue 草稿（提交与否由用户决定，本项目侧已有规避）；第 3 类是可行动的候选池，推进任何一项按 [README 约定](README.md)另立提案；第 4 类是裁决保留的可选优化；第 5 类是 PI2 代码审查遗留的低危修复池（PI2.1 批次，待排期）。
 >
 > 关联：[03_SIRCHMUNK_INTEGRATION_SPEC_frozen](../frozen/03_SIRCHMUNK_INTEGRATION_SPEC_frozen.md)（进程隔离红线）、[18_AGENTIC_COLLECTION_ISOLATION_SPEC_frozen](../frozen/18_AGENTIC_COLLECTION_ISOLATION_SPEC_frozen.md)（collection 定界）。
 
@@ -49,3 +49,13 @@
 | # | 事项 | 决议 |
 |---|------|------|
 | 1 | **「flash 结构 + 按需摘要」混合建树**（flash 零 LLM 树 1,375 节点 / 回定位 95.4%，无摘要；submit 树带摘要、检索更省） | 用户终裁（2026-11-23，PI0.7）：维持 submit 全量摘要为 PI1 基线；混合方案留本台账作可选优化，重开需新证据（如 token 成本再次成为瓶颈） |
+
+## 5. PI2 代码审查遗留（PI2.1 批次，待排期）
+
+> 来源：PI2 代码审查（commit `6c77fff`，2026-11-23）。审查 P2 中安全 / 契约类三项已随审查修复并带回归单测：`/index` `file_hash` 非 64 位 hex 拒绝（防派生 PDF 路径穿越写，规格 §3.4 已回填）、`/search` 非法 body 与非整数参数信封化（不裸抛 500）、`start_sidecar.sh` 相对参数按调用方 CWD 绝对化；既有测试 fixture 同步换真实 hex hash。以下三项低危暂缓：
+
+| # | 事项 | 出处 | 说明 |
+|---|------|------|------|
+| 1 | **重索引孤儿派生 PDF 无 GC** | `scripts/pageindex/pi_adapter.py` `index()` | 派生 PDF 按内容哈希命名（D12①）：MD 内容变更后重索引落新 `<new_hash>.pdf` 并覆盖记录，旧 `<old_hash>.pdf` 无任何回收路径（`delete()` 只删当前记录的 `derived_pdf`），每次内容修订泄漏一份。修复：重渲染前对同 `source_path` 旧记录中不同的 `derived_pdf` unlink；或并入 PI4 对账同步做清理 |
+| 2 | **`API_VERSION = "1.0"` 同批双份** | `scripts/pageindex/server.py` / `pi_adapter.py` | 同一提交引入两处同名常量：`pi_adapter` 供 `/status` 的 `version` 字段（契约面），`server` 仅喂 FastAPI `version=` 元数据，须人工保持一致；收敛为单一所有者（以 `status()` 为准） |
+| 3 | **plan 中 `PAGEINDEX_STORAGE` 读取归属笔误** | `.agents/plans/PI2.md` | Files 第 2 条写 `main()` 读 `PAGEINDEX_STORAGE`，实际由 `pi_adapter.PageIndexAdapter.from_env()` 读取（运行行为无差异）；下次改动该 plan 时顺手更正 |
