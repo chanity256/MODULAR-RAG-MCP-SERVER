@@ -1,6 +1,9 @@
 # AI_NATIVE_SDLC_SPEC SD2.3：Factory Droid 自动 PR review（shallow，含自动 security review）。
 # 仅作参考意见，不是分支保护的必需 check；review 指令由 droid-action 注入 .factory/skills/review-guidelines/SKILL.md。
 # 需要 Actions secret FACTORY_API_KEY，且仓库已安装 Factory Droid GitHub App。
+# 审查模型（2026-11-23 成本决策）：固定走使用者的 BYOK GLM（ZHIPU_API_KEY + evals/ci/factory-settings.json，
+# 经 apiKeyHelper 读文件、key 不进 agent 会话环境），花费计入使用者智谱额度而非 Factory credits；
+# 接线方式与 agent-evals.yml 的「Configure BYOK model (D5)」一致，锁定见 test_review_guidelines.py。
 name: Droid Auto Review
 
 on:
@@ -27,6 +30,22 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 1
+      # 智谱 key 不进 agent 会话的环境变量（SD3.6 基线教训）：写到文件，由 droid 的 apiKeyHelper 读取。
+      # droid exec 读 ~/.factory/settings.json；droid-action 的 settings 输入只写 ~/.factory/droid/settings.json
+      # （MCP 注册），所以这里在该步骤直接预写 droid 真正读取的路径。
+      - name: Configure BYOK review model (D5, Zhipu GLM)
+        env:
+          ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY }}
+        run: |
+          test -n "$ZHIPU_API_KEY" || { echo "::error::ZHIPU_API_KEY secret is empty"; exit 1; }
+          umask 077
+          keys="$HOME/.factory/review-keys"
+          mkdir -p "$keys"
+          printf '%s' "$ZHIPU_API_KEY" > "$keys/zhipu.key"
+          printf '#!/bin/sh\nexec cat %s\n' "$keys/zhipu.key" > "$keys/zhipu-key.sh"
+          chmod 700 "$keys/zhipu-key.sh"
+          jq --arg helper "$keys/zhipu-key.sh" '.customModels[0].apiKeyHelper = $helper' \
+            evals/ci/factory-settings.json > "$HOME/.factory/settings.json"
       - name: Run Droid Auto Review
         uses: Factory-AI/droid-action@main
         with:
@@ -34,4 +53,6 @@ jobs:
           automatic_review: true
           automatic_security_review: true
           review_depth: shallow
+          review_model: custom:glm-5.3-Flash-0
+          security_model: custom:glm-5.3-Flash-0
           allowed_bots: factory-droid
