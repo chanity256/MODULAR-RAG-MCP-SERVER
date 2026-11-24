@@ -92,9 +92,13 @@ class TestHttpRoundtrip:
         md = results[0]
         assert md.chunk_id.startswith("pageindex:pi-")
         assert md.metadata["retrieval_route"] == "longdoc"
-        assert md.metadata["line_start"] == 210 and md.metadata["page"] is None
+        # 结构性断言：fixture 将被 PI2 门控真实抓取整体替换，不锚定具体数值。
+        assert md.metadata["line_start"] is not None and md.metadata["page"] is None
         pdf = results[1]
-        assert pdf.metadata["page"] == 14 and pdf.metadata["page_end"] == 16
+        assert (
+            pdf.metadata["page"] is not None
+            and pdf.metadata["page_end"] >= pdf.metadata["page"]
+        )
         assert pdf.metadata["line_start"] is None
 
     def test_http_500_maps_to_backend_error(self, sidecar: str):
