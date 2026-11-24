@@ -1,14 +1,17 @@
 {
   "customModels": [
     {
-      "model": "glm-5.3-Flash",
-      "id": "custom:glm-5.3-Flash-0",
+      "model": "deepseek-v4.1-flash",
+      "id": "custom:deepseek-v4.1-flash-0",
       "index": 0,
-      "baseUrl": "https://open.bigmodel.cn/api/anthropic",
-      "provider": "anthropic",
-      "displayName": "glm-5.3-Flash",
+      "baseUrl": "https://opencode.ai/inference/go/openai/v1",
+      "provider": "generic-chat-completion-api",
+      "displayName": "deepseek-v4.1-flash",
       "maxOutputTokens": 131072,
-      "noImageSupport": false
+      "noImageSupport": true,
+      "extraHeaders": {
+        "x-opencode-session": "ses_repo_default_replaced_by_ci"
+      }
     }
   ]
 }

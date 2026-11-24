@@ -31,8 +31,17 @@ def compute_capabilities(
     agentic_enabled = bool(getattr(agentic, "enabled", False))
     # agentic 整体关闭时 DEEP 自然不可用，不泄露 allow_deep 的原始配置值。
     allow_deep = agentic_enabled and bool(getattr(agentic, "allow_deep", False))
+    # PAGEINDEX_TREE_RETRIEVAL_SPEC PI5（D10）：longdoc 不进 auto 候选（_ALL_MODES
+    # 保持三档），仅在 tree_search.enabled 且检索器已注册（或缺省推断可用）时
+    # 追加到 capabilities `retrievals` 末尾。
+    tree = getattr(settings, "tree_search", None)
+    tree_enabled = bool(getattr(tree, "enabled", False))
     if available is None:
         available = _ALL_MODES if agentic_enabled else ("hybrid",)
+    # 冷启动懒初始化检索器前（available=None）的缺省推断须纳入 longdoc，
+    # 否则首次拉取 capabilities 会漏报。
+    if tree_enabled:
+        available = (*available, "longdoc")
     # MODE_ROUTER_SPEC MR4：auto 候选与 ChatServices._auto_candidates 同口径
     # （已注册检索器 ∩ 门控可用），路由器启用且候选非空才上报 auto_routing。
     if not agentic_enabled:
@@ -43,14 +52,18 @@ def compute_capabilities(
         allowed = ("hybrid", "agentic_fast")
     candidates = [m for m in _ALL_MODES if m in available and m in allowed]
     router = getattr(settings, "mode_router", None)
+    retrievals = [m for m in _ALL_MODES if m in available]
+    if tree_enabled and "longdoc" in available:
+        retrievals.append("longdoc")
     return {
         "enabled": chat.enabled,
-        "retrievals": [m for m in _ALL_MODES if m in available],
+        "retrievals": retrievals,
         "default_retrieval": chat.default_retrieval,
         "auto_routing": bool(getattr(router, "enabled", False)) and bool(candidates),
         "agentic_enabled": agentic_enabled,
         "allow_deep": allow_deep,
         "progress_stream": chat.agentic_progress_stream,
+        "longdoc_enabled": tree_enabled,
         "max_connections": chat.max_connections,
     }
 

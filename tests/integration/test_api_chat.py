@@ -27,13 +27,22 @@ from libs.agentic_search.base_agentic_search import AgenticEvidence
 from libs.agentic_search.fake_backend import FakeAgenticSearch
 from libs.llm.base_llm import BaseLLM, ChatResponse
 from mcp_server.tools.agentic_search import AgenticSearchTool
-from observability.dashboard.services.chat_retrievers import build_chat_retrievers
+from observability.dashboard.services.chat_retrievers import TreeChatRetriever, build_chat_retrievers
 from observability.dashboard.services.config_service import ConfigService
 from observability.dashboard.services.trace_service import TraceService
 
 _REPO_CONFIG = Path(__file__).resolve().parents[2] / "config" / "settings.yaml"
 TOKEN = "ws-test-token"
 HYBRID_FRAME = {"type": "user_message", "message": "什么是 RAG？"}
+
+
+class _StubTreeBackend:
+    """capabilities 测试用的最小树检索后端（不发起任何检索）。"""
+
+    backend_name = "stub_tree"
+
+    def search(self, request):
+        raise AssertionError("not called in capabilities tests")
 
 
 # --------------------------------------------------------------------------- fakes
@@ -528,6 +537,7 @@ class TestRest:
             "agentic_enabled": False,
             "allow_deep": False,
             "progress_stream": False,
+            "longdoc_enabled": False,
             "max_connections": 100,
         }
 
@@ -557,6 +567,26 @@ class TestRest:
         engine.available_retrievals = ("hybrid", "agentic_fast")
         client = make_client(base_settings, ChatServices(base_settings, engine=engine))
         assert client.get("/api/v1/chat/capabilities").json()["retrievals"] == ["hybrid", "agentic_fast"]
+
+    @pytest.mark.parametrize("tree_enabled", [False, True])
+    def test_capabilities_longdoc_enabled_flag(self, base_settings, store, tmp_path, tree_enabled):
+        """PI5：capabilities 新增 longdoc_enabled（tree_search.enabled），enabled 时 retrievals 末尾追加 longdoc。"""
+        tree = replace(
+            base_settings.tree_search, enabled=tree_enabled, api_token="tok", allowed_roots=[str(tmp_path)]
+        )
+        st = replace(base_settings, tree_search=tree)
+        retrievers = {"hybrid": _hybrid()}
+        if tree_enabled:
+            retrievers["longdoc"] = TreeChatRetriever(_StubTreeBackend(), settings=st)
+        client = make_client(st, ChatServices(st, session_store=store, retrievers=retrievers))
+
+        body = client.get("/api/v1/chat/capabilities").json()
+
+        assert body["longdoc_enabled"] is tree_enabled
+        if tree_enabled:
+            assert body["retrievals"][-1] == "longdoc"
+        else:
+            assert "longdoc" not in body["retrievals"]
 
 
 # --------------------------------------------------------------------------- WC7.3 / WC7.4 end to end

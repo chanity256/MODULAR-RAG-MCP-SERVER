@@ -1,6 +1,6 @@
 # AI_NATIVE_SDLC_SPEC SD3.6：agent steering evals（付费，D5 BYOK）。
 # 只在 steering 文件变更或手动触发时跑；不用 .github/**，否则改任何 workflow 都会花一次钱。
-# 需要 Actions secrets：FACTORY_API_KEY（droid exec 鉴权）、ZHIPU_API_KEY（BYOK 模型，经 apiKeyHelper 读取，见 evals/ci/factory-settings.json）。
+# 需要 Actions secrets：FACTORY_API_KEY（droid exec 鉴权）、OPENCODE_API_KEY（BYOK 模型，经 apiKeyHelper 读取，见 evals/ci/factory-settings.json）。
 name: Agent evals
 
 on:
@@ -33,7 +33,8 @@ concurrency:
 
 env:
   # evals/ci/factory-settings.json 的唯一条目：custom:<displayName>-<index>
-  EVAL_MODEL: custom:glm-5.3-Flash-0
+  # 2026-11-24 复裁：BYOK 模型由智谱 GLM 切至 OpenCode deepseek-v4.1-flash（OpenAI 兼容端点）。
+  EVAL_MODEL: custom:deepseek-v4.1-flash-0
   EVAL_CASES: ${{ inputs.cases }}
   EVAL_REPEAT: ${{ inputs.repeat || '3' }}
 
@@ -99,20 +100,25 @@ jobs:
         run: |
           curl -fsSL https://app.factory.ai/cli | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      # 智谱 key 不进 agent 会话的环境变量（SD3.6 基线里 qa-tester 会话探测到了 ZHIPU_API_KEY）：
+      # OpenCode key 不进 agent 会话的环境变量（SD3.6 基线里 qa-tester 会话探测到了 BYOK key 变量名）：
       # 写到 fixture 之外的文件，由 droid 的 apiKeyHelper 在请求时读取。
+      # OpenCode Go 强制 x-opencode-session 头（路由 + prompt cache）：每次 run 注入唯一会话 ID，
+      # 避免并行的用例矩阵共用同一条 Go 会话。
       - name: Configure BYOK model (D5)
         env:
-          ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          CASE: ${{ matrix.case }}
         run: |
-          test -n "$ZHIPU_API_KEY" || { echo "::error::ZHIPU_API_KEY secret is empty"; exit 1; }
+          test -n "$OPENCODE_API_KEY" || { echo "::error::OPENCODE_API_KEY secret is empty"; exit 1; }
           umask 077
           keys="$HOME/.factory/eval-keys"
           mkdir -p "$keys"
-          printf '%s' "$ZHIPU_API_KEY" > "$keys/zhipu.key"
-          printf '#!/bin/sh\nexec cat %s\n' "$keys/zhipu.key" > "$keys/zhipu-key.sh"
-          chmod 700 "$keys/zhipu-key.sh"
-          jq --arg helper "$keys/zhipu-key.sh" '.customModels[0].apiKeyHelper = $helper' \
+          printf '%s' "$OPENCODE_API_KEY" > "$keys/opencode.key"
+          printf '#!/bin/sh\nexec cat %s\n' "$keys/opencode.key" > "$keys/opencode-key.sh"
+          chmod 700 "$keys/opencode-key.sh"
+          sid="ses_eval_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}_${CASE}"
+          jq --arg helper "$keys/opencode-key.sh" --arg sid "$sid" \
+            '.customModels[0].apiKeyHelper = $helper | .customModels[0].extraHeaders["x-opencode-session"] = $sid' \
             evals/ci/factory-settings.json > "$HOME/.factory/settings.json"
           droid --version
       - name: Run evals
@@ -127,13 +133,13 @@ jobs:
         if: always()
         env:
           FACTORY_API_KEY: ${{ secrets.FACTORY_API_KEY }}
-          ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
         run: |
           python - <<'PY'
           import os
           from pathlib import Path
 
-          secrets = [v.encode() for k in ("FACTORY_API_KEY", "ZHIPU_API_KEY") if (v := os.environ.get(k))]
+          secrets = [v.encode() for k in ("FACTORY_API_KEY", "OPENCODE_API_KEY") if (v := os.environ.get(k))]
           root = Path("evals/runs")
           for path in root.rglob("*") if root.exists() else []:
               if path.is_file():

@@ -22,9 +22,9 @@ __all__ = [
     "parse_upstream_frame",
 ]
 
-RetrievalMode = Literal["hybrid", "agentic_fast", "agentic_deep"]
+RetrievalMode = Literal["hybrid", "agentic_fast", "agentic_deep", "longdoc"]
 
-# MODE_ROUTER_SPEC MR4：请求值可以是 auto（检索前由决策模型定档）；`retrievals` 仍只列三档真实模式。
+# MODE_ROUTER_SPEC MR4：请求值可以是 auto（检索前由决策模型定档）；`retrievals` 仍只列真实模式。
 RequestedRetrieval = Union[RetrievalMode, Literal["auto"]]
 
 
@@ -86,4 +86,5 @@ class ChatCapabilities(BaseModel):
     agentic_enabled: bool = Field(description="agentic_search.enabled")
     allow_deep: bool = Field(description="agentic_search.allow_deep; false -> agentic_deep fails with DEEP_DISABLED")
     progress_stream: bool = Field(description="chat.agentic_progress_stream")
+    longdoc_enabled: bool = Field(description="tree_search.enabled")
     max_connections: int

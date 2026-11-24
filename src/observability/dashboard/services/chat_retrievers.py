@@ -20,6 +20,7 @@ from core.chat.retriever import (
     RETRIEVAL_AGENTIC_DEEP,
     RETRIEVAL_AGENTIC_FAST,
     RETRIEVAL_HYBRID,
+    RETRIEVAL_LONGDOC,
     ChatRetrievalResult,
     DeepDisabledError,
     SearchLogCallback,
@@ -30,6 +31,14 @@ from libs.agentic_search.base_agentic_search import (
     AgenticSearchResponseError,
     AgenticSearchTimeoutError,
 )
+from libs.agentic_search.collection_paths import CollectionPathResolver
+from libs.agentic_search.path_guard import PathGuard
+from libs.tree_search.base_tree_search import (
+    TreeSearchError,
+    TreeSearchRequest,
+    TreeSearchResponse,
+)
+from libs.tree_search.converter import tree_evidence_to_retrieval_results
 from mcp_server.protocol_handler import ToolInvalidParams
 from observability.dashboard.services.query_service import QueryService
 from observability.dashboard.services.search_service import _StreamingSearchAdapter
@@ -37,6 +46,7 @@ from observability.dashboard.services.search_service import _StreamingSearchAdap
 __all__ = [
     "AgenticChatRetriever",
     "HybridChatRetriever",
+    "TreeChatRetriever",
     "build_chat_retrievers",
 ]
 
@@ -210,10 +220,13 @@ def build_chat_retrievers(
     *,
     query_service: QueryService | None = None,
     agentic_tool: Any | None = None,
+    tree_backend: Any | None = None,
 ) -> dict[str, Any]:
     """按配置装配检索器字典；agentic 两个模式仅在 ``agentic_search.enabled`` 时注册。
 
     DEEP 在 enabled 时也注册，由 ``allow_deep`` 在调用时门控（关闭时 ``DEEP_DISABLED``）。
+    longdoc 仅在 ``tree_search.enabled`` 时注册（PAGEINDEX_TREE_RETRIEVAL_SPEC PI5）；
+    ``tree_backend`` 可注入 fake（测试），缺省经 ``TreeSearchFactory`` 按 backend 构建。
     """
     retrievers: dict[str, Any] = {
         RETRIEVAL_HYBRID: HybridChatRetriever(query_service or QueryService(settings)),
@@ -225,4 +238,159 @@ def build_chat_retrievers(
             agentic_tool = AgenticSearchTool(settings=settings)
         retrievers[RETRIEVAL_AGENTIC_FAST] = AgenticChatRetriever(agentic_tool, mode="FAST", settings=settings)
         retrievers[RETRIEVAL_AGENTIC_DEEP] = AgenticChatRetriever(agentic_tool, mode="DEEP", settings=settings)
+    if getattr(getattr(settings, "tree_search", None), "enabled", False):
+        if tree_backend is None:
+            import libs.tree_search  # noqa: F401  # 触发后端注册
+            from libs.tree_search.tree_search_factory import TreeSearchFactory
+
+            tree_backend = TreeSearchFactory.create(settings)
+        retrievers[RETRIEVAL_LONGDOC] = TreeChatRetriever(tree_backend, settings=settings)
     return retrievers
+
+
+class TreeChatRetriever:
+    """Longdoc（PageIndex sidecar 树检索）适配器（PAGEINDEX_TREE_RETRIEVAL_SPEC PI5）。
+
+    走 AnswerGenerator 路径（``answer=None``）；不声明 ``on_log``（sidecar
+    ``/search`` 为同步端点，无进度流）。证据在主 venv 侧仍做 PathGuard 过滤
+    与 collection 定界集二次过滤（不信任 sidecar 的过滤结果，D12 / AC2 同构）。
+
+    Args:
+        backend: ``BaseTreeSearch``（或具备 ``search(TreeSearchRequest)`` 的 fake）。
+        settings: 全局配置（读 ``tree_search`` 的 allowed_roots / denied_substrings）。
+        history: 摄取历史句柄（collection 定界用；缺省懒建 ``SQLiteIntegrityChecker``）。
+    """
+
+    def __init__(self, backend: Any, *, settings: Any | None = None, history: Any | None = None) -> None:
+        self._backend = backend
+        self._settings = settings
+        self._history = history
+        self._path_guard: PathGuard | None = None
+
+    def retrieve(
+        self,
+        query: str,
+        *,
+        collection: str | None = None,
+        top_k: int | None = None,
+        trace: Any | None = None,
+    ) -> ChatRetrievalResult:
+        scoped: list[str] | None = None
+        if collection and collection.strip():
+            scoped = self._resolve_collection_paths(collection.strip())
+        if scoped is not None and not scoped:
+            # D3 先例：定界集为空 fail-closed，不调用 sidecar，直接零证据。
+            if trace is not None:
+                trace.record_stage(
+                    "tree_search",
+                    method="scoped_empty",
+                    details={
+                        "backend": self._backend_name(),
+                        "collection": collection,
+                        "scoped_paths": 0,
+                        "evidences": 0,
+                        "filtered_out": 0,
+                    },
+                )
+            return ChatRetrievalResult(metadata={"retrieval_route": RETRIEVAL_LONGDOC, "collection": collection})
+
+        request = TreeSearchRequest(query=query, source_paths=scoped)
+        try:
+            response = self._backend.search(request)
+        except TreeSearchError as exc:
+            if trace is not None:
+                trace.record_stage(
+                    "tree_search",
+                    method="error",
+                    details={
+                        "backend": self._backend_name(),
+                        "collection": collection,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
+                )
+            raise
+        return self._to_result(response, collection=collection, scoped=scoped, top_k=top_k, trace=trace)
+
+    # ------------------------------------------------------------------ #
+    def _backend_name(self) -> str:
+        return str(getattr(self._backend, "backend_name", type(self._backend).__name__))
+
+    def _to_result(
+        self,
+        response: TreeSearchResponse,
+        *,
+        collection: str | None,
+        scoped: list[str] | None,
+        top_k: int | None,
+        trace: Any | None,
+    ) -> ChatRetrievalResult:
+        """PathGuard 过滤 + 定界集二次过滤 → converter → trace（不 finish，D7）。"""
+        kept = set(self._get_path_guard().filter_evidence_paths([e.source_path for e in response.evidences]))
+        survivors = [e for e in response.evidences if e.source_path in kept]
+        if scoped is not None:
+            scoped_set = set(scoped)
+            survivors = [e for e in survivors if e.source_path in scoped_set]
+        filtered_out = len(response.evidences) - len(survivors)
+        results = tree_evidence_to_retrieval_results(
+            TreeSearchResponse(
+                evidences=survivors,
+                llm_call_count=response.llm_call_count,
+                total_llm_tokens=response.total_llm_tokens,
+                telemetry=response.telemetry,
+            ),
+            top_k=top_k,
+        )
+        telemetry = response.telemetry if isinstance(response.telemetry, dict) else {}
+        if trace is not None:
+            trace.record_stage(
+                "tree_search",
+                method=self._backend_name(),
+                details={
+                    "backend": self._backend_name(),
+                    "collection": collection,
+                    "scoped_paths": len(scoped) if scoped is not None else None,
+                    "evidences": len(survivors),
+                    "filtered_out": filtered_out,
+                    "unindexed": telemetry.get("unindexed"),
+                    "llm_call_count": response.llm_call_count,
+                    "total_llm_tokens": response.total_llm_tokens,
+                    "elapsed_ms": response.elapsed_ms,
+                    "tree_telemetry": response.telemetry,
+                },
+            )
+        metadata = {
+            "retrieval_route": RETRIEVAL_LONGDOC,
+            "collection": collection,
+            "filtered_out": filtered_out,
+            "llm_call_count": response.llm_call_count,
+            "total_llm_tokens": response.total_llm_tokens,
+            "elapsed_ms": response.elapsed_ms,
+        }
+        return ChatRetrievalResult(results=results, metadata=metadata)
+
+    def _get_path_guard(self) -> PathGuard:
+        if self._path_guard is None:
+            config = self._get_config()
+            self._path_guard = PathGuard(config.allowed_roots, config.denied_substrings)
+        return self._path_guard
+
+    def _get_config(self) -> Any:
+        settings = self._settings
+        if settings is None:
+            from core.settings import load_settings
+
+            settings = load_settings()
+        return settings.tree_search
+
+    def _get_history(self) -> Any:
+        if self._history is None:
+            from libs.loader.file_integrity import SQLiteIntegrityChecker
+
+            self._history = SQLiteIntegrityChecker()
+        return self._history
+
+    def _resolve_collection_paths(self, collection: str) -> list[str]:
+        """collection → 定界绝对路径集（AC1 组件复用；空集由调用方按 D3 短路）。"""
+        resolver = CollectionPathResolver(self._get_history(), self._get_path_guard())
+        return resolver.resolve(collection)

@@ -11,6 +11,7 @@ from core.chat.retriever import (
     RETRIEVAL_AGENTIC_FAST,
     RETRIEVAL_HYBRID,
     RETRIEVAL_AUTO,
+    RETRIEVAL_LONGDOC,
     RETRIEVAL_MODES,
     ModeRouter,
     RoutingDecision,
@@ -51,7 +52,13 @@ class TestRetrieverConstants:
     def test_auto_not_in_retrieval_modes(self):
         assert RETRIEVAL_AUTO == "auto"
         assert RETRIEVAL_AUTO not in RETRIEVAL_MODES
-        assert RETRIEVAL_MODES == (RETRIEVAL_HYBRID, RETRIEVAL_AGENTIC_FAST, RETRIEVAL_AGENTIC_DEEP)
+        # PI5：longdoc 追加为第四档真实模式（PAGEINDEX_TREE_RETRIEVAL_SPEC §3.2）。
+        assert RETRIEVAL_MODES == (
+            RETRIEVAL_HYBRID,
+            RETRIEVAL_AGENTIC_FAST,
+            RETRIEVAL_AGENTIC_DEEP,
+            RETRIEVAL_LONGDOC,
+        )
 
     def test_routing_decision_defaults(self):
         decision = RoutingDecision(mode="hybrid")

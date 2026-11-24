@@ -51,6 +51,12 @@ from libs.agentic_search.base_agentic_search import (
     AgenticSearchResponseError,
     AgenticSearchTimeoutError,
 )
+from libs.tree_search.base_tree_search import (
+    TreeSearchBackendError,
+    TreeSearchError,
+    TreeSearchResponseError,
+    TreeSearchTimeoutError,
+)
 from libs.llm.base_llm import ChatMessage
 from libs.llm.openai_llm import LLMRequestError
 # ModeRouterError 延迟到 _route 内导入：libs.mode_router.base_mode_router 反向依赖
@@ -124,6 +130,13 @@ def classify_error(exc: BaseException) -> ErrorInfo:
     if isinstance(exc, AgenticSearchResponseError):
         return ErrorInfo(ERROR_UPSTREAM, "检索服务返回了无法解析的响应。", False)
     if isinstance(exc, AgenticSearchError):
+        return ErrorInfo(ERROR_UPSTREAM, _MESSAGES[ERROR_UPSTREAM], False)
+    # PAGEINDEX_TREE_RETRIEVAL_SPEC PI5：TreeSearch*Error 与 agentic 同口径（不归 INTERNAL）。
+    if isinstance(exc, (TreeSearchTimeoutError, TreeSearchBackendError)):
+        return ErrorInfo(ERROR_UPSTREAM, _MESSAGES[ERROR_UPSTREAM], True)
+    if isinstance(exc, TreeSearchResponseError):
+        return ErrorInfo(ERROR_UPSTREAM, "检索服务返回了无法解析的响应。", False)
+    if isinstance(exc, TreeSearchError):
         return ErrorInfo(ERROR_UPSTREAM, _MESSAGES[ERROR_UPSTREAM], False)
     if isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code

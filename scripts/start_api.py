@@ -92,6 +92,7 @@ def main(argv: list[str] | None = None) -> int:
         from libs.agentic_search.local_roots import ensure_local_roots
 
         ensure_local_roots(settings.agentic_search)  # AR1：预建 data/ 下白名单根（如 data/uploads）
+        ensure_local_roots(settings.tree_search)  # PI5：tree_search 白名单根同口径预建（disabled 时空操作）
         api = settings.api  # type: ignore[attr-defined]
         if not api.enabled and not args.force:
             print("api.enabled is false; set api.enabled: true or pass --force", file=sys.stderr)

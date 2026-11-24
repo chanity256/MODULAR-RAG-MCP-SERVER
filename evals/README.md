@@ -3,9 +3,10 @@
 Checks that agents still follow the repository's discipline (AGENTS.md, skills, hooks)
 after those files change. Spec: [AI_NATIVE_SDLC_SPEC.md §3.3](../docs/specs/AI_NATIVE_SDLC_SPEC.md).
 
-Real runs call `droid exec` and spend model tokens (D5: BYOK `custom:glm-5.3-Flash-2`,
-budget 5 cases × 3 runs). They are never collected by `pytest tests`; the judge logic is
-covered offline by `tests/unit/test_eval_judges.py`.
+Real runs call `droid exec` and spend model tokens (D5: BYOK, budget 5 cases × 3 runs; the
+CI model is OpenCode `deepseek-v4.1-flash` since 2026-11-24, see CI section below). They
+are never collected by `pytest tests`; the judge logic is covered offline by
+`tests/unit/test_eval_judges.py`.
 
 ## Layout
 
@@ -70,9 +71,18 @@ python evals/check.py --case evals/cases/<id>.yaml --fixture <dir> --stream <run
   touched a steering path, so doc-only follow-up commits cost nothing.
 - One matrix job per case (5 in parallel, 3 sessions each); the `summary` job merges the
   per-case artifacts with `run.py --summarize` and writes the gate result to the job summary.
-- Model: `custom:glm-5.3-Flash-0`, the only entry of `ci/factory-settings.json` (copied to
-  `~/.factory/settings.json`; same model and endpoint as the local `custom:glm-5.3-Flash-2`).
-  Secrets: `FACTORY_API_KEY` (droid auth) and `ZHIPU_API_KEY`. The Zhipu key is written to a
-  file outside the fixture and read by droid through `apiKeyHelper`, so it is not in the agent
-  session's environment (a baseline qa-tester session probed for it). `FACTORY_API_KEY` must
-  stay in droid's environment. Key values are replaced with `***` in run output before upload.
+- Model: `custom:deepseek-v4.1-flash-0`, the only entry of `ci/factory-settings.json`
+  (copied to `~/.factory/settings.json`; OpenCode Go `deepseek-v4.1-flash` via the Chat
+  Completions endpoint `https://opencode.ai/inference/go/openai/v1` with provider
+  `generic-chat-completion-api`, BYOK since 2026-11-24 — previously Zhipu GLM
+  `custom:glm-5.3-Flash-0`). OpenCode Go requires an `x-opencode-session` header, so the
+  workflow injects a run/case-unique session id via `jq` (the repo entry holds a
+  placeholder only). Prerequisite: the Global region must be enabled in the OpenCode
+  console (the model is hosted outside EU/US on Go). The local default `--model`
+  (`custom:glm-5.3-Flash-2` in `run.py`) is unchanged; pass `--model` explicitly to run
+  the same model locally.
+  Secrets: `FACTORY_API_KEY` (droid auth) and `OPENCODE_API_KEY`. The OpenCode key is
+  written to a file outside the fixture and read by droid through `apiKeyHelper`, so it is
+  not in the agent session's environment (a baseline qa-tester session probed for the
+  model key). `FACTORY_API_KEY` must stay in droid's environment. Key values are replaced
+  with `***` in run output before upload.
