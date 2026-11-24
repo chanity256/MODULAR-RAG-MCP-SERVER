@@ -20,6 +20,9 @@ injected into ``ChatServices``:
 * ``FORCE_ROUTING_FALLBACK`` the router raises ``unreachable`` -> falls back to ``hybrid``
 * anything else              routes to ``hybrid``
 
+Longdoc (PAGEINDEX_TREE_RETRIEVAL_SPEC PI6) runs against a fake tree-search backend
+injected into ``ChatServices``; its citation carries a section path and a line range.
+
 ``POST /__e2e__/reset`` restores the seeded documents so specs stay independent and retryable.
 """
 
@@ -57,7 +60,9 @@ from ingestion.document_manager import CollectionStats, DeleteResult, DocumentDe
 from libs.llm.base_llm import BaseLLM, ChatResponse  # noqa: E402
 from libs.llm.openai_llm import LLMRequestError  # noqa: E402
 from libs.mode_router import ModeRouterError  # noqa: E402
-from observability.dashboard.services.chat_retrievers import HybridChatRetriever  # noqa: E402
+from libs.tree_search.base_tree_search import TreeEvidence  # noqa: E402
+from libs.tree_search.fake_backend import FakeTreeSearch  # noqa: E402
+from observability.dashboard.services.chat_retrievers import HybridChatRetriever, TreeChatRetriever  # noqa: E402
 from observability.dashboard.services.config_service import ConfigService  # noqa: E402
 from observability.dashboard.services.ingestion_service import IngestionService, IngestionSummary  # noqa: E402
 from observability.dashboard.services.search_service import ModeAvailability, SearchOutcome  # noqa: E402
@@ -432,6 +437,14 @@ def build_app(
         # MR5: capabilities report auto_routing (router on + non-empty candidates); the
         # decision itself is served by the scripted router injected right below.
         mode_router=replace(loaded.mode_router, enabled=True),
+        # PI6: capabilities report longdoc_enabled; the retrieval itself is served by the
+        # fake tree backend injected into the retrievers dict below (no sidecar, no network).
+        tree_search=replace(
+            loaded.tree_search,
+            enabled=True,
+            api_token="e2e-fake-token",
+            allowed_roots=[str(workdir)],
+        ),
         observability=replace(loaded.observability, log_file=str(traces_path)),
     )
     api_settings = ApiSettings(
@@ -446,6 +459,32 @@ def build_app(
 
     data = FakeData()
     store = SessionStore(workdir / "chat.db")
+    # PI6: deterministic tree-search evidence under an allowed root so PathGuard keeps it;
+    # the citation then renders as `longdoc-notes.md · <section> · L12–45`. The evidence
+    # file must exist on disk (PathGuard's post-filter is fail-closed on missing files) and
+    # be addressed by its realpath: PathGuard keeps realpath-resolved paths, and on macOS
+    # /var/folders lives behind the /private/var symlink.
+    evidence_path = workdir / "longdoc-notes.md"
+    evidence_path.write_text(
+        "# 2 RAG 架构\n\n## 2.1 模块化设计\n\nLongdoc tree evidence placeholder for e2e.\n",
+        encoding="utf-8",
+    )
+    tree_backend = FakeTreeSearch(
+        evidences=[
+            TreeEvidence(
+                source_path=str(evidence_path.resolve()),
+                doc_id="pi-e2e",
+                node_id="0001",
+                text="Longdoc tree evidence: the modular RAG design lives in section 2.1.",
+                score=0.9,
+                section="2 RAG 架构 > 2.1 模块化设计",
+                page_start=None,
+                page_end=None,
+                line_start=12,
+                line_end=45,
+            )
+        ],
+    )
     chat = ChatServices(
         settings,
         session_store=store,
@@ -453,6 +492,7 @@ def build_app(
             "hybrid": HybridChatRetriever(FakeQueryService()),  # type: ignore[arg-type]
             "agentic_fast": FakeAgenticRetriever("Agentic fast"),
             "agentic_deep": FakeAgenticRetriever("Agentic deep", deep=True),
+            "longdoc": TreeChatRetriever(tree_backend, settings=settings),
         },
         llm_factory=lambda _settings: ScriptedLLM(),
     )

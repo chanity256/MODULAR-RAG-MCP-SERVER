@@ -154,6 +154,33 @@ describe("normalizeCitations", () => {
     expect(citation).toMatchObject({ id: 1, source: "x.md", page: null, score: null, chunk_id: "" });
   });
 
+  it("passes longdoc location fields through and drops ill-typed ones (PI6)", () => {
+    const [good] = normalizeCitations([
+      { source: "a.md", text: "t", section: "2 架构 > 2.1 模块", line_start: 12, line_end: 45 },
+    ]);
+    expect(good).toEqual({
+      id: 1,
+      source: "a.md",
+      page: null,
+      chunk_id: "",
+      text: "t",
+      score: null,
+      section: "2 架构 > 2.1 模块",
+      line_start: 12,
+      line_end: 45,
+    });
+
+    // Missing keys stay absent (backend omits null fields entirely).
+    const [bare] = normalizeCitations([{ id: 2, source: "b.pdf", page: 3, chunk_id: "c", text: "t", score: 0.5 }]);
+    expect(bare).toEqual({ id: 2, source: "b.pdf", page: 3, chunk_id: "c", text: "t", score: 0.5 });
+
+    // Ill-typed values are dropped, not coerced.
+    const [bad] = normalizeCitations([{ source: "c.md", text: "t", section: 42, line_start: "12", line_end: null }]);
+    expect(bad).not.toHaveProperty("section");
+    expect(bad).not.toHaveProperty("line_start");
+    expect(bad).not.toHaveProperty("line_end");
+  });
+
   it("returns [] for non-arrays", () => {
     expect(normalizeCitations(undefined)).toEqual([]);
     expect(normalizeCitations({})).toEqual([]);
@@ -179,6 +206,7 @@ describe("normalizeCapabilities", () => {
       auto_routing: false,
       agentic_enabled: true,
       allow_deep: false,
+      longdoc_enabled: false,
       progress_stream: true,
       max_connections: 100,
     });
@@ -202,6 +230,27 @@ describe("normalizeCapabilities", () => {
     // Without auto_routing an auto default silently falls back to hybrid.
     expect(normalizeCapabilities({ default_retrieval: "auto" }).default_retrieval).toBe("hybrid");
     expect(normalizeCapabilities({ default_retrieval: "auto", auto_routing: false }).default_retrieval).toBe("hybrid");
+  });
+
+  it("honors default_retrieval longdoc only when enabled and served (PI6)", () => {
+    const longdoc = normalizeCapabilities({
+      default_retrieval: "longdoc",
+      longdoc_enabled: true,
+      retrievals: ["hybrid", "longdoc"],
+    });
+    expect(longdoc.default_retrieval).toBe("longdoc");
+    expect(longdoc.longdoc_enabled).toBe(true);
+
+    // Older server (no longdoc_enabled field) or longdoc not served: fall back to hybrid.
+    expect(normalizeCapabilities({ default_retrieval: "longdoc" }).default_retrieval).toBe("hybrid");
+    expect(
+      normalizeCapabilities({ default_retrieval: "longdoc", longdoc_enabled: true, retrievals: ["hybrid"] })
+        .default_retrieval,
+    ).toBe("hybrid");
+    expect(
+      normalizeCapabilities({ default_retrieval: "longdoc", longdoc_enabled: false, retrievals: ["hybrid", "longdoc"] })
+        .default_retrieval,
+    ).toBe("hybrid");
   });
 });
 

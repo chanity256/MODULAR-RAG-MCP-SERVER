@@ -110,7 +110,24 @@ export function formatScore(score: number | null): string {
   return score === null ? "n/a" : score.toFixed(3);
 }
 
+/**
+ * Human label for a citation. Longdoc citations (PAGEINDEX_TREE_RETRIEVAL_SPEC PI6) carry a
+ * heading path and an optional 1-based line range, rendered as `a.md · <section> · L12–45`
+ * (single line: `L12`; section only: `a.md · <section>`); section text is kept verbatim.
+ * Without the new fields the output is unchanged (`a.pdf p.4` / `a.md`).
+ */
 export function citationLabel(citation: Citation): string {
   const name = citation.source.split(/[\\/]/).filter(Boolean).pop() ?? citation.source;
-  return citation.page !== null ? `${name || "unknown"} p.${citation.page}` : name || "unknown";
+  const base = name || "unknown";
+  const parts: string[] = [];
+  if (citation.section) parts.push(citation.section);
+  if (citation.line_start !== undefined) {
+    parts.push(
+      citation.line_end !== undefined && citation.line_end !== citation.line_start
+        ? `L${citation.line_start}–${citation.line_end}`
+        : `L${citation.line_start}`,
+    );
+  }
+  const location = parts.length > 0 ? `${base} · ${parts.join(" · ")}` : base;
+  return citation.page !== null ? `${location || "unknown"} p.${citation.page}` : location || "unknown";
 }

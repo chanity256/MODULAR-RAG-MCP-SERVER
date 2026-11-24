@@ -22,6 +22,9 @@ const MODE_TONE: Record<RequestedRetrieval, string> = {
   hybrid: "bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-200",
   agentic_fast: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-200",
   agentic_deep: "bg-sky-100 text-sky-800 dark:bg-sky-500/20 dark:text-sky-200",
+  // PAGEINDEX_TREE_RETRIEVAL_SPEC PI6: rose for Longdoc, same light/dark pairing pattern
+  // (light 6.7:1, dark 8.6:1 after blending the translucent tone over slate-800 — WCAG AA).
+  longdoc: "bg-rose-100 text-rose-800 dark:bg-rose-500/20 dark:text-rose-200",
 };
 
 export default function ModeSelector({ capabilities, value, onChange, disabled = false }: Props) {
