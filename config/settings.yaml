@@ -10,17 +10,24 @@ llm:
 # Embedding 配置
 embedding:
   provider: openai           # openai | azure | ollama
-  # 智谱 OpenAI 兼容端点（G1/G3 落地：摄取与查询共用，保证向量空间一致）
-  base_url: https://open.bigmodel.cn/api/paas/v4
-  api_key: ${ZAI_API_KEY}
-  model: embedding-3
+  # OpenCode Console 嵌入端点（按量计费，从 Console 余额扣，不占 Go 订阅额度）；
+  # 摄取与查询共用，保证向量空间一致。换模型须整库重新摄取。
+  base_url: https://opencode.ai/inference/openai/v1
+  api_key: ${OPENCODE_API_KEY}
+  model: qwen3-embedding-8b
+  dimensions: 2048           # MRL 截断（原生 4096），与此前 embedding-3 维度一致
+  extra_headers:             # Console 前置 Cloudflare 以 1010 拒绝 Python-urllib 默认 UA
+    User-Agent: modular-rag-mcp-server/1.0
 
 # Vision LLM 配置（图片描述）
 vision_llm:
   provider: openai           # azure | openai（OpenAI 兼容端点，G14）
-  model: glm-5.3-flash       # 智谱 GLM（已实测识图能力可用）
-  base_url: https://open.bigmodel.cn/api/paas/v4
-  api_key: ${ZAI_API_KEY}    # 从环境变量解析，不落盘
+  model: deepseek-v4.1-flash # OpenCode Go 订阅（输入支持 jpeg/png/gif/webp）
+  base_url: https://opencode.ai/inference/go/openai/v1
+  api_key: ${OPENCODE_API_KEY}  # 从环境变量解析，不落盘
+  extra_headers:             # OpenCode Go 要求固定会话头，并建议自有 User-Agent
+    x-opencode-session: modular-rag-vision
+    User-Agent: modular-rag-mcp-server/1.0
 
 # 向量存储配置
 vector_store:

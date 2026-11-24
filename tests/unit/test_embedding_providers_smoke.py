@@ -140,6 +140,39 @@ def test_openai_dimensions_in_body(tmp_path, registered):
     assert transport.last_body["dimensions"] == 256
 
 
+def test_openai_extra_headers_from_config_are_sent(tmp_path, registered):
+    """embedding.extra_headers 经 settings.extra 进入请求头（OpenCode Cloudflare 拒绝默认 UA）。"""
+    path = tmp_path / "settings.yaml"
+    path.write_text(
+        _VALID_YAML.replace(
+            "  api_key: sk-test\n",
+            "  api_key: sk-test\n  extra_headers:\n    User-Agent: modular-rag/1.0\n",
+        ),
+        encoding="utf-8",
+    )
+    transport = _FakeTransport(_ok_response([[0.1]]))
+    emb = registered.create(load_settings(path), transport=transport)
+    emb.embed(["hi"])
+    assert transport.last_headers["User-Agent"] == "modular-rag/1.0"
+    assert transport.last_headers["Authorization"] == "Bearer sk-test"
+    assert "extra_headers" not in transport.last_body
+
+
+def test_openai_extra_headers_cannot_override_auth(tmp_path, registered):
+    transport = _FakeTransport(_ok_response([[0.1]]))
+    settings = _settings(tmp_path, extra={"extra_headers": {"Authorization": "Bearer evil"}})
+    emb = registered.create(settings, transport=transport)
+    emb.embed(["hi"])
+    assert transport.last_headers["Authorization"] == "Bearer sk-test"
+
+
+@pytest.mark.parametrize("bad", ["User-Agent: x", {"User-Agent": 1}, ["x"]])
+def test_openai_invalid_extra_headers_fail_fast(tmp_path, registered, bad):
+    settings = _settings(tmp_path, extra={"extra_headers": bad})
+    with pytest.raises(EmbeddingRequestError, match="extra_headers"):
+        registered.create(settings, transport=_FakeTransport(_ok_response([[0.1]])))
+
+
 def test_embed_one_helper_with_provider(tmp_path, registered):
     transport = _FakeTransport(_ok_response([[0.1, 0.2, 0.3]]))
     settings = _settings(tmp_path, provider="openai")
