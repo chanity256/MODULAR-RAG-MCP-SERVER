@@ -76,7 +76,7 @@ export function normalizeRouting(raw: unknown): RoutingInfo | undefined {
 export function normalizeCitation(raw: unknown, fallbackId: number): Citation | null {
   if (!isRecord(raw)) return null;
   const id = finiteNumber(raw.id);
-  return {
+  const citation: Citation = {
     id: id !== null && id >= 1 ? Math.floor(id) : fallbackId,
     source: str(raw.source) ?? "",
     page: finiteNumber(raw.page),
@@ -84,6 +84,15 @@ export function normalizeCitation(raw: unknown, fallbackId: number): Citation | 
     text: str(raw.text) ?? "",
     score: finiteNumber(raw.score),
   };
+  // Longdoc location fields (PAGEINDEX PI6): pass through when well-typed, omit the key
+  // otherwise so existing citation objects keep their exact shape.
+  const section = str(raw.section);
+  if (section) citation.section = section;
+  const lineStart = finiteNumber(raw.line_start);
+  if (lineStart !== null) citation.line_start = Math.floor(lineStart);
+  const lineEnd = finiteNumber(raw.line_end);
+  if (lineEnd !== null) citation.line_end = Math.floor(lineEnd);
+  return citation;
 }
 
 export function normalizeCitations(raw: unknown): Citation[] {
@@ -176,11 +185,19 @@ export function parseDownstreamFrame(text: string): DownstreamFrame | null {
 export function normalizeCapabilities(raw: unknown): ChatCapabilities {
   const r = isRecord(raw) ? raw : {};
   const retrievals = Array.isArray(r.retrievals) ? r.retrievals.filter(isRetrievalMode) : [];
+  const longdocEnabled = r.longdoc_enabled === true;
   // `default_retrieval = "auto"` is honored only when the server actually serves auto routing;
-  // otherwise (older server, router disabled) it silently falls back to hybrid.
+  // otherwise (older server, router disabled) it silently falls back to hybrid. The same guard
+  // applies to a `longdoc` default (PAGEINDEX PI6): keep it only when the server reports
+  // longdoc_enabled and actually serves longdoc.
   const autoRouting = r.auto_routing === true;
+  const servesLongdoc = longdocEnabled && retrievals.includes("longdoc");
   const defaultRetrieval =
-    r.default_retrieval === "auto" && autoRouting ? "auto" : isRetrievalMode(r.default_retrieval) ? r.default_retrieval : "hybrid";
+    r.default_retrieval === "auto" && autoRouting
+      ? "auto"
+      : isRetrievalMode(r.default_retrieval) && (r.default_retrieval !== "longdoc" || servesLongdoc)
+        ? r.default_retrieval
+        : "hybrid";
   return {
     enabled: r.enabled !== false,
     retrievals: retrievals.length > 0 ? retrievals : ["hybrid"],
@@ -188,6 +205,7 @@ export function normalizeCapabilities(raw: unknown): ChatCapabilities {
     auto_routing: autoRouting,
     agentic_enabled: r.agentic_enabled === true,
     allow_deep: r.allow_deep === true,
+    longdoc_enabled: longdocEnabled,
     progress_stream: r.progress_stream === true,
     max_connections: finiteNumber(r.max_connections) ?? 0,
   };

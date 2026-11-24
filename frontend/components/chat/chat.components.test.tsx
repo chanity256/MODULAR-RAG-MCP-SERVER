@@ -292,6 +292,7 @@ describe("ModeSelector", () => {
     auto_routing: false,
     agentic_enabled: true,
     allow_deep: false,
+    longdoc_enabled: false,
     progress_stream: true,
     max_connections: 10,
   };
@@ -312,11 +313,12 @@ describe("ModeSelector", () => {
   });
 
   it("colors the selected button per mode and leaves unselected buttons neutral", () => {
-    const allCaps = { ...caps, allow_deep: true };
+    const allCaps = { ...caps, allow_deep: true, longdoc_enabled: true, retrievals: [...caps.retrievals, "longdoc" as const] };
     const tones: Array<[string, string[]]> = [
       ["hybrid", ["bg-amber-100", "text-amber-800", "dark:bg-amber-500/20", "dark:text-amber-200"]],
       ["agentic_fast", ["bg-emerald-100", "text-emerald-800", "dark:bg-emerald-500/20", "dark:text-emerald-200"]],
       ["agentic_deep", ["bg-sky-100", "text-sky-800", "dark:bg-sky-500/20", "dark:text-sky-200"]],
+      ["longdoc", ["bg-rose-100", "text-rose-800", "dark:bg-rose-500/20", "dark:text-rose-200"]],
     ];
     for (const [mode, toneClasses] of tones) {
       const { unmount } = render(<ModeSelector capabilities={allCaps} value={mode as "hybrid"} onChange={() => undefined} />);
@@ -348,5 +350,27 @@ describe("ModeSelector", () => {
     expect(screen.getByRole("radio", { name: "Hybrid" }).className).toContain("text-slate-600");
     fireEvent.click(screen.getByRole("radio", { name: "Hybrid" }));
     expect(onChange).toHaveBeenCalledWith("hybrid");
+  });
+
+  it("shows Longdoc when longdoc_enabled, even without the agentic sidecar (PI6)", () => {
+    // Hidden while longdoc_enabled is false.
+    render(<ModeSelector capabilities={caps} value="hybrid" onChange={() => undefined} />);
+    expect(screen.queryByRole("radio", { name: "Longdoc" })).toBeNull();
+    cleanup();
+
+    // Present (last) when enabled, independent of agentic_enabled, with the rose selected tone.
+    const longdocCaps: ChatCapabilities = {
+      ...caps,
+      agentic_enabled: false,
+      retrievals: ["hybrid", "agentic_fast", "agentic_deep", "longdoc"],
+      longdoc_enabled: true,
+    };
+    render(<ModeSelector capabilities={longdocCaps} value="longdoc" onChange={() => undefined} />);
+    const radios = screen.getAllByRole("radio") as HTMLButtonElement[];
+    // Agentic options are hidden; only Hybrid and Longdoc remain, Longdoc last.
+    expect(radios.map((r) => r.textContent)).toEqual(["Hybrid", "Longdoc"]);
+    for (const tone of ["bg-rose-100", "text-rose-800", "dark:bg-rose-500/20", "dark:text-rose-200"]) {
+      expect(radios[1].className).toContain(tone);
+    }
   });
 });

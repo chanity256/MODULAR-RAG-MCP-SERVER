@@ -1,10 +1,10 @@
 /** Chat protocol and view-model types (WEBUI_CHAT_SPEC section 4.7). */
 
-export type RetrievalMode = "hybrid" | "agentic_fast" | "agentic_deep";
+export type RetrievalMode = "hybrid" | "agentic_fast" | "agentic_deep" | "longdoc";
 
-export const RETRIEVAL_MODES: readonly RetrievalMode[] = ["hybrid", "agentic_fast", "agentic_deep"];
+export const RETRIEVAL_MODES: readonly RetrievalMode[] = ["hybrid", "agentic_fast", "agentic_deep", "longdoc"];
 
-/** What the client may request: the three real modes plus "auto" (server-side mode routing). */
+/** What the client may request: the real modes plus "auto" (server-side mode routing). */
 export type RequestedRetrieval = RetrievalMode | "auto";
 
 export type ChatStage = "routing" | "rewriting" | "retrieving" | "generating" | "retrying";
@@ -33,7 +33,11 @@ export type ChatErrorCode =
   | "UNAVAILABLE"
   | "CONNECTION";
 
-/** `Citation.to_dict()` from `src/core/response/citation_generator.py`. */
+/**
+ * `Citation.to_dict()` from `src/core/response/citation_generator.py`. The optional location
+ * fields (PAGEINDEX_TREE_RETRIEVAL_SPEC D8) are only present on longdoc citations; the backend
+ * omits the key entirely when the value is null.
+ */
 export interface Citation {
   id: number;
   source: string;
@@ -41,6 +45,11 @@ export interface Citation {
   chunk_id: string;
   text: string;
   score: number | null;
+  /** Heading path from the document root, joined with " > " (longdoc only). */
+  section?: string;
+  /** 1-based inclusive line range in the source Markdown (longdoc only). */
+  line_start?: number;
+  line_end?: number;
 }
 
 export interface TokenUsage {
@@ -90,6 +99,8 @@ export interface ChatCapabilities {
   auto_routing: boolean;
   agentic_enabled: boolean;
   allow_deep: boolean;
+  /** `tree_search.enabled` — the Longdoc option exists only when true (PAGEINDEX PI5/PI6). */
+  longdoc_enabled: boolean;
   progress_stream: boolean;
   max_connections: number;
 }

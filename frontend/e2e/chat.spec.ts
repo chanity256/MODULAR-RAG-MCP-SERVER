@@ -65,6 +65,29 @@ test.describe("Chat", () => {
     );
   });
 
+  // PAGEINDEX_TREE_RETRIEVAL_SPEC PI6: the fake backend serves longdoc through a fake tree
+  // backend, so the option appears alongside the agentic modes and its citations carry a
+  // section path and a 1-based line range (rendered by citationLabel).
+  test("longdoc mode answers with section and line citations", async ({ page }) => {
+    const chat = chatRegion(page);
+    const modes = chat.getByRole("radiogroup", { name: "Retrieval mode" });
+    const longdoc = modes.getByRole("radio", { name: "Longdoc" });
+    await expect(longdoc).toBeVisible();
+    await expect(modes.getByRole("radio", { name: "Hybrid" })).toHaveCount(1);
+    await longdoc.click();
+    await expect(longdoc).toHaveAttribute("aria-checked", "true");
+
+    await sendChat(page, uniq("Locate the section (longdoc flow)"));
+    await expect(chat.locator(".chat-md").last()).toContainText(ANSWER);
+
+    const label = "longdoc-notes.md · 2 RAG 架构 > 2.1 模块化设计 · L12–45";
+    await clickMarker(chat.getByTitle(label));
+    const entry = chat.getByRole("region", { name: "Sources" }).getByRole("listitem");
+    await expect(entry).toContainText("longdoc-notes.md");
+    await expect(entry).toContainText("2 RAG 架构 > 2.1 模块化设计");
+    await expect(entry).toContainText("L12–45");
+  });
+
   // MODE_ROUTER_SPEC MR5: the fake backend serves a scripted mode router, so the Auto
   // option appears and the decision (or fallback) is reported on the assistant message.
   test("auto mode routes the question and reports the decision", async ({ page }) => {

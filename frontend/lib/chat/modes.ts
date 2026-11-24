@@ -13,6 +13,7 @@ const LABELS: Record<RequestedRetrieval, string> = {
   hybrid: "Hybrid",
   agentic_fast: "Agentic (fast)",
   agentic_deep: "Agentic (deep)",
+  longdoc: "Longdoc",
 };
 
 /** English label for a mode value coming from a frame or trace. */
@@ -33,8 +34,10 @@ export const FALLBACK_REASON_LABELS: Record<string, string> = {
 /**
  * Selector options for the server's capabilities. The Auto option appears when the server reports
  * `auto_routing`; hybrid is always offered; agentic modes are hidden when the sidecar is off, and
- * DEEP stays visible but disabled when `allow_deep` is false. Before capabilities load (or if they
- * fail) only hybrid is offered.
+ * DEEP stays visible but disabled when `allow_deep` is false. Longdoc is independent of the
+ * agentic sidecar (PAGEINDEX_TREE_RETRIEVAL_SPEC PI6): it appears whenever the server reports
+ * `longdoc_enabled` and actually serves `longdoc`. Before capabilities load (or if they fail)
+ * only hybrid is offered.
  */
 export function buildModeOptions(capabilities: ChatCapabilities | null): ModeOption[] {
   const options: ModeOption[] = [];
@@ -42,23 +45,27 @@ export function buildModeOptions(capabilities: ChatCapabilities | null): ModeOpt
     options.push({ mode: "auto", label: LABELS.auto, disabled: false });
   }
   options.push({ mode: "hybrid", label: LABELS.hybrid, disabled: false });
-  if (!capabilities || !capabilities.agentic_enabled) return options;
 
-  const served = new Set(capabilities.retrievals);
-  if (served.has("agentic_fast")) {
-    options.push({ mode: "agentic_fast", label: LABELS.agentic_fast, disabled: false });
+  const served = new Set(capabilities?.retrievals ?? []);
+  if (capabilities?.agentic_enabled) {
+    if (served.has("agentic_fast")) {
+      options.push({ mode: "agentic_fast", label: LABELS.agentic_fast, disabled: false });
+    }
+    if (served.has("agentic_deep")) {
+      options.push(
+        capabilities.allow_deep
+          ? { mode: "agentic_deep", label: LABELS.agentic_deep, disabled: false }
+          : {
+              mode: "agentic_deep",
+              label: LABELS.agentic_deep,
+              disabled: true,
+              reason: "Deep search is disabled on the server (agentic_search.allow_deep = false)",
+            },
+      );
+    }
   }
-  if (served.has("agentic_deep")) {
-    options.push(
-      capabilities.allow_deep
-        ? { mode: "agentic_deep", label: LABELS.agentic_deep, disabled: false }
-        : {
-            mode: "agentic_deep",
-            label: LABELS.agentic_deep,
-            disabled: true,
-            reason: "Deep search is disabled on the server (agentic_search.allow_deep = false)",
-          },
-    );
+  if (capabilities?.longdoc_enabled && served.has("longdoc")) {
+    options.push({ mode: "longdoc", label: LABELS.longdoc, disabled: false });
   }
   return options;
 }

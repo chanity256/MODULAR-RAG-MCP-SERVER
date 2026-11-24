@@ -87,4 +87,21 @@ describe("helpers", () => {
     expect(citationLabel({ id: 1, source: "data/docs/a.pdf", page: 4, chunk_id: "", text: "", score: 0 })).toBe("a.pdf p.4");
     expect(citationLabel({ id: 1, source: "C:\\docs\\b.md", page: null, chunk_id: "", text: "", score: 0 })).toBe("b.md");
   });
+
+  it("citationLabel renders longdoc section and line formats (PI6)", () => {
+    // Section + line range.
+    expect(
+      citationLabel({ id: 1, source: "notes/a.md", page: null, chunk_id: "", text: "", score: 0, section: "2 架构 > 2.1 模块", line_start: 12, line_end: 45 }),
+    ).toBe("a.md · 2 架构 > 2.1 模块 · L12–45");
+    // Single line (start == end).
+    expect(
+      citationLabel({ id: 1, source: "a.md", page: null, chunk_id: "", text: "", score: 0, section: "引言", line_start: 3, line_end: 3 }),
+    ).toBe("a.md · 引言 · L3");
+    // Section only (unlocated fallback).
+    expect(
+      citationLabel({ id: 1, source: "a.md", page: null, chunk_id: "", text: "", score: 0, section: "附录" }),
+    ).toBe("a.md · 附录");
+    // Hybrid / agentic citations without the new fields are unchanged.
+    expect(citationLabel({ id: 1, source: "a.pdf", page: 2, chunk_id: "", text: "", score: 0 })).toBe("a.pdf p.2");
+  });
 });
