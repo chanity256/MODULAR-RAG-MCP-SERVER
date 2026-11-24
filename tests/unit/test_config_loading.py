@@ -72,7 +72,8 @@ def test_load_settings_from_repo_config() -> None:
     repo_config = Path(__file__).resolve().parents[2] / "config" / "settings.yaml"
     settings = load_settings(repo_config)
     assert settings.llm.provider == "azure"
-    assert settings.embedding.model == "embedding-3"  # G1/G3 落地：智谱兼容端点（见 config/settings.yaml）
+    assert settings.embedding.model == "qwen3-embedding-8b"  # OpenCode Console 嵌入端点（见 config/settings.yaml）
+    assert settings.embedding.dimensions == 2048
     assert settings.vector_store.backend == "chroma"
     assert settings.retrieval.fusion_algorithm == "rrf"
     assert settings.rerank.backend == "cross_encoder"
@@ -301,7 +302,7 @@ def test_default_config_path_env_override_missing_falls_back_to_repo_root(
     monkeypatch.delenv("RAG_PROJECT_ROOT", raising=False)
 
     settings = load_settings()
-    assert settings.embedding.model == "embedding-3"  # 仓库 config/settings.yaml 的字段值
+    assert settings.embedding.model == "qwen3-embedding-8b"  # 仓库 config/settings.yaml 的字段值
 
 
 def test_explicit_relative_path_stays_cwd_relative(

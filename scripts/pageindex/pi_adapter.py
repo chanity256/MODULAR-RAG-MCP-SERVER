@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import os
 import sys
 import time
@@ -54,6 +55,20 @@ def format_for(path: Path) -> str:
     if suffix in MD_SUFFIXES:
         return "md"
     raise ValueError(f"unsupported source format: {path.suffix or path}")
+
+
+def parse_extra_headers(raw: str | None) -> dict[str, str] | None:
+    """``LLM_EXTRA_HEADERS``：JSON 对象（str→str），空值返回 None；非法即抛错。"""
+    if not raw or not raw.strip():
+        return None
+    try:
+        headers = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"LLM_EXTRA_HEADERS must be a JSON object: {exc}") from exc
+    if not isinstance(headers, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in headers.items()):
+        raise RuntimeError("LLM_EXTRA_HEADERS must be a JSON object of string values")
+    return headers
 
 
 def patch_ratelimit(concurrency: int = 3) -> None:
@@ -115,12 +130,14 @@ class PageIndexAdapter:
 
     def __init__(self, storage: str | os.PathLike[str], model: str, *,
                  api_base: str | None = None, api_key: str | None = None,
+                 extra_headers: dict[str, str] | None = None,
                  summary_concurrency: int = 3,
                  render_timeout_s: float = 600.0) -> None:
         self.storage = Path(storage)
         self.model = model
         self.api_base = api_base
         self.api_key = api_key
+        self.extra_headers = extra_headers
         self.summary_concurrency = summary_concurrency
         self.render_timeout_s = render_timeout_s
         self.store = TreeStore(self.storage / "tree_store.json")
@@ -141,18 +158,28 @@ class PageIndexAdapter:
             model,
             api_base=os.environ.get("LLM_API_BASE") or None,
             api_key=os.environ.get("LLM_API_KEY") or None,
+            extra_headers=parse_extra_headers(os.environ.get("LLM_EXTRA_HEADERS")),
             summary_concurrency=int(os.environ.get("PAGEINDEX_SUMMARY_CONCURRENCY", "3")),
             render_timeout_s=float(os.environ.get("PAGEINDEX_RENDER_TIMEOUT_S", "600")),
         )
 
     # -- 上游 client（懒加载） ----------------------------------------------
 
+    def _backend(self) -> dict:
+        """建树与检索共用的 LiteLLM 连接参数（只含已配置项）。"""
+        backend = {"api_base": self.api_base, "api_key": self.api_key,
+                   "extra_headers": self.extra_headers}
+        return {k: v for k, v in backend.items() if v}
+
     def _client(self):
         from pageindex import PageIndexClient
 
         if self._client_obj is None:
+            # 上游建树走自己的 litellm 调用，端点 / 会话头须经 index_backend 传入，
+            # 否则 openai/<model> 落到 OPENAI_API_BASE 缺省值（api.openai.com）。
             self._client_obj = PageIndexClient(
                 index_model=self.model, chat_model=self.model,
+                index_backend=self._backend() or None,
                 storage_path=str(self.storage),
                 summary_concurrency=self.summary_concurrency,
                 optimize=SUBMIT_OPTIMIZE)
@@ -203,9 +230,8 @@ class PageIndexAdapter:
                 resp = litellm.completion(
                     model=self.model,
                     messages=[{"role": "user", "content": prompt}],
-                    api_base=self.api_base,
-                    api_key=self.api_key,
                     temperature=0,
+                    **self._backend(),
                 )
                 break
             except Exception as exc:

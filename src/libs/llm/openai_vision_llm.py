@@ -9,6 +9,9 @@ Ollama OpenAI 路由等），经 ``POST {base_url}/chat/completions`` + Bearer
   图片加载 / 预处理压缩 / payload 构建 / 响应解析全部复用。
 - ``base_url`` 必填（VisionLLMConfig 已有字段，与 embedding 同款配置方式）。
 - ``api_key`` 可选：本地网关等场景允许匿名。
+- 可选 ``extra_headers``（``vision_llm`` 节的 str→str 映射）原样附加到请求头，
+  供要求会话头 / 自定义 User-Agent 的端点使用（如 OpenCode Go 的
+  ``x-opencode-session``）；构造时校验类型，认证头不可被覆盖。
 - 注册名为 ``openai``：任何 OpenAI 兼容视觉端点都走这一个实现，
   通过 ``base_url`` / ``model`` 配置区分具体服务。
 """
@@ -50,6 +53,20 @@ class OpenAICompatibleVisionLLM(AzureVisionLLM):
             transport=transport or _openai_vision_transport,
             **kwargs,
         )
+        self._extra_headers = self._validated_extra_headers()
+
+    def _validated_extra_headers(self) -> dict[str, str]:
+        extra = getattr(self.vision_config, "extra", None) or {}
+        headers = extra.get("extra_headers")
+        if headers is None:
+            return {}
+        if not isinstance(headers, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in headers.items()
+        ):
+            raise LLMRequestError(
+                self.provider, "vision_llm.extra_headers must be a mapping of str to str"
+            )
+        return dict(headers)
 
     # -- 覆盖 Azure 特有的 URL 与认证 -------------------------------------
 
@@ -62,7 +79,7 @@ class OpenAICompatibleVisionLLM(AzureVisionLLM):
         return base.rstrip("/") + "/chat/completions"
 
     def _build_headers(self) -> dict[str, str]:
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json", **self._extra_headers}
         if self.vision_config.api_key:
             headers["Authorization"] = f"Bearer {self.vision_config.api_key}"
         return headers

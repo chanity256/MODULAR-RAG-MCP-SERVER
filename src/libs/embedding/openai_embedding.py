@@ -6,6 +6,9 @@
 - ``OpenAICompatibleEmbedding`` 为基类，封装请求构建 / 响应解析 / 可读错误。
 - 通过 **可注入的 ``transport``** 抽象 HTTP 边界（同 LLM 实现），测试注入 fake transport。
 - 空输入 / 超长输入有明确行为（报错或截断，由配置 ``on_too_long`` 决定）。
+- 可选 ``extra_headers``（``embedding`` 节的 str→str 映射）原样附加到请求头，
+  供要求自有 User-Agent 的端点使用（如 OpenCode Console 的 Cloudflare 会以
+  1010 拒绝 ``Python-urllib`` 默认 UA）；构造时校验类型，认证头不可被覆盖。
 - Azure 实现复用本基类的核心逻辑，仅覆盖 URL / headers 构建。
 """
 
@@ -71,6 +74,17 @@ class OpenAICompatibleEmbedding(BaseEmbedding):
         self._transport: Transport = transport or _default_transport
         self._timeout: float | None = kwargs.pop("timeout", None)
         self._extra_kwargs = kwargs
+        self._extra_headers = self._validated_extra_headers()
+
+    def _validated_extra_headers(self) -> dict[str, str]:
+        headers = (self.emb_config.extra or {}).get("extra_headers")
+        if headers is None:
+            return {}
+        if not isinstance(headers, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in headers.items()
+        ):
+            raise EmbeddingRequestError(self.provider, "embedding.extra_headers must be a mapping of str to str")
+        return dict(headers)
 
     # -- 子类覆盖点 -------------------------------------------------------
 
@@ -79,7 +93,7 @@ class OpenAICompatibleEmbedding(BaseEmbedding):
         return f"{base.rstrip('/')}/embeddings"
 
     def _build_headers(self) -> dict[str, str]:
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json", **self._extra_headers}
         api_key = self.emb_config.api_key
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"

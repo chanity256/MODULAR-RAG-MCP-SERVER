@@ -154,6 +154,42 @@ def test_missing_api_key_omits_auth_header(tmp_path, registered):
     assert "Authorization" not in transport.last_headers
 
 
+def test_extra_headers_from_config_are_sent(tmp_path, registered):
+    """vision_llm.extra_headers 经 settings.extra 原样进入请求头（OpenCode Go 会话头场景）。"""
+    path = tmp_path / "settings.yaml"
+    path.write_text(
+        _VALID_YAML.replace(
+            "  api_key: zai-key\n",
+            "  api_key: zai-key\n"
+            "  extra_headers:\n"
+            "    x-opencode-session: rag-vision\n"
+            "    User-Agent: modular-rag/1.0\n",
+        ),
+        encoding="utf-8",
+    )
+    transport = _FakeTransport(_ok_response())
+    vllm = registered.create_vision_llm(load_settings(path), transport=transport)
+    vllm.chat_with_image("describe", b"\x89PNG data")
+    assert transport.last_headers["x-opencode-session"] == "rag-vision"
+    assert transport.last_headers["User-Agent"] == "modular-rag/1.0"
+    assert transport.last_headers["Authorization"] == "Bearer zai-key"
+
+
+def test_extra_headers_cannot_override_auth(tmp_path, registered):
+    transport = _FakeTransport(_ok_response())
+    settings = _settings(tmp_path, extra={"extra_headers": {"Authorization": "Bearer evil"}})
+    vllm = registered.create_vision_llm(settings, transport=transport)
+    vllm.chat_with_image("describe", b"\x89PNG data")
+    assert transport.last_headers["Authorization"] == "Bearer zai-key"
+
+
+@pytest.mark.parametrize("bad", ["x-opencode-session: a", {"x-opencode-session": 1}, ["a"]])
+def test_invalid_extra_headers_fail_fast(tmp_path, registered, bad):
+    settings = _settings(tmp_path, extra={"extra_headers": bad})
+    with pytest.raises(LLMRequestError, match="extra_headers"):
+        registered.create_vision_llm(settings, transport=_FakeTransport(_ok_response()))
+
+
 def test_vision_payload_format_inherited(tmp_path, registered):
     """请求体与 Azure 实现一致：OpenAI Vision 消息格式 + model 字段。"""
     transport = _FakeTransport(_ok_response())
