@@ -18,6 +18,7 @@
 9. [安全边界（必读）](#9-安全边界必读)
 10. [Web UI 与 Chat](#10-web-ui-与-chat)
 11. [Auto 检索模式（mode_router）](#11-auto-检索模式mode_router)
+12. [Longdoc 检索模式（PageIndex sidecar）](#12-longdoc-检索模式pageindex-sidecar)
 
 ---
 
@@ -599,6 +600,7 @@ Playwright 流程跑在 `tests/e2e_web/fake_api_server.py` 上：真实 FastAPI 
 | `RAG_CHAT_INTEGRATION=1` | 真实 LLM 多轮 Chat 冒烟（`tests/e2e/test_chat_real_integration.py`）：流式端到端、指代消解、话题漂移、会话重启恢复；需 LLM/embedding 可用且本地索引非空，会话库与 trace 落 tmp。运行：`RAG_CHAT_INTEGRATION=1 pytest tests/e2e/test_chat_real_integration.py -v`。若 settings 里的 chat LLM 不可用，可用 `RAG_CHAT_LLM_PROVIDER` / `RAG_CHAT_LLM_MODEL` / `RAG_CHAT_LLM_BASE_URL` / `RAG_CHAT_LLM_API_KEY` 覆盖（如 DeepSeek 的 OpenAI 兼容端点） |
 | `RAG_AGENTIC_INTEGRATION=1`（Chat） | agentic 路由经真实 sidecar（`tests/e2e/test_chat_agentic_real_integration.py`）：FAST 透传、DEEP 门控拒绝、`allow_deep` 开启时的 DEEP、`search_log` 进度帧；需 sidecar 已启动，且运行 pytest 的 shell 必须导出与 sidecar 相同的 `SIRCHMUNK_API_TOKEN`（缺失时 sidecar 把 401 包成 HTTP 500 INTERNAL_ERROR，易误判为 sidecar 故障）。运行：`RAG_AGENTIC_INTEGRATION=1 pytest tests/e2e/test_chat_agentic_real_integration.py -v` |
 | `RAG_MODE_ROUTER_INTEGRATION=1` | auto 检索模式的真实端点冒烟（`tests/e2e/test_mode_router_real_integration.py`，见 [第 11 章](#11-auto-检索模式mode_router)）：真实端点对三类典型问题给出合法决策、`base_url` 指向不可达地址后回退并记 trace。需 `CLOUDFLARE_ACCOUNT_ID` 与 `MODE_ROUTER_API_TOKEN`（缺失时 skip 不 fail）。运行：`RAG_MODE_ROUTER_INTEGRATION=1 pytest tests/e2e/test_mode_router_real_integration.py -v` |
+| `RAG_PAGEINDEX_INTEGRATION=1` | Longdoc 检索模式（PageIndex sidecar）的真实冒烟（`tests/e2e/test_pageindex_integration.py`，见 [第 12 章](#12-longdoc-检索模式pageindex-sidecar)）：sidecar `/status`、MD 证据带「章节 · 行号」、PDF 证据带页码、Chat `longdoc` 端到端出答案与引用。需 sidecar 已启动且已同步索引、`PAGEINDEX_API_TOKEN` 已导出；Chat 用例另需 settings 中的 chat LLM 可用。会花真实 token（树检索为多轮 LLM 调用）。运行：`RAG_PAGEINDEX_INTEGRATION=1 pytest tests/e2e/test_pageindex_integration.py -v -s` |
 
 ### 10.9 Streamlit Dashboard（legacy）
 
@@ -673,3 +675,109 @@ python scripts/eval_mode_router.py --models clef-flash
 ```
 
 日常使用建议：先在少量问题上对比 auto 与人工三选一的答案质量与延迟（对比数据记入 MODE_ROUTER_SPEC 任务表），确认可信后再把 `chat.default_retrieval` 设为 `auto` 作为默认。
+
+---
+
+## 12. Longdoc 检索模式（PageIndex sidecar）
+
+设计来源：[PAGEINDEX_TREE_RETRIEVAL_SPEC.md](../specs/PAGEINDEX_TREE_RETRIEVAL_SPEC.md)（PI 系列，开发中）。`longdoc` 是 Chat 的第五种检索模式（模式选择器 Longdoc，rose 选中态，排在 Auto → Hybrid → Agentic (fast) → Agentic (deep) 之后）：文档先在**独立 venv 的本机 HTTP sidecar** 中建「树索引」（LLM 沿文档树写节点摘要），检索时由 sidecar 内的循环沿树逐层选节点、读原文、判断证据是否足够，返回**「章节 · 行号」（Markdown）或页码（PDF）级证据**，答案仍由本项目 AnswerGenerator 生成。
+
+适合「哪一节讲 X」「跨章节归纳」类长结构化文档问题。代价（PI0.6 实测口径）：单次检索 P50 ~65s / P95 ~137s、单题 token 中位 ~8.4K（上限 `max_token_budget` 32000）；建树一次性成本 ~200–330K token / 篇（页数线性，merge 档）。与 hybrid（毫秒级、零 token）互补，不替换它。
+
+边界（规格 Out of Scope）：仅本地模式（文档与树索引留在本机，只有 LLM 调用外发）；MCP 工具、Hybrid 融合、auto 候选、Query Playground / `scripts/query.py` / `scripts/evaluate.py` 均不感知 `longdoc`；`tree_search.enabled: false`（默认）时零加载，Chat 不出现 Longdoc 选项。
+
+### 12.1 开启步骤（一次性）
+
+1. **系统依赖**：`pandoc`（MD → HTML）与 Chrome / Chromium（headless print-to-pdf），MD 建树需经「派生 PDF」转换（原生 PDF 不需要）。`setup_venv.sh` 会检测两者；浏览器按 `PAGEINDEX_CHROMIUM` > 系统 Chrome/Chromium > 可选 playwright 托管浏览器顺序探测。
+
+```bash
+brew install pandoc        # macOS 示例；Chrome 通常已装
+```
+
+2. **sidecar venv**（独立于主 venv，锁定 pageindex 版本；主 venv 永不 `import pageindex`）：
+
+```bash
+bash scripts/pageindex/setup_venv.sh    # 建 .venv-pageindex，装 pageindex 0.7.4 + pypdf / pypdfium2
+```
+
+3. **环境变量**：`cp scripts/pageindex/env.example .env-pageindex` 并填入真实值。关键项：
+
+| 变量 | 说明 |
+|------|------|
+| `PAGEINDEX_API_TOKEN` | sidecar Bearer token（随机串）；主项目 `tree_search.api_token` 使用**同一**值 |
+| `PAGEINDEX_HOST` / `PAGEINDEX_PORT` | 监听地址，默认 `127.0.0.1:8585`（只绑 loopback） |
+| `PAGEINDEX_STORAGE` | 树索引存储，默认 `./data/db/pageindex`；派生 PDF 固定落其下 `derived/` |
+| `PAGEINDEX_SUMMARY_CONCURRENCY` | 建树摘要并发，默认 3（防上游默认 128 触发低 RPM 账户 429） |
+| `LLM_MODEL` / `LLM_API_BASE` / `LLM_API_KEY` | sidecar 侧建树与检索用的 OpenAI 兼容端点（独立于主项目 `settings.llm`）；换模型只改这里 |
+| `LLM_EXTRA_HEADERS` | 可选，JSON 对象形式的附加请求头（如 OpenCode Go 要求的 `x-opencode-session`） |
+| `PAGEINDEX_PANDOC` / `PAGEINDEX_CHROMIUM` | 可选，覆盖两个可执行文件路径（留空则探测） |
+| `PAGEINDEX_RENDER_TIMEOUT_S` | 单篇 MD → PDF 转换超时，默认 600 |
+
+4. **启动 sidecar**（独立终端或 tmux；启动日志会打印实际 pageindex 版本）：
+
+```bash
+bash scripts/pageindex/start_sidecar.sh
+```
+
+5. **主项目配置**（`config/settings.yaml`）：
+
+```yaml
+tree_search:
+  enabled: true                  # 开启后 Chat 出现 Longdoc
+  base_url: http://127.0.0.1:8585
+  api_token: ${PAGEINDEX_API_TOKEN}   # 与 sidecar env 使用同一 token
+  timeout_s: 240                 # 整次检索总超时
+  max_nodes: 5                   # 证据节点硬截断
+  max_loops: 3
+  max_token_budget: 32000
+  allowed_roots:                 # PathGuard 白名单（enabled 时必须非空）
+    - ./data/documents
+    - ./data/uploads
+  denied_substrings: [.env, .git, data/db]
+```
+
+并 `export PAGEINDEX_API_TOKEN=<与 sidecar 相同的 token>`。安全校验：`base_url` 必须是 loopback 的 http 地址、`allowed_roots` 非空、token 必须可解析，否则启动 fail-fast。
+
+6. **索引同步**（见 12.2），然后重启 Web UI。`GET /api/v1/chat/capabilities` 返回 `longdoc_enabled: true` 即开启成功。
+
+### 12.2 索引同步与运维（`scripts/pageindex_sync.py`）
+
+```bash
+python scripts/pageindex_sync.py --dry-run        # 只打印计划，不发写请求
+python scripts/pageindex_sync.py                  # 全量对账（含删除）
+python scripts/pageindex_sync.py --collection C   # 只同步该 collection（不做删除）
+```
+
+- **对账基准**：摄取历史 v2 success 记录，按物理文件去重；`file_hash` 变化即重建，历史中已不存在的文件删除其索引（**删除只在全量模式执行**，`--collection` 模式零删除并提示）；扩展名白名单 `.pdf` / `.md` / `.markdown` 之外的文件跳过并计数；单条失败不中断。
+- **幂等**：连续两次运行，第二次新增 / 重建计数应为 0。
+- **MD 的处理**：`/index` 由 sidecar 内部完成「MD → 派生 PDF → 建树」（pandoc → Chromium + 原 MD 标题树注入 Bookmarks）；主 venv 只发原 MD 路径与 SHA256。转换失败以 `render:` 前缀错误单列计数；删除 MD 索引时 sidecar 连带删除派生 PDF。
+- **退出码**：0 = 无失败；1 = 存在建树 / 转换失败；2 = `tree_search.enabled: false` 或配置错误。
+- **使用约束**：语料目录**不要放在 `data/db/` 下**——`denied_substrings` 含 `data/db`，collection 定界会把整集判越权（空定界集零证据）；派生 PDF 恰恰相反，必须存 `data/db/pageindex/derived/`（被同一 denied substring 隔离、不会混进其他检索路，且证据路径一律回映射到原 MD，不会泄漏派生 PDF 路径）。
+- **不自动触发**：同步只由用户手动运行；摄取后自动建树、删除联动是后续台账项（规格 D5 / 2.2）。
+
+### 12.3 运行行为
+
+- **检索流程**：Chat 选 Longdoc → 带 `collection` 时先把检索起点定界到该 collection 的文件集（空集直接零证据返回，不调用 sidecar）→ sidecar 沿树「选文档 → 选节点 → 读原文 → 判是否足够」循环返回证据 → 主 venv 做 PathGuard 过滤与定界集二次过滤 → AnswerGenerator 生成答案。
+- **引用格式**（引用标签 `a.md · <章节> · L12–45`，单行为 `L12`，仅有章节时省略行号；PDF 为 `a.pdf p.4`）：MD 证据的行号由原 MD 标题回定位得出（树节点标题被 LLM 改写时可能只落到章节近似）；页码只出现在原生 PDF 证据上。
+- **延迟与进度**：树检索是多次 LLM 调用的同步请求（实测 P50 ~65s），`timeout_s` 240s 兜底；longdoc 模式**没有** `search_log` 进度流（sidecar `/search` 为同步端点），轮次内只有既有 `status` 帧。
+- **错误行为**：sidecar 超时 / 不可达 / 返回畸形响应 → Chat 返回 `UPSTREAM` 错误帧（超时与后端故障按 `pipeline_max_retries` 重试，均不打印堆栈）；`chat.fallback_to_chat_only: true` 时降级纯聊天。trace 多一个 `tree_search` 阶段（不含 token 值、api_token 与证据原文）。
+- **auto 候选**：`longdoc` 不参与 auto 自动定档（需人工选择）。
+
+### 12.4 隐私边界（必读）
+
+- **建树 = 全文外发一次**：对每篇文档执行 `pageindex_sync` 时，该文档全文（MD 经派生 PDF）会发给 sidecar 配置的 LLM 用于生成节点摘要——等于把已同步文档的全文发给外部 LLM 一次。
+- **检索外发**：每次 longdoc 检索会把文档描述、树结构（标题 + 摘要）与选中节点原文发给检索模型。
+- **暴露面**：sidecar 只绑定 127.0.0.1 并要求 Bearer；树索引与派生 PDF 落 `data/db/pageindex/`（不入 git、被 `denied_substrings` 隔离、不会被 agentic / hybrid 检索读到）。与 Sirchmunk sidecar 的外发边界同类，但「建树一次性全文外发」是本模式新增项。
+- **开关策略**：默认 `enabled: false`；同步命令只手动运行。启用即视为接受上述外发；不需要时从 `allowed_roots` 移除相应根或整体关闭。
+
+### 12.5 验证与冒烟
+
+```bash
+# 离线：sidecar 模块 / HTTP 契约 / 配置校验 / Chat 接入 / 前端全部在默认套件内（零网络）
+pytest tests -o addopts="" -q
+
+# 门控：真实 sidecar 冒烟（花真实 token，默认跳过；需 sidecar 已启动且已同步）
+RAG_PAGEINDEX_INTEGRATION=1 pytest tests/e2e/test_pageindex_integration.py -v -s
+```
+
+门控覆盖：sidecar `/status`、MD 检索证据带「章节 · 行号」且 `source_path` 回映射原 MD、PDF 检索证据带页码、Chat `longdoc` 端到端出答案与引用（trace 记 `tree_search` 阶段且不泄漏 token）。运行时把延迟与 token 观测记录回规格任务表。

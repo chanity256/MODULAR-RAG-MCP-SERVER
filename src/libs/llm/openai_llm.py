@@ -130,6 +130,21 @@ class OpenAICompatibleLLM(BaseLLM):
         self._stream_transport: StreamTransport = stream_transport or make_httpx_stream_transport()
         self._timeout: float | None = kwargs.pop("timeout", None)
         self._extra_kwargs = kwargs
+        # 可选 extra_headers（``llm.extra`` 节的 str→str 映射）原样附加到请求头，
+        # 供要求附加头的端点使用（如 OpenCode Go 的 x-opencode-session）；
+        # 构造时校验类型，认证头不可被覆盖（Authorization 后写覆盖，对齐
+        # OpenAICompatibleEmbedding 的 extra_headers 先例）。
+        self._extra_headers = self._validated_extra_headers()
+
+    def _validated_extra_headers(self) -> dict[str, str]:
+        headers = (self.llm_config.extra or {}).get("extra_headers")
+        if headers is None:
+            return {}
+        if not isinstance(headers, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in headers.items()
+        ):
+            raise LLMRequestError(self.provider, "llm.extra_headers must be a mapping of str to str")
+        return dict(headers)
 
     # -- 子类覆盖点 -------------------------------------------------------
 
@@ -138,7 +153,7 @@ class OpenAICompatibleLLM(BaseLLM):
         return f"{base.rstrip('/')}/chat/completions"
 
     def _build_headers(self) -> dict[str, str]:
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json", **self._extra_headers}
         api_key = self.llm_config.api_key
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
