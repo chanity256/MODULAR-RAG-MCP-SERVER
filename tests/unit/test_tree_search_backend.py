@@ -209,14 +209,18 @@ class TestContractFixture:
 
         backend = _backend(handler)
         response = backend.search(TreeSearchRequest(query="模块化 RAG 项目"))
-        md, pdf = response.evidences
-        # 结构性断言：fixture 将被 PI2 门控真实抓取整体替换，不锚定具体数值。
+        # 结构性断言（fixture 已于 2026-11-24 由 PI2 门控真实抓取整体替换，
+        # 共 3 条证据，不锚定具体数值）：首条 MD 形态（line_* 有值、page_* 为
+        # None），其后存在 PDF 形态；telemetry 异常计数键仅在发生时出现，
+        # 干净运行为空 dict。
+        md = response.evidences[0]
         assert md.line_start is not None and md.page_start is None
-        assert pdf.page_start is not None and pdf.page_end >= pdf.page_start
+        pdf = next(e for e in response.evidences[1:] if e.page_start is not None)
+        assert pdf.page_end >= pdf.page_start
         assert pdf.line_start is None
-        assert response.telemetry["invalid_output"] == 0
+        assert response.telemetry.get("invalid_output", 0) == 0
         parsed = parse_search_data(_CONTRACT["data"])
-        assert len(parsed.evidences) == 2
+        assert len(parsed.evidences) >= 2
 
 
 def test_import_does_not_pull_pageindex_or_litellm():

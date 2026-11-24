@@ -88,13 +88,14 @@ class TestHttpRoundtrip:
         assert _SidecarHandler.seen_payload["query"] == "模块化 RAG 项目"
         assert _SidecarHandler.seen_payload["max_token_budget"] == 32000
         results = tree_evidence_to_retrieval_results(response)
-        assert len(results) == 2
+        # fixture 已于 2026-11-24 由 PI2 门控真实抓取整体替换（3 条证据）。
+        assert len(results) == len(_CONTRACT["data"]["evidences"])
         md = results[0]
         assert md.chunk_id.startswith("pageindex:pi-")
         assert md.metadata["retrieval_route"] == "longdoc"
-        # 结构性断言：fixture 将被 PI2 门控真实抓取整体替换，不锚定具体数值。
+        # 结构性断言：不锚定具体数值——首条 MD 形态，其后存在 PDF 形态。
         assert md.metadata["line_start"] is not None and md.metadata["page"] is None
-        pdf = results[1]
+        pdf = next(r for r in results[1:] if r.metadata["page"] is not None)
         assert (
             pdf.metadata["page"] is not None
             and pdf.metadata["page_end"] >= pdf.metadata["page"]

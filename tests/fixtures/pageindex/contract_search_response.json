@@ -1,47 +1,52 @@
 {
   "_meta": {
-    "note": "合成契约样例：按 PI2 server /search 响应 shape 构造（MD 证据带 line_*、PDF 证据带 page_*）；PI2 门控真实抓取后整体替换本文件，字段集合不变。",
+    "note": "真实契约响应（2026-11-24 PI2 门控抓取：sidecar 0.7.4 + deepseek-v4.1-flash，POST /api/v1/search 双 source_paths）：MD（经派生 PDF 建树）证据带 line_* 且 source_path 为原 MD 路径，PDF 证据带 page_*；telemetry 异常计数键仅在发生时出现，干净运行为空 dict。隐私边界：MD 证据 text 截断不入库全文；source_path 绝对路径前缀归一为 /repo。其余字段为真实抓取原值。",
     "spec": "docs/specs/PAGEINDEX_TREE_RETRIEVAL_SPEC.md §3.4",
-    "shape": "{success, data: {evidences: [TreeEvidence x10], llm_call_count, total_llm_tokens, telemetry}}"
+    "shape": "{success, error, data: {evidences: [TreeEvidence...], llm_call_count, total_llm_tokens, telemetry}}"
   },
   "success": true,
   "error": null,
   "data": {
     "evidences": [
       {
-        "source_path": "/repo/data/documents/章节拆分/应用开发项目与开源架构解析.md",
-        "doc_id": "pi-a93db52fexample",
-        "node_id": "0007",
-        "text": "3 模块化RAG项目：按 loader → splitter → embed → store 分层的模块化单体架构……",
+        "source_path": "/repo/data/documents/大模型应用学习路线拆解/6.5-Agent架构设计实战.md",
+        "doc_id": "pi-746f9430fdef4f1c92af7c9ed169a31a",
+        "node_id": "0000",
+        "text": "### 6.5 Agent架构设计实战\n\n> 所属章节：6 Multi-Agent 架构\n> 来源：飞书文档《大模型应用/算法学习路线+八股+面试实战4》\n\n> 这个小节，我从参考论文的例子以及面试真题中抽取出来几个典型的例子和问题，帮助大家来掌握Agent架构设计相关的内容。现在很多面试都会考察一个小型的场景下的Ag……（隐私边界截断：MD 为用户本地学习笔记，不入库全文）",
         "score": 1.0,
-        "section": "3 模块化RAG项目 > 3.2 模块划分",
+        "section": "6.5 Agent架构设计实战",
         "page_start": null,
         "page_end": null,
-        "line_start": 210,
-        "line_end": 342
+        "line_start": 1,
+        "line_end": 63
       },
       {
-        "source_path": "/repo/data/db/pageindex/poc/2023-annual-report.pdf",
-        "doc_id": "pi-77b31c0aexample",
-        "node_id": "0012",
-        "text": "Monetary policy: The Federal Reserve raised the target range ……",
-        "score": 0.8,
-        "section": "Monetary Policy Report > Policy Outlook",
-        "page_start": 14,
-        "page_end": 16,
+        "source_path": "/repo/tests/fixtures/sample_documents/chinese_technical_doc.pdf",
+        "doc_id": "pi-25f47067f1334aadbe2f5d97c243985c",
+        "node_id": "0002",
+        "text": "第二章 检索增强生成（RAG）架构设计\nRAG（Retrieval-Augmented Generation）将信息检索与文本生成相结合，通过在生成时引入外\n部知识库的相关文档片段，显著减少 LLM\n的幻觉问题，同时使模型能够回答超出训练数据范围的实时性问题。\n2.1 Naive RAG vs Advanced RAG\nNaive RAG 采用最简单的「检索-拼接-生成」流程：将用户查询编码为向量，在向量数据库中检索\nTop-K 相似文档，拼接到 Prompt 中交由 LLM 生成回答。其缺点包括：检索质量受限于单一向量\n相似度、缺乏重排序机制、无法处理多跳推理等。\nAdvanced RAG 在 Naive RAG 基础上引入多项优化：查询改写（Query\nRewriting）、混合检索（Hybrid Search combining Dense + Sparse）、重排序（Reranking via\nCross-Encoder 或 LLM）、以及文档分块优化（Smart Chunking + Metadata\nEnrichment）。本项目实现了完整的 Advanced RAG 链路。\n2.2 Modular RAG 设计理念\nModular RAG 将 RAG 流程分解为可独立替换的模块：Loader → Splitter → Transformer →\nEmbedder → Vector Store → Retriever → Reranker → Generator。每个模块定义抽象接口，通\n过工厂模式和配置文件驱动实例化，实现「乐高积木式」的灵活组合。\n这种设计的核心优势在于：可以在不修改代码的情况下，通过 settings.yaml 一键切换 LLM\nProvider（Azure / DeepSeek / Ollama）、Embedding 模型、Reranker 策略等，极大地方便了\nA/B 测试和技术选型。\n",
+        "score": 0.5,
+        "section": "第二章 检索增强生成（RAG）架构设计",
+        "page_start": 4,
+        "page_end": 4,
+        "line_start": null,
+        "line_end": null
+      },
+      {
+        "source_path": "/repo/tests/fixtures/sample_documents/chinese_technical_doc.pdf",
+        "doc_id": "pi-25f47067f1334aadbe2f5d97c243985c",
+        "node_id": "0006",
+        "text": "第六章 Agent 与工具调用\nAgent 是指能够自主规划任务、调用外部工具来完成复杂目标的 AI 系统。与简单的 RAG\n查询不同，Agent 可以根据用户指令自动分解任务、选择合适的工具（如搜索引擎、计算器、代码\n执行器），迭代执行直到获得满意结果。\n6.1 MCP 协议\nModel Context Protocol（MCP）是 Anthropic 提出的标准化 AI\n模型与外部工具交互的协议。它定义了工具发现（tools/list）、工具调用（tools/call）等\nJSON-RPC 2.0 接口标准。本项目实现了一个 MCP Server，暴露了\nquery_knowledge_hub、list_collections 和 get_document_summary 三个工具，可被 VS Code\nCopilot 或 Claude Desktop 直接调用。\n6.2 ReAct 推理模式\nReAct（Reasoning + Acting）是一种将推理与行动交替进行的 Agent 模式。LLM 先进行推理思\n考（Thought），然后选择一个行动（Action），观察行动结果（Observation），再继续推理，\n循环往复直到得出最终答案。这种模式使 Agent 的决策过程更加透明、可调试。\n",
+        "score": 0.3333,
+        "section": "第六章 Agent 与工具调用",
+        "page_start": 8,
+        "page_end": 8,
         "line_start": null,
         "line_end": null
       }
     ],
-    "llm_call_count": 4,
-    "total_llm_tokens": 8412,
-    "telemetry": {
-      "invalid_output": 0,
-      "unlocated": 0,
-      "unindexed": 0,
-      "truncated_evidence": 0,
-      "budget_stopped": 0,
-      "max_nodes_capped": 0
-    }
+    "llm_call_count": 3,
+    "total_llm_tokens": 2370,
+    "telemetry": {}
   }
 }
