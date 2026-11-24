@@ -66,10 +66,21 @@ class AnswerGenerator:
         return self._citation_generator.generate(self.select(results))
 
     def build_context(self, results: Sequence[RetrievalResult]) -> str:
-        """渲染带编号上下文：``[id] source, p.N`` 头 + 原文。"""
+        """渲染带编号上下文：``[id] source[, p.N][ · <section>][ · L<start>–<end>]`` + 原文。
+
+        ``section`` / 行号是 longdoc 路径新增可选位置头
+        （PAGEINDEX_TREE_RETRIEVAL_SPEC PI5）：二者缺失时输出与现状逐字节一致。
+        """
         blocks: list[str] = []
         for citation in self.citations(results):
             location = f", p.{citation.page}" if citation.page is not None else ""
+            if citation.section:
+                location += f" · {citation.section}"
+            if citation.line_start is not None:
+                if citation.line_end is not None and citation.line_end != citation.line_start:
+                    location += f" · L{citation.line_start}–{citation.line_end}"
+                else:
+                    location += f" · L{citation.line_start}"
             blocks.append(f"[{citation.id}] {citation.source}{location}\n{citation.text.strip()}")
         return "\n\n".join(blocks)
 

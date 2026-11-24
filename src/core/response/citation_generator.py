@@ -33,7 +33,12 @@ __all__ = ["Citation", "CitationGenerator"]
 
 @dataclass
 class Citation:
-    """单条结构化引用（与 Markdown ``[n]`` 标注一一对应）。"""
+    """单条结构化引用（与 Markdown ``[n]`` 标注一一对应）。
+
+    ``section`` / ``line_start`` / ``line_end`` 为 longdoc 路径新增可选字段
+    （PAGEINDEX_TREE_RETRIEVAL_SPEC D8）：``None`` 时 ``to_dict()`` 不输出该键，
+    既有 hybrid / agentic 引用的键集合与值逐字节不变。
+    """
 
     id: int
     source: str
@@ -41,9 +46,12 @@ class Citation:
     chunk_id: str
     text: str
     score: float
+    section: str | None = None
+    line_start: int | None = None
+    line_end: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result: dict[str, Any] = {
             "id": self.id,
             "source": self.source,
             "page": self.page,
@@ -51,6 +59,13 @@ class Citation:
             "text": self.text,
             "score": self.score,
         }
+        if self.section is not None:
+            result["section"] = self.section
+        if self.line_start is not None:
+            result["line_start"] = self.line_start
+        if self.line_end is not None:
+            result["line_end"] = self.line_end
+        return result
 
 
 class CitationGenerator:
@@ -84,6 +99,16 @@ class CitationGenerator:
         page = metadata.get("page")
         if isinstance(page, bool) or not isinstance(page, (int, float)):
             page = None
+        # D8：位置可选字段来自 longdoc 证据 metadata；类型不符视为缺失。
+        section = metadata.get("section")
+        if not isinstance(section, str) or not section:
+            section = None
+        line_start = metadata.get("line_start")
+        if isinstance(line_start, bool) or not isinstance(line_start, int):
+            line_start = None
+        line_end = metadata.get("line_end")
+        if isinstance(line_end, bool) or not isinstance(line_end, int):
+            line_end = None
         return Citation(
             id=index,
             source=str(source),
@@ -91,4 +116,7 @@ class CitationGenerator:
             chunk_id=result.chunk_id,
             text=result.text,
             score=round(float(result.score), 4),
+            section=section,
+            line_start=line_start,
+            line_end=line_end,
         )

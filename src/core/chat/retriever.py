@@ -18,6 +18,7 @@ __all__ = [
     "RETRIEVAL_HYBRID",
     "RETRIEVAL_AGENTIC_FAST",
     "RETRIEVAL_AGENTIC_DEEP",
+    "RETRIEVAL_LONGDOC",
     "RETRIEVAL_MODES",
     "RETRIEVAL_AUTO",
     "RoutingDecision",
@@ -28,7 +29,10 @@ __all__ = [
 RETRIEVAL_HYBRID = "hybrid"
 RETRIEVAL_AGENTIC_FAST = "agentic_fast"
 RETRIEVAL_AGENTIC_DEEP = "agentic_deep"
-RETRIEVAL_MODES = (RETRIEVAL_HYBRID, RETRIEVAL_AGENTIC_FAST, RETRIEVAL_AGENTIC_DEEP)
+# PAGEINDEX_TREE_RETRIEVAL_SPEC PI5：第四档真实模式 ``longdoc``（sidecar 沿文档
+# 树选节点）；注册与可用性仍由装配层按 ``tree_search.enabled`` 门控。
+RETRIEVAL_LONGDOC = "longdoc"
+RETRIEVAL_MODES = (RETRIEVAL_HYBRID, RETRIEVAL_AGENTIC_FAST, RETRIEVAL_AGENTIC_DEEP, RETRIEVAL_LONGDOC)
 
 # MODE_ROUTER_SPEC MR1：请求值 ``auto`` 表示由决策模型定档。它不是检索器，
 # 不得混入 ``RETRIEVAL_MODES``（该元组同时用于引擎校验与 capabilities 过滤），

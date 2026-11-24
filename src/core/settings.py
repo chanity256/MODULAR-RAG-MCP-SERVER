@@ -351,7 +351,13 @@ class AgenticSearchConfig:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
-CHAT_RETRIEVAL_MODES = ("hybrid", "agentic_fast", "agentic_deep")
+# PAGEINDEX_TREE_RETRIEVAL_SPEC PI5：第四档真实模式 longdoc 追加进 Chat 可配模式；
+# auto 候选与 mode_router.fallback_retrieval 不含它（D10，见 MODE_ROUTER_FALLBACK_MODES）。
+CHAT_RETRIEVAL_MODES = ("hybrid", "agentic_fast", "agentic_deep", "longdoc")
+
+# mode_router.fallback_retrieval 只接受既有三档（D10：longdoc 不进入 auto 候选与
+# fallback 口径），独立常量避免 CHAT_RETRIEVAL_MODES 扩容改变校验与报错文案。
+MODE_ROUTER_FALLBACK_MODES = ("hybrid", "agentic_fast", "agentic_deep")
 
 
 @dataclass
@@ -1080,10 +1086,10 @@ def _build_mode_router(sec: dict[str, Any]) -> ModeRouterSettings:
             )
         min_confidence = float(min_confidence)
     fallback_retrieval = _opt(sec, "fallback_retrieval", defaults.fallback_retrieval)
-    if not isinstance(fallback_retrieval, str) or fallback_retrieval not in CHAT_RETRIEVAL_MODES:
+    if not isinstance(fallback_retrieval, str) or fallback_retrieval not in MODE_ROUTER_FALLBACK_MODES:
         raise ConfigError(
             f"config field 'mode_router.fallback_retrieval' must be one of "
-            f"{'/'.join(CHAT_RETRIEVAL_MODES)}, got {fallback_retrieval!r}"
+            f"{'/'.join(MODE_ROUTER_FALLBACK_MODES)}, got {fallback_retrieval!r}"
         )
 
     # 跨字段要求放最后：enabled=true 才要求凭据（false 时零加载，
