@@ -1,6 +1,6 @@
 # PageIndex PI 规格遗留事项（followups）
 
-> 起源：[PAGEINDEX_TREE_RETRIEVAL_SPEC](../specs/PAGEINDEX_TREE_RETRIEVAL_SPEC.md)（PI 系列，开发中）。PI0 立项门收口（2026-11-23 D9 终裁达标，PI1 开工）时，按 PI0.7 任务把过程发现「派生台账条目、上游 issue 草稿、单测锁定项各自归位」；PI1–PI7 执行期间的新遗留继续记入本台账。
+> 起源：[19_PAGEINDEX_TREE_RETRIEVAL_SPEC_frozen](../frozen/19_PAGEINDEX_TREE_RETRIEVAL_SPEC_frozen.md)（PI 系列，已收口冻结 2026-11-25）。PI0 立项门收口（2026-11-23 D9 终裁达标，PI1 开工）时，按 PI0.7 任务把过程发现「派生台账条目、上游 issue 草稿、单测锁定项各自归位」；PI1–PI7 执行期间的新遗留继续记入本台账。
 >
 > 性质：第 1 类是决议与已知限制记录（非候选）；第 2 类是上游 issue 草稿（提交与否由用户决定，本项目侧已有规避）；第 3 类是可行动的候选池，推进任何一项按 [README 约定](README.md)另立提案；第 4 类是裁决保留的可选优化；第 5 类是 PI2 代码审查遗留的低危修复池（PI2.1 批次，待排期）；第 6 类是 PI3 代码审查遗留的低危修复池（待排期）。
 >

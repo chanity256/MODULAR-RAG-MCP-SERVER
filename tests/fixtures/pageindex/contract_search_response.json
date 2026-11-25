@@ -1,7 +1,7 @@
 {
   "_meta": {
     "note": "真实契约响应（2026-11-24 PI2 门控抓取：sidecar 0.7.4 + deepseek-v4.1-flash，POST /api/v1/search 双 source_paths）：MD（经派生 PDF 建树）证据带 line_* 且 source_path 为原 MD 路径，PDF 证据带 page_*；telemetry 异常计数键仅在发生时出现，干净运行为空 dict。隐私边界：MD 证据 text 截断不入库全文；source_path 绝对路径前缀归一为 /repo。其余字段为真实抓取原值。",
-    "spec": "docs/specs/PAGEINDEX_TREE_RETRIEVAL_SPEC.md §3.4",
+    "spec": "docs/frozen/19_PAGEINDEX_TREE_RETRIEVAL_SPEC_frozen.md §3.4",
     "shape": "{success, error, data: {evidences: [TreeEvidence...], llm_call_count, total_llm_tokens, telemetry}}"
   },
   "success": true,

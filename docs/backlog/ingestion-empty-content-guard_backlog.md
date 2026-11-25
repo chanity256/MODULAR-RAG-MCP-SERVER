@@ -4,7 +4,7 @@
 >
 > **状态：草案（机器起草 2026-11-23，待人工核实）**。由 SD4.2 周度 automation 按台账候选与日志异常互证规则起草，三问为初答，立项与否由用户裁决；推进按 [README 约定](README.md)。
 >
-> 关联：[04_INGESTION_ROBUSTNESS_SPEC_frozen](../frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md)（摄取链路与 IR 冻结契约）、[PAGEINDEX_TREE_RETRIEVAL_SPEC](../specs/PAGEINDEX_TREE_RETRIEVAL_SPEC.md) 10.3 ① / 10.8 #6（缺陷出处）。
+> 关联：[04_INGESTION_ROBUSTNESS_SPEC_frozen](../frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md)（摄取链路与 IR 冻结契约）、[19_PAGEINDEX_TREE_RETRIEVAL_SPEC_frozen](../frozen/19_PAGEINDEX_TREE_RETRIEVAL_SPEC_frozen.md) 10.3 ① / 10.8 #6（缺陷出处）。
 
 ---
 

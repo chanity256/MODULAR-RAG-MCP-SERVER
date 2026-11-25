@@ -680,7 +680,7 @@ python scripts/eval_mode_router.py --models clef-flash
 
 ## 12. Longdoc 检索模式（PageIndex sidecar）
 
-设计来源：[PAGEINDEX_TREE_RETRIEVAL_SPEC.md](../specs/PAGEINDEX_TREE_RETRIEVAL_SPEC.md)（PI 系列，开发中）。`longdoc` 是 Chat 的第五种检索模式（模式选择器 Longdoc，rose 选中态，排在 Auto → Hybrid → Agentic (fast) → Agentic (deep) 之后）：文档先在**独立 venv 的本机 HTTP sidecar** 中建「树索引」（LLM 沿文档树写节点摘要），检索时由 sidecar 内的循环沿树逐层选节点、读原文、判断证据是否足够，返回**「章节 · 行号」（Markdown）或页码（PDF）级证据**，答案仍由本项目 AnswerGenerator 生成。
+设计来源：[19_PAGEINDEX_TREE_RETRIEVAL_SPEC_frozen.md](../frozen/19_PAGEINDEX_TREE_RETRIEVAL_SPEC_frozen.md)（PI 系列，已收口冻结 2026-11-25）。`longdoc` 是 Chat 的第五种检索模式（模式选择器 Longdoc，rose 选中态，排在 Auto → Hybrid → Agentic (fast) → Agentic (deep) 之后）：文档先在**独立 venv 的本机 HTTP sidecar** 中建「树索引」（LLM 沿文档树写节点摘要），检索时由 sidecar 内的循环沿树逐层选节点、读原文、判断证据是否足够，返回**「章节 · 行号」（Markdown）或页码（PDF）级证据**，答案仍由本项目 AnswerGenerator 生成。
 
 适合「哪一节讲 X」「跨章节归纳」类长结构化文档问题。代价（PI0.6 实测口径）：单次检索 P50 ~65s / P95 ~137s、单题 token 中位 ~8.4K（上限 `max_token_budget` 32000）；建树一次性成本 ~200–330K token / 篇（页数线性，merge 档）。与 hybrid（毫秒级、零 token）互补，不替换它。
 
