@@ -19,6 +19,7 @@
 10. [Web UI 与 Chat](#10-web-ui-与-chat)
 11. [Auto 检索模式（mode_router）](#11-auto-检索模式mode_router)
 12. [Longdoc 检索模式（PageIndex sidecar）](#12-longdoc-检索模式pageindex-sidecar)
+13. [本地 Cross-Encoder 精排](#13-本地-cross-encoder-精排)
 
 ---
 
@@ -781,3 +782,46 @@ RAG_PAGEINDEX_INTEGRATION=1 pytest tests/e2e/test_pageindex_integration.py -v -s
 ```
 
 门控覆盖：sidecar `/status`、MD 检索证据带「章节 · 行号」且 `source_path` 回映射原 MD、PDF 检索证据带页码、Chat `longdoc` 端到端出答案与引用（trace 记 `tree_search` 阶段且不泄漏 token）。运行时把延迟与 token 观测记录回规格任务表。
+
+## 13. 本地 Cross-Encoder 精排
+
+`config/settings.yaml` 的 `rerank` 节已配置 `backend: cross_encoder` + `model: cross-encoder/ms-marco-MiniLM-L-6-v2`（设计契约见 DEV_SPEC D6 / B7.8，交付规格见 [CROSS_ENCODER_RERANKER_SPEC](../specs/CROSS_ENCODER_RERANKER_SPEC.md)）。精排在 RRF 融合之后执行，只对 `top_m`（默认 30）条候选打分重排。
+
+**安装（可选依赖组）**：`sentence-transformers` 连带 torch（CPU 版约 2 GB 磁盘），不进主依赖、不进 CI：
+
+```bash
+pip install -e ".[rerank]"
+# Linux 纯 CPU 环境建议先按 PyTorch 官方 CPU 源装 torch，避免默认拉取数 GB CUDA wheel：
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+```
+
+**首次使用**：首次触发精排的查询会自动从 Hugging Face 下载模型（约 90 MB），之后完全离线（缓存于 HF 标准缓存目录，与项目 `data/` 无关）。国内网络可设镜像：
+
+```bash
+export HF_ENDPOINT=https://hf-mirror.com   # 首次下载前设置即可
+```
+
+**可选调优**（`rerank.extra` 自由 dict，不配则用默认）：
+
+```yaml
+rerank:
+  extra:
+    device: cpu        # 透传 CrossEncoder(device=...)；默认 None 交上游自动选择（macOS 可试 mps）
+    batch_size: 32     # 透传 predict(batch_size=...)，正整数
+```
+
+**语言适用范围**：默认模型 `ms-marco-MiniLM-L-6-v2` 基于英文 MS MARCO 训练、英文词表，仅保证英文相关性排序；纯中文语料大多汉字切分为 `[UNK]`，区分度有限甚至可能弱于融合原序。中文/多语语料库建议换模型（改 `rerank.model` 即可，无须改代码），如 `BAAI/bge-reranker-v2-m3`。
+
+**关闭方式**：`rerank.backend: none`，或不安装 `[rerank]` 可选组（未安装时构造合法、首次精排走 D6 回退通道①返回融合排名原序，行为与未启用一致）。
+
+**验证**：
+
+```bash
+# 离线：全部精排逻辑（适配层 / 工厂惰性装配 / D6 双通道回退）都在默认套件内（零网络零 torch）
+pytest tests/unit/test_cross_encoder_scorer.py tests/unit/test_cross_encoder_reranker.py -q
+
+# 门控：真实模型冒烟（默认跳过；首次需联网下载或已有本地缓存）
+RAG_RERANKER_INTEGRATION=1 pytest tests/e2e/test_cross_encoder_integration.py -v -s
+```
+
+安装依赖后 `python scripts/query.py --query "..." --verbose` 的 rerank 段应显示 `backend=cross_encoder` 且无 `fallback`；trace `rerank` 阶段 `fallback=false`。
