@@ -49,8 +49,13 @@ DEFAULT_TIMEOUT_MIN = 20
 DEFAULT_MIN_PASS_RATE = 0.9
 
 # Mirrors are overlaid too: a source-only overlay trips test_skill_mirrors in the fixture.
+# The skill sync pair (sync_skills.py + its drift-guard test) is overlaid as well: both hardcode
+# skill directory names, so after a skill rename the fixture's stale copies crash
+# (FileNotFoundError) against the overlaid skills tree and fail judge ⑤ for every case
+# (seen on PR #47). Overlay happens before the baseline snapshot, so these count as baseline.
 OVERLAY_PATHS = ("AGENTS.md", ".factory/skills", ".claude/skills", ".github/skills",
-                 ".factory/hooks.json", ".factory/hooks")
+                 ".factory/hooks.json", ".factory/hooks",
+                 "scripts/sync_skills.py", "tests/unit/test_skill_mirrors.py")
 
 # EJR1 (EVALS_JUDGE_RELIABILITY_SPEC §3.2): fixture_commit 3d9559c predates SD3.7's /.factory/state/
 # gitignore line, so hook state written during a session (read_guard's reads-*.jsonl, test_guard's

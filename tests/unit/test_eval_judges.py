@@ -571,7 +571,12 @@ def test_agent_evals_workflow_triggers_only_on_steering_paths():
 
 def test_overlay_covers_every_trigger_path():
     # A steering change the overlay misses is either not measured or breaks the fixture (mirror drift).
-    assert sorted(p.removesuffix("/**") for p in STEERING_PATHS) == sorted(run.OVERLAY_PATHS)
+    overlaid = [p.removesuffix("/**") for p in STEERING_PATHS]
+    assert all(p in run.OVERLAY_PATHS for p in overlaid)
+    # Skill sync machinery also hardcodes skill names: a rename crashes the fixture's stale copy
+    # against the overlaid skills tree (PR #47, judge ⑤ offline_pytest_green 0/3 on unrelated cases).
+    assert "scripts/sync_skills.py" in run.OVERLAY_PATHS
+    assert "tests/unit/test_skill_mirrors.py" in run.OVERLAY_PATHS
 
 
 def test_agent_evals_workflow_uses_ci_byok_settings_without_plaintext_keys():
