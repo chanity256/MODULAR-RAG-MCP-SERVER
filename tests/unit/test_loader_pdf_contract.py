@@ -270,8 +270,26 @@ def test_engine_auto_uses_markitdown_when_available(images_pdf, images_root, mon
     assert doc.text.endswith(f"[IMAGE: {refs[0].id}]")
 
 
-def test_engine_auto_falls_back_to_pypdf_without_markitdown(images_pdf, images_root, monkeypatch):
+def _simulate_markitdown_absent(monkeypatch) -> None:
+    """环境无关地模拟「未安装 markitdown」：清缓存 + 屏蔽导入路径。
+
+    仅 ``delitem(sys.modules)`` 在装了可选组 ``[ingest-formats]`` 的 venv 里
+    模拟不出缺失（重新 import 会成功）；meta_path 屏蔽让 ``from markitdown
+    import MarkItDown`` 抛 ImportError，与真实未安装行为一致。
+    """
     monkeypatch.delitem(sys.modules, "markitdown", raising=False)
+
+    class _BlockImport:
+        def find_spec(self, name, path=None, target=None):
+            if name == "markitdown" or name.startswith("markitdown."):
+                raise ImportError("markitdown blocked (simulated absence)")
+            return None
+
+    monkeypatch.setattr(sys, "meta_path", [_BlockImport(), *sys.meta_path])
+
+
+def test_engine_auto_falls_back_to_pypdf_without_markitdown(images_pdf, images_root, monkeypatch):
+    _simulate_markitdown_absent(monkeypatch)
     loader = PdfLoader(str(images_root), engine="auto")
     doc = loader.load(str(images_pdf))
     assert loader.last_engine == "pypdf"
@@ -279,7 +297,7 @@ def test_engine_auto_falls_back_to_pypdf_without_markitdown(images_pdf, images_r
 
 
 def test_engine_markitdown_required_but_missing_raises(images_pdf, images_root, monkeypatch):
-    monkeypatch.delitem(sys.modules, "markitdown", raising=False)
+    _simulate_markitdown_absent(monkeypatch)
     loader = PdfLoader(str(images_root), engine="markitdown")
     with pytest.raises(PdfLoaderError) as exc_info:
         loader.load(str(images_pdf))

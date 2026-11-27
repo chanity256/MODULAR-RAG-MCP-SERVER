@@ -189,23 +189,34 @@ CrossEncoderReranker
 |------|------|----------|------|
 | CER1 | `src/libs/reranker/cross_encoder_scorer.py` 适配层（§3.1：惰性加载、`ensure_loaded()`、`loader` 注入点、`model_name` 缺失校验、device/batch_size 透传、失败包装为可读 RuntimeError）+ `test_cross_encoder_scorer.py` | 新单测全绿（构造零 IO / 惰性单次构建 / `model_name` 缺失报错 / 透传 / 失败包装含 `pip install -e ".[rerank]"` 提示）；适配层不 import `sentence_transformers` 于模块顶层（供 CI 无 torch 环境导入 `libs.reranker` 包不炸）；既有 reranker 单测全绿 | [x] 2026-11-27 完成：适配层 + 14 个新单测全绿（Round 0 零修复）；`test_cross_encoder_reranker.py` / `test_reranker_fallback.py` 既有用例零改动全绿（46 passed）；`check_redlines.py` 0 违规；无 torch 环境导入 `libs.reranker` 实证通过 |
 | CER2 | 工厂 `_ctor` 默认惰性装配（§3.2：默认 `scorer_factory` 挂于 `_ctor`、三段优先级、`rerank.model` 缺失与加载失败走 D6 通道①、`extra.device` / `extra.batch_size` 透传、缓存）+ 既有文件新增用例 | 显式注入优先与直接构造 `CrossEncoderReranker(rc)` 抛错语义不变（`test_cross_encoder_reranker.py` 既有用例零改动全绿）；新用例锁定三段优先级、通道①诊断信息保留与通道②推理回退；`test_reranker_fallback.py` / `test_query_entry.py` / `test_hybrid_search.py` 全绿；装配点三处源码零 diff | [x] 2026-11-27 完成：`_ctor` 默认惰性工厂 + `_ensure_scorer` 三段优先级落地；新增 7 用例（构造零 IO / 显式 scorer 与显式 factory 优先级 / 加载失败通道①诊断保留 / extra device+batch_size 透传 / 非法 batch_size 回退 / 推理失败通道②）全绿；相关 5 套件 101 passed（Round 1 修复 1 处新用例自身设计错误，既有用例零改动）；`check_redlines.py` 0 违规；装配点三处零 diff |
-| CER3 | `pyproject.toml` 可选依赖组 `rerank` + `config/settings.yaml` 注释示例 + `USAGE_GUIDE.md` 第 13 章「本地 Cross-Encoder 精排」 + README 特性句提及（如有必要） | `pip install -e ".[rerank]"` 可安装成功（本机实测记录）；主依赖、`dev` 组与 `requirements.txt` diff 为零；USAGE_GUIDE 第 13 章及目录已同步，含安装（含 Linux CPU wheel 提示）/ 下载与 `HF_ENDPOINT` 镜像 / device / 默认模型英文适用范围与中文换模指引 / 关闭方式；MOC / README 导航已随立项同步（见 §7） | [ ] |
-| CER4 | （门控）`tests/e2e/test_cross_encoder_integration.py` + `RAG_RERANKER_INTEGRATION=1` 本机执行 + 延迟实测与共存复验记录 | 门控默认 skip（离线全套件不受影响）；门控开启时 §4 英文 sanity 与端到端断言全过；`python scripts/query.py --verbose` rerank 段 `backend=cross_encoder` 无 fallback（记录于进度备注）；CPU top_m=30 单次精排延迟数值写入进度备注；已装 `[rerank]` 的本机 `.venv` 复跑 CI 禁网命令全绿；未装依赖隔离复验走 D6 通道①并保留安装指引 | [ ] |
+| CER3 | `pyproject.toml` 可选依赖组 `rerank` + `config/settings.yaml` 注释示例 + `USAGE_GUIDE.md` 第 13 章「本地 Cross-Encoder 精排」 + README 特性句提及（如有必要） | `pip install -e ".[rerank]"` 可安装成功（本机实测记录）；主依赖、`dev` 组与 `requirements.txt` diff 为零；USAGE_GUIDE 第 13 章及目录已同步，含安装（含 Linux CPU wheel 提示）/ 下载与 `HF_ENDPOINT` 镜像 / device / 默认模型英文适用范围与中文换模指引 / 关闭方式；MOC / README 导航已随立项同步（见 §7） | [x] 2026-11-27 完成：`rerank = ["sentence-transformers>=3.0"]` 已入 pyproject（主依赖 / dev / requirements.txt 零 diff）；`pip install -e ".[rerank]"` 本机安装成功（torch 2.15.0 / sentence-transformers 6.3.0 / transformers 5.24.1）；`config/settings.yaml` rerank 节补 extra 注释示例（仅注释不改值）；USAGE_GUIDE 第 13 章 + 目录同步；README Cross-Encoder 特性行更新并链接第 13 章；`test_docs_links.py` / `test_spec_structure.py` 全绿 |
+| CER4 | （门控）`tests/e2e/test_cross_encoder_integration.py` + `RAG_RERANKER_INTEGRATION=1` 本机执行 + 延迟实测与共存复验记录 | 门控默认 skip（离线全套件不受影响）；门控开启时 §4 英文 sanity 与端到端断言全过；`python scripts/query.py --verbose` rerank 段 `backend=cross_encoder` 无 fallback（记录于进度备注）；CPU top_m=30 单次精排延迟数值写入进度备注；已装 `[rerank]` 的本机 `.venv` 复跑 CI 禁网命令全绿；未装依赖隔离复验走 D6 通道①并保留安装指引 | [x] 2026-11-27 完成：门控测试 3 用例（真模型加载与缓存 / 英文 sanity / 端到端 fallback=false + trace `backend=cross_encoder`）默认 skip、门控开启全过；隔离复验（屏蔽导入）确认未装依赖行为与立项前一致（通道① + `pip install -e ".[rerank]"` 指引保留）；已装依赖下 CI 禁网等价命令 `PYTEST_EXIT=0` 全绿；延迟与用户流程记录见 §5.1 |
 
 依赖顺序：CER1 → CER2（backend 引用适配层）；CER3 可与 CER1/CER2 同 PR；CER4 依赖 CER1–CER3 合入且本机完成模型下载。
 
 ### 5.1 进度备注
 
-- （待交付后回填）
+- **安装实测（CER3）**：`pip install -e ".[rerank]"` 本机安装成功（torch 2.15.0 / sentence-transformers 6.3.0 / transformers 5.24.1，CPU 版）。
+- **门控冒烟（CER4，2026-11-27 本机 macOS CPU）**：3 passed。
+  - 模型加载：首次 `ensure_loaded()` 46.8 s（含 HF 下载），二次调用命中缓存（同对象）；已缓存后冷进程加载 5.9 s。
+  - 英文 sanity：相关句 8.2457 / 相关变体 −1.7965 / 无关句 −11.2214（相关 > 无关断言通过）。
+  - 端到端：`Reranker(settings)`（工厂默认惰性装配）top_m=30 真实精排 `fallback=false`，trace `rerank` 阶段 `backend=cross_encoder` 且无 `error`；最相关候选从第 15 位升至第 1。
+- **延迟实测（top_m=30，macOS CPU）**：热模型单次 predict 11–12 ms（首次预热调用 234 ms）；含首次模型加载的整次 rerank 调用 3124.8 ms（门控测试） / 4485.2 ms（CLI 首查，含加载）。远低于 §3.4 预设的 >1 s 再议阈值，无需降 top_m。
+- **用户流程**：`python scripts/query.py --query ... --verbose` rerank 段 `backend=cross_encoder, fallback=false`（2026-11-27 实测）。
+- **已装依赖离线共存**：CI 禁网等价命令（`NO_PROXY='*' pytest tests -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,localhost,::1`）复跑 `PYTEST_EXIT=0` 全绿（门控用例默认 skip）。
+- **未装依赖隔离复验**：屏蔽 `sentence_transformers` 导入后构造合法、rerank 走 D6 通道①、`last_error` 与 trace `details["error"]` 均含 `pip install -e ".[rerank]"` 指引（未卸载主 venv 依赖，符合 §4 口径）。
+- **附带发现与修复（不属 CER 交付物但为共存验收所必需）**：
+  1. 安装 `[rerank]` 后，`langchain_text_splitters` 1.1.2 在自身模块级**传递性 import `sentence_transformers`（连带 torch）**（`langchain_text_splitters/__init__.py:39` → `sentence_transformers.py:11`，受 try/except 保护，未装时静默跳过）——任何经 `core.query_engine` / `ingestion` 链路的进程在已装环境下都会加载 torch（首次 import 数秒级）。功能无损、属可选依赖的已知代价，记入本备注；`test_constructor_is_zero_io` 原以「`sys.modules` 无该键」判「构造未 import」，在该环境下不再成立（与构造无关的传递导入先污染了 sys.modules），已改为 meta_path 屏蔽导入的强证明（构造若触发 import 即抛 ImportError），断言语义（构造零 IO）不变。
+  2. `tests/unit/test_loader_pdf_contract.py` 两条「未装 markitdown」用例自 2026-10-07 本机 venv 装 `markitdown 0.1.8` 起即无法通过（`delitem(sys.modules)` 后重新 import 成功，模拟失效）——先于本规格存在的环境漂移，非 CER 引入；已把「模拟缺失」机制改为 meta_path 屏蔽导入（清缓存 + 屏蔽），测试语义（无 markitdown 时 auto 回退 pypdf / engine=markitdown 抛错）不变，两种环境（装/未装）均确定性通过。
 
 ## 6. 验收清单
 
-- [ ] 装依赖后精排真实生效：`scripts/query.py --verbose` rerank 段 `backend=cross_encoder`、无 fallback；trace `rerank` 阶段 `fallback=false`
-- [ ] 未装依赖时（干净环境或屏蔽导入的隔离复验）行为与立项前一致：构造合法、rerank 走 D6 通道①回退（完整原序 + `last_fallback=True` + `last_error` / trace `error` 含 `pip install -e ".[rerank]"` 提示）、无 crash
-- [ ] 显式 scorer 注入契约与既有测试语义不变（`test_cross_encoder_reranker.py` 含 `test_no_scorer_raises_on_rerank` 等既有用例零改动全绿）
-- [ ] 全量离线 pytest、CI 禁网等价命令（在未装与已装 `[rerank]` 两种环境下均通过）、`check_redlines.py`、`test_docs_links.py`、`test_spec_structure.py` 全绿
-- [ ] 门控冒烟通过并记录（真模型英文排序 sanity + 端到端 fallback=false + CPU 精排延迟实测值）
-- [ ] 回写完成（§7；USAGE_GUIDE 第 13 章 / MOC / README）
+- [x] 装依赖后精排真实生效：`scripts/query.py --verbose` rerank 段 `backend=cross_encoder`、无 fallback；trace `rerank` 阶段 `fallback=false`（2026-11-27 实测，见 §5.1）
+- [x] 未装依赖时（干净环境或屏蔽导入的隔离复验）行为与立项前一致：构造合法、rerank 走 D6 通道①回退（完整原序 + `last_fallback=True` + `last_error` / trace `error` 含 `pip install -e ".[rerank]"` 提示）、无 crash（屏蔽导入隔离复验通过）
+- [x] 显式 scorer 注入契约与既有测试语义不变（`test_cross_encoder_reranker.py` 含 `test_no_scorer_raises_on_rerank` 等既有用例零改动全绿）
+- [x] 全量离线 pytest、CI 禁网等价命令（已装 `[rerank]` 真实环境 `PYTEST_EXIT=0`；未装环境以屏蔽导入的隔离复验覆盖其行为面，未做卸载重装）、`check_redlines.py`、`test_docs_links.py`、`test_spec_structure.py` 全绿
+- [x] 门控冒烟通过并记录（真模型英文排序 sanity + 端到端 fallback=false + CPU 精排延迟实测值，见 §5.1）
+- [x] 回写完成（§7；USAGE_GUIDE 第 13 章 / MOC / README）
 
 ## 7. 实现合入后的回写清单
 

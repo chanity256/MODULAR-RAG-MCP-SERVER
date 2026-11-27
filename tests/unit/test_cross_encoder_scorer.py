@@ -34,7 +34,7 @@ class _FakeModel:
 # ---------------------------------------------------------------------------
 
 
-def test_constructor_is_zero_io() -> None:
+def test_constructor_is_zero_io(monkeypatch: pytest.MonkeyPatch) -> None:
     """构造零 IO：不调 loader、不 import sentence_transformers。"""
     calls: list[str] = []
 
@@ -42,10 +42,25 @@ def test_constructor_is_zero_io() -> None:
         calls.append(name)
         return object()
 
+    # 「未 import」的环境无关证明：屏蔽真实导入路径后，构造若触发
+    # ``import sentence_transformers`` 会立即抛 ImportError。不能以
+    # ``sys.modules`` 是否含该键作为判据——安装可选组 ``[rerank]`` 后，
+    # langchain_text_splitters 会在自身模块级传递性 import 该包（受
+    # try/except 保护），任何先经 query_engine / ingestion 链路的测试
+    # 都会把它提前放进 sys.modules，与构造行为无关。
+    class _BlockImport:
+        def find_spec(self, name, path=None, target=None):
+            if name == "sentence_transformers" or name.startswith("sentence_transformers."):
+                raise ImportError("blocked: constructor must not import sentence_transformers")
+            return None
+
+    monkeypatch.delitem(sys.modules, "sentence_transformers", raising=False)
+    monkeypatch.setattr(sys, "meta_path", [_BlockImport(), *sys.meta_path])
+
     scorer = CrossEncoderScorer("cross-encoder/test-model", loader=loader)
 
     assert calls == []  # 构造不触发加载
-    assert "sentence_transformers" not in sys.modules  # 未装依赖也不影响导入
+    assert scorer._model is None  # 惰性缓存未填充
     assert scorer is not None
 
 
