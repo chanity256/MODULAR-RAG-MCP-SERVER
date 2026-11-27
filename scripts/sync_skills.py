@@ -5,7 +5,7 @@
 
 - 单一状态文件（``qa-tester/QA_*.md``）：QA 计划 / 进度 / 对照表只在来源目录保留一份，
   镜像里指向它们的路径也不改写，三份 skill 读写的是同一份状态；
-- 生成物与缓存（``auto-coder/references/``、``.spec_hash*``、``__pycache__``）：由各副本自己的
+- 生成物与缓存（``auto-builder/references/``、``.spec_hash*``、``__pycache__``）：由各副本自己的
   ``sync_spec.py`` 运行时生成，已被 ``.gitignore`` 忽略。
 
 只同步 ``SYNCED_SKILLS``；``review-guidelines`` 只存在于 ``.factory/``（Droid 自动 review 的读取位置）。
@@ -32,7 +32,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ".factory/skills"
 MIRRORS = (".claude/skills", ".github/skills")
 SYNCED_SKILLS = (
-    "auto-coder",
+    "auto-builder",
     "docs-governance",
     "qa-tester",
     "resume-writer",
@@ -45,9 +45,9 @@ SKIP_DIR_NAMES = {"__pycache__"}
 SKIP_FILE_NAMES = {".DS_Store"}
 
 #: 仅存在于来源目录的路径前缀（相对 skill 根，POSIX 风格）。
-SOURCE_ONLY_PREFIXES = ("auto-coder/references/",)
+SOURCE_ONLY_PREFIXES = ("auto-builder/references/",)
 SOURCE_ONLY_PATTERNS = (
-    re.compile(r"^auto-coder/\.spec_hash"),
+    re.compile(r"^auto-builder/\.spec_hash"),
     re.compile(r"^qa-tester/QA_[^/]*\.md$"),
     # 单一学习状态文件：三份 skill 读写同一份，镜像里只留指向来源的路径。
     re.compile(r"^project-learner/references/LEARNING_PROGRESS\.md$"),

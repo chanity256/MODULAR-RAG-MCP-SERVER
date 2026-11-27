@@ -24,9 +24,9 @@ def _fake_repo(root: Path) -> None:
     for skill in sync_skills.SYNCED_SKILLS:
         _write(root, f".factory/skills/{skill}/SKILL.md", f"# {skill}\nrun .factory/skills/{skill}/x.py\n")
     _write(root, ".factory/skills/qa-tester/QA_TEST_PROGRESS.md", "state\n")
-    _write(root, ".factory/skills/auto-coder/references/01-overview.md", "generated\n")
-    _write(root, ".factory/skills/auto-coder/.spec_hash.sx", "abc\n")
-    _write(root, ".factory/skills/auto-coder/scripts/__pycache__/x.pyc", "bin\n")
+    _write(root, ".factory/skills/auto-builder/references/01-overview.md", "generated\n")
+    _write(root, ".factory/skills/auto-builder/.spec_hash.sx", "abc\n")
+    _write(root, ".factory/skills/auto-builder/scripts/__pycache__/x.pyc", "bin\n")
     _write(root, ".factory/skills/review-guidelines/SKILL.md", "droid only\n")
 
 
@@ -73,13 +73,13 @@ class TestSync:
         assert sync_skills.check(tmp_path) == []
         for mirror in sync_skills.MIRRORS:
             base = tmp_path / mirror
-            assert (base / "auto-coder/SKILL.md").read_text(encoding="utf-8") == (
-                f"# auto-coder\nrun {mirror}/auto-coder/x.py\n"
+            assert (base / "auto-builder/SKILL.md").read_text(encoding="utf-8") == (
+                f"# auto-builder\nrun {mirror}/auto-builder/x.py\n"
             )
             assert not (base / "qa-tester/QA_TEST_PROGRESS.md").exists()
-            assert not (base / "auto-coder/references").exists()
-            assert not (base / "auto-coder/.spec_hash.sx").exists()
-            assert not (base / "auto-coder/scripts/__pycache__").exists()
+            assert not (base / "auto-builder/references").exists()
+            assert not (base / "auto-builder/.spec_hash.sx").exists()
+            assert not (base / "auto-builder/scripts/__pycache__").exists()
             assert not (base / "review-guidelines").exists()
 
     def test_check_reports_missing_differs_and_stale(self, tmp_path):
@@ -98,10 +98,10 @@ class TestSync:
     def test_sync_repairs_drift_but_keeps_out_of_scope_files(self, tmp_path):
         _fake_repo(tmp_path)
         _write(tmp_path, ".github/skills/setup/SKILL.md", "github-only skill\n")
-        _write(tmp_path, ".claude/skills/auto-coder/references/01-overview.md", "mirror's own output\n")
+        _write(tmp_path, ".claude/skills/auto-builder/references/01-overview.md", "mirror's own output\n")
         _write(tmp_path, ".claude/skills/qa-tester/stale.md", "leftover\n")
         assert sync_skills.main(["--root", str(tmp_path)]) == 0
         assert sync_skills.main(["--check", "--root", str(tmp_path)]) == 0
         assert not (tmp_path / ".claude/skills/qa-tester/stale.md").exists()
         assert (tmp_path / ".github/skills/setup/SKILL.md").is_file()
-        assert (tmp_path / ".claude/skills/auto-coder/references/01-overview.md").is_file()
+        assert (tmp_path / ".claude/skills/auto-builder/references/01-overview.md").is_file()

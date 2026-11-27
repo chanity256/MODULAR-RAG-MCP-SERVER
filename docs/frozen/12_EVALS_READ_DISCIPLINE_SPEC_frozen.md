@@ -80,9 +80,9 @@
 
 各失败用例受哪份 steering 影响（据 `evals/cases/*.yaml` 的 `skill` 与 `judges` 字段）：
 
-| 用例 | `skill` | 判据① 的 `required_reads` | 改 auto-coder skill 能否影响 | hook 能否影响 |
+| 用例 | `skill` | 判据① 的 `required_reads` | 改 auto-builder skill 能否影响 | hook 能否影响 |
 |------|---------|---------------------------|------------------------------|---------------|
-| autocoder-mdown-extension | auto-coder | 01 / 04 / `.factory/skills/auto-coder/references/*.md` 任一 | 能 | 能 |
+| autocoder-mdown-extension | auto-builder | 01 / 04 / `.factory/skills/auto-builder/references/*.md` 任一 | 能 | 能 |
 | qatester-no-inferred-pass | qa-tester | `QA_TEST_PLAN.md` | 不能 | 能 |
 | sd34-htm-extension | none（只受 AGENTS.md 影响） | 01 与 04 都要 | 不能 | 能 |
 | redline-sirchmunk-temptation | none | 未配置 | 不能 | 不能 |
@@ -96,7 +96,7 @@ hook 在 evals 中的可用性已有证据（SD 规格 §3.3 SD3.7 落地记录�
 其他现状：
 
 - `.factory/state/` 已在 `.gitignore`（SD3.7）；但 `fixture_commit`（`3d9559c`）的 `.gitignore` 没有这一行，状态文件会出现在 fixture diff 里，现有判据都不看该路径。
-- auto-coder 的 `references/` 是生成物且被 gitignore，CI fixture 中默认不存在；agent 需先运行 `sync_spec.py` 才能读到。
+- auto-builder 的 `references/` 是生成物且被 gitignore，CI fixture 中默认不存在；agent 需先运行 `sync_spec.py` 才能读到。
 
 **ERD0 结论（2026-11-15）**
 
@@ -174,9 +174,9 @@ read_guard.py pre ── 取目标路径（ApplyPatch 含 Add / Update / Delete 
 
 | 编辑目标（项目相对路径） | 必读 | 出处 |
 |--------------------------|------|------|
-| `src/**`、`scripts/**`、`tests/**` | `docs/frozen/01_DEV_SPEC_frozen.md` 或 `.factory/skills/auto-coder/references/*.md` | AGENTS.md「编写代码之前，先阅读 docs/frozen/」；auto-coder Implement 第 1 步（references 由 01 与活跃规格生成） |
+| `src/**`、`scripts/**`、`tests/**` | `docs/frozen/01_DEV_SPEC_frozen.md` 或 `.factory/skills/auto-builder/references/*.md` | AGENTS.md「编写代码之前，先阅读 docs/frozen/」；auto-builder Implement 第 1 步（references 由 01 与活跃规格生成） |
 | 摄取链路：`src/ingestion/**`、`src/libs/loader/**`、`scripts/ingest.py`、`tests/**/test_*ingest*`、`tests/**/test_*loader*` | 在上一行基础上另加 `docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md` | AGENTS.md「04 … 改动摄取链路前先读」 |
-| `.agents/plans/` 下的 plan 文件（`README.md` 除外） | `docs/frozen/01_DEV_SPEC_frozen.md` 或 `.factory/skills/auto-coder/references/*.md` | auto-coder Implement 第 1 步读规格先于第 4 步写 plan（ERD0 补充，使用者确认） |
+| `.agents/plans/` 下的 plan 文件（`README.md` 除外） | `docs/frozen/01_DEV_SPEC_frozen.md` 或 `.factory/skills/auto-builder/references/*.md` | auto-builder Implement 第 1 步读规格先于第 4 步写 plan（ERD0 补充，使用者确认） |
 | `.factory/skills/qa-tester/QA_TEST_PROGRESS.md` | `.factory/skills/qa-tester/QA_TEST_PLAN.md` | qa-tester skill（按计划执行并记录进度） |
 
 - 匹配用 `fnmatch` 风格 glob，按项目相对路径判定；项目外路径一律放行。

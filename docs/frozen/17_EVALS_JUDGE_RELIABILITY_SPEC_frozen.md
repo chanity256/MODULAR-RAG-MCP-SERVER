@@ -159,7 +159,7 @@
 
 形态（仿 SD3.6 删规则验收）：两臂各建一个实验分支，推送到 `fork` 后用 `workflow_dispatch` 指定该分支运行（`run.py` 从被检出的分支 overlay steering 文件），**不开 PR、不合入**，跑完删除分支。
 
-- **A 臂（只有 hook）**：去掉全部「先读后改」规则文字：AGENTS.md「先读后改守卫」条目，以及 auto-coder `SKILL.md` Implement 第 1 步中关于 read_guard 的说明（ERD1 加入；改后运行 `sync_skills.py` 同步镜像，否则 fixture 中的 `test_skill_mirrors` 会失败）。read_guard 登记保留。已知混杂：hook 的拒绝理由本身就是文字，会在拒绝发生后进入上下文；这是本臂固有的，结论中须注明。
+- **A 臂（只有 hook）**：去掉全部「先读后改」规则文字：AGENTS.md「先读后改守卫」条目，以及 auto-builder `SKILL.md` Implement 第 1 步中关于 read_guard 的说明（ERD1 加入；改后运行 `sync_skills.py` 同步镜像，否则 fixture 中的 `test_skill_mirrors` 会失败）。read_guard 登记保留。已知混杂：hook 的拒绝理由本身就是文字，会在拒绝发生后进入上下文；这是本臂固有的，结论中须注明。
 - **B 臂（只有文字）**：只从 `.factory/hooks.json` 撤掉 read_guard 的登记，`read_guard.py` 保留不删，减少无关变量；规则文字全部保留（其中「会被拒绝」的说法在本臂不成立，这正是「只有文字」的定义）。
 - 每臂跑三条判据①用例（autocoder-mdown / qatester / sd34）各 3 次，与 ERD2 基线（文字 + hook，27/27 通过）三点对照，分离文字与 hook 的独立贡献；结论记入 §5 进度备注。
 

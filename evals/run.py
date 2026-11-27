@@ -125,7 +125,7 @@ def _overlay_paths(source: Path, fixture: Path) -> None:
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dst)
             continue
-        # Ignored files (e.g. auto-coder's generated references/) must not leak in: CI checkouts lack them.
+        # Ignored files (e.g. auto-builder's generated references/) must not leak in: CI checkouts lack them.
         for name in files:
             if (source / name).is_file():
                 (fixture / name).parent.mkdir(parents=True, exist_ok=True)

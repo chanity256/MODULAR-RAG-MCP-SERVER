@@ -88,8 +88,8 @@ REMOVE_FILES: list[str] = [
     ".env.*.local",
     "secrets.yaml",
     # Skill caches 
-    ".github/skills/auto-coder/.spec_hash",
-    ".claude/skills/auto-coder/.spec_hash",
+    ".github/skills/auto-builder/.spec_hash",
+    ".claude/skills/auto-builder/.spec_hash",
     # Config backups
     "config/settings.yaml.bak",
     "config/settings.yaml.qa_backup",

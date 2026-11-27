@@ -6,7 +6,7 @@
    拓扑序上立项之后、第一个主题含 ``[<系列><数字>`` 的非合并提交（立项提交本身不算）。
 2. 立项 → 冻结周期：冻结 = 该文件从 ``docs/specs/`` 移入 ``docs/frozen/`` 的提交，重开后再冻结的
    取最后一次。改动过大、git 没识别为重命名时，退回「同一提交删 specs 文件、增同名 frozen 文件」。
-3. auto-coder 修复轮数分布：提交信息中独占一行的 ``Fix-Rounds: N``。按行匹配而不用
+3. auto-builder 修复轮数分布：提交信息中独占一行的 ``Fix-Rounds: N``。按行匹配而不用
    ``git interpret-trailers``——早期提交在它和 ``Co-authored-by`` 之间留了空行，git 不认作 trailer。
 4. QA ⬜→✅ 周转：``QA_TEST_PROGRESS.md``（含 SD6.1 前的 ``.github`` 路径）各版本中同一用例
    首次 ⬜ 到其后首次 ✅ 的时长。
@@ -369,7 +369,7 @@ def to_markdown(report: Report) -> str:
     rh = data["revert_hotfix"]
     lines += [
         "",
-        "## 3. auto-coder 修复轮数（`Fix-Rounds: N`）",
+        "## 3. auto-builder 修复轮数（`Fix-Rounds: N`）",
         "",
         f"- 样本 {fr['n']}：{dist}；均值 {_num(fr['mean'])}，最大 {_num(fr['max'])}",
         "",
