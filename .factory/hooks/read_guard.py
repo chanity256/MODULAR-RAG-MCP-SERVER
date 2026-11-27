@@ -41,7 +41,7 @@ EDIT_TOOLS = {"Edit", "Create", "ApplyPatch"}
 
 SPEC_01 = "docs/frozen/01_DEV_SPEC_frozen.md"
 SPEC_04 = "docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md"
-REFERENCES = ".factory/skills/auto-coder/references/*.md"
+REFERENCES = ".factory/skills/auto-builder/references/*.md"
 QA_PLAN = ".factory/skills/qa-tester/QA_TEST_PLAN.md"
 
 # (编辑目标 glob, 必读备选（任一即可）, 出处)。glob 用 fnmatch，* 可跨目录。
@@ -50,12 +50,12 @@ READ_MAP: tuple[tuple[tuple[str, ...], tuple[str, ...], str], ...] = (
     (
         ("src/*", "scripts/*", "tests/*"),
         (SPEC_01, REFERENCES),
-        "AGENTS.md「编写代码之前，先阅读 docs/frozen/ 下的已冻结规格」；auto-coder Implement 第 1 步",
+        "AGENTS.md「编写代码之前，先阅读 docs/frozen/ 下的已冻结规格」；auto-builder Implement 第 1 步",
     ),
     (
         (".agents/plans/*",),
         (SPEC_01, REFERENCES),
-        "auto-coder Implement 第 1 步读规格，先于第 4 步写 plan",
+        "auto-builder Implement 第 1 步读规格，先于第 4 步写 plan",
     ),
     (
         ("src/ingestion/*", "src/libs/loader/*", "scripts/ingest.py", "tests/*test_*ingest*", "tests/*test_*loader*"),

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """测试文件保护 hook（Droid PreToolUse / SessionStart hook，AI_NATIVE_SDLC_SPEC SD3.7）。
 
-只在 auto-coder 的 Test & Auto-Fix 阶段生效：auto-coder 进入该阶段时创建标记
-文件 .factory/state/fix_mode，离开时删除（规则见 auto-coder SKILL.md）。标记存在
+只在 auto-builder 的 Test & Auto-Fix 阶段生效：auto-builder 进入该阶段时创建标记
+文件 .factory/state/fix_mode，离开时删除（规则见 auto-builder SKILL.md）。标记存在
 时拦截对 <项目根>/tests/ 下**已有**文件的修改，新建测试文件不拦截，避免与
 「写代码时同时写测试」冲突。
 
@@ -241,7 +241,7 @@ def cmd_pre(payload: dict) -> int:
     if not hits:
         return 0
     reason = (
-        f"test_guard（AI_NATIVE_SDLC_SPEC SD3.7）：当前处于 auto-coder Test & Auto-Fix 阶段"
+        f"test_guard（AI_NATIVE_SDLC_SPEC SD3.7）：当前处于 auto-builder Test & Auto-Fix 阶段"
         f"（标记 {MARKER.as_posix()} 存在），禁止修改已有测试文件：{', '.join(hits)}。"
         "请修改实现让测试通过；如果判断测试本身有误，停止修复并向用户报告，不要改测试。"
         "新建测试文件不受此限制。"

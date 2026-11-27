@@ -23,7 +23,7 @@ HOOK = REPO_ROOT / ".factory" / "hooks" / "read_guard.py"
 STATE = Path(".factory") / "state"
 SPEC_01 = "docs/frozen/01_DEV_SPEC_frozen.md"
 SPEC_04 = "docs/frozen/04_INGESTION_ROBUSTNESS_SPEC_frozen.md"
-REFERENCE = ".factory/skills/auto-coder/references/05-architecture.md"
+REFERENCE = ".factory/skills/auto-builder/references/05-architecture.md"
 QA_PLAN = ".factory/skills/qa-tester/QA_TEST_PLAN.md"
 QA_PROGRESS = ".factory/skills/qa-tester/QA_TEST_PROGRESS.md"
 
@@ -137,7 +137,7 @@ class TestPre:
         (project / REFERENCE).parent.mkdir(parents=True)
         (project / REFERENCE).write_text("x", encoding="utf-8")
         reason = _edit(project, "src/core/mod.py")["permissionDecisionReason"]
-        assert ".factory/skills/auto-coder/references/*.md（任一）" in reason
+        assert ".factory/skills/auto-builder/references/*.md（任一）" in reason
         _read(project, str(project / REFERENCE))
         assert _edit(project, "src/core/mod.py") is None
 
@@ -317,7 +317,7 @@ class TestWiring:
     def test_every_rule_cites_agents_md_or_a_skill(self) -> None:
         for patterns, options, source in self._module().READ_MAP:
             assert patterns and options
-            assert "AGENTS.md" in source or "skill" in source or "auto-coder" in source, source
+            assert "AGENTS.md" in source or "skill" in source or "auto-builder" in source, source
             assert "evals" not in source
 
     def test_required_references_exist_in_this_repo(self) -> None:

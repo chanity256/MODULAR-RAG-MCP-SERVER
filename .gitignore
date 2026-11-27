@@ -97,18 +97,18 @@ logs/
 *.log
 traces.jsonl
 
-# auto-coder generated files: sync_spec.py output, regenerated every cycle (AI_NATIVE_SDLC_SPEC SD6.1)
-/.factory/skills/auto-coder/references/
-/.factory/skills/auto-coder/.spec_hash*
-/.claude/skills/auto-coder/references/
-/.claude/skills/auto-coder/.spec_hash*
-/.github/skills/auto-coder/references/
-/.github/skills/auto-coder/.spec_hash*
+# auto-builder generated files: sync_spec.py output, regenerated every cycle (AI_NATIVE_SDLC_SPEC SD6.1)
+/.factory/skills/auto-builder/references/
+/.factory/skills/auto-builder/.spec_hash*
+/.claude/skills/auto-builder/references/
+/.claude/skills/auto-builder/.spec_hash*
+/.github/skills/auto-builder/references/
+/.github/skills/auto-builder/.spec_hash*
 
 # agent eval run output (AI_NATIVE_SDLC_SPEC SD3.5)
 /evals/runs/
 
-# test_guard hook 的运行期标记（auto-coder Test & Auto-Fix 阶段，AI_NATIVE_SDLC_SPEC SD3.7）
+# test_guard hook 的运行期标记（auto-builder Test & Auto-Fix 阶段，AI_NATIVE_SDLC_SPEC SD3.7）
 /.factory/state/
 
 # Archify 工具产物

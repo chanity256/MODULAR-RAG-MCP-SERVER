@@ -16,7 +16,7 @@
 |---|------|------|------|
 | 1 | 立项 → 首个任务提交 | 领先 | 立项 = `docs/specs/<NAME>.md` 首次出现的提交；首个任务提交 = 拓扑序上立项之后第一个主题含 `[<系列><数字>` 的非合并提交（立项提交本身不算）。系列前缀取规格最新版本任务表中最多的 2–3 位大写编号前缀 |
 | 2 | 立项 → 冻结 | 领先 | 冻结 = 文件从 `docs/specs/` 移入 `docs/frozen/` 的提交；重开后再冻结取最后一次；git 未识别为重命名时，退回「同一提交删 specs 文件、增同名 `_frozen` 文件」 |
-| 3 | auto-coder 修复轮数分布 | 领先 | 提交信息中独占一行的 `Fix-Rounds: N`（SD5.2 埋点，含义见 auto-coder「Test & Auto-Fix」） |
+| 3 | auto-builder 修复轮数分布 | 领先 | 提交信息中独占一行的 `Fix-Rounds: N`（SD5.2 埋点，含义见 auto-builder「Test & Auto-Fix」） |
 | 4 | QA ⬜→✅ 周转 | 领先 | `QA_TEST_PROGRESS.md`（含 SD6.1 前的 `.github/skills/qa-tester/` 路径）各版本中，同一用例首次 ⬜ 到其后首次 ✅ 的时长；首次出现即 ✅ 的用例单独计数 |
 | 5 | revert / hotfix / fix 提交数 | 滞后 | 非合并提交主题以 `Revert`、`hotfix`、`fix(` / `fix:` 开头 |
 

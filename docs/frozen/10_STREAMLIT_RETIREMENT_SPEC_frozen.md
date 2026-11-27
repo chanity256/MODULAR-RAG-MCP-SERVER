@@ -116,7 +116,7 @@ frontend/ (Next 静态导出) ──▶ start_api.py --serve-ui ──▶ src/ap
 | `.github/skills/setup/SKILL.md` | 删除 `pip install streamlit`、`import streamlit` 自检、`start_dashboard.py` 启动与相关排障条目，改为 Web UI 启动（`start_api.py --serve-ui`） |
 | `.github/skills/project-learner/SKILL.md` | D8.2「Streamlit App 分页」改为「services 层 + `src/api/` + `frontend/`」 |
 | `resume-writer/references/project_highlights.md`（三处）、`.github/skills/project-review/references/question_bank.md`、`.github/skills/interview-prep/references/report_template.md` | Streamlit Dashboard 表述改为 Web UI（FastAPI + Next），与 README 简历示例保持一致 |
-| `auto-coder/references/*.md`（`.claude` / `.factory` / `.github`） | **不手改**：这些文件是 `sync_spec.py` 从 frozen / specs 规格按章节切分生成的产物，手改会在下次同步时被覆盖，且其源头（01/06/08/09 等冻结规格）本身不改写 |
+| `auto-builder/references/*.md`（`.claude` / `.factory` / `.github`） | **不手改**：这些文件是 `sync_spec.py` 从 frozen / specs 规格按章节切分生成的产物，手改会在下次同步时被覆盖，且其源头（01/06/08/09 等冻结规格）本身不改写 |
 
 注意：上述多个技能文件在立项时工作区已有未提交改动，SR5 在其基础上叠加修改，不得覆盖或回退这些改动。
 

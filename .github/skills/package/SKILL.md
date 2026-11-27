@@ -92,7 +92,7 @@ Report results to user.
 | Stale artifacts | `nonexistent_traces.jsonl/` |
 | Config backups | `settings.yaml.bak`, `settings.yaml.qa_backup` |
 | Test artifacts | `.claude/skills/test-skill/`, `test_data/chroma/` |
-| Skill caches | `.github/skills/auto-coder/.spec_hash`, `.claude/skills/auto-coder/.spec_hash` |
+| Skill caches | `.github/skills/auto-builder/.spec_hash`, `.claude/skills/auto-builder/.spec_hash` |
 
 ## What Gets Sanitized (not removed)
 

@@ -146,8 +146,8 @@ def test_required_reads_pass_when_read_before_first_edit():
 
 
 def test_required_reads_any_of_and_glob():
-    calls = _calls(("Read", {"file_path": "/fx/.factory/skills/auto-coder/references/05-architecture.md"}), _edit())
-    required = [["docs/frozen/01_DEV_SPEC_frozen.md", ".factory/skills/auto-coder/references/*.md"]]
+    calls = _calls(("Read", {"file_path": "/fx/.factory/skills/auto-builder/references/05-architecture.md"}), _edit())
+    required = [["docs/frozen/01_DEV_SPEC_frozen.md", ".factory/skills/auto-builder/references/*.md"]]
     assert check.judge_required_reads(calls, required, "/fx").passed
 
 
@@ -402,17 +402,17 @@ def test_aggregate_two_of_three_and_pass_rate_gate():
 
 def test_overlay_skips_ignored_files_of_a_git_checkout(repo, tmp_path):
     source = tmp_path / "checkout"
-    skill = source / ".factory" / "skills" / "auto-coder"
+    skill = source / ".factory" / "skills" / "auto-builder"
     (skill / "references").mkdir(parents=True)
     (skill / "SKILL.md").write_text("rules\n", encoding="utf-8")
     (skill / "references" / "05-architecture.md").write_text("generated\n", encoding="utf-8")
-    (source / ".gitignore").write_text("/.factory/skills/auto-coder/references/\n", encoding="utf-8")
+    (source / ".gitignore").write_text("/.factory/skills/auto-builder/references/\n", encoding="utf-8")
     _git(source, "init", "-q")
     fixture = tmp_path / "fixture"
     run.prepare_fixture(repo, "HEAD", fixture, overlay_from=source)
     try:
-        assert (fixture / ".factory" / "skills" / "auto-coder" / "SKILL.md").exists()
-        assert not (fixture / ".factory" / "skills" / "auto-coder" / "references").exists()
+        assert (fixture / ".factory" / "skills" / "auto-builder" / "SKILL.md").exists()
+        assert not (fixture / ".factory" / "skills" / "auto-builder" / "references").exists()
         assert not (fixture / "AGENTS.md").exists()
     finally:
         run.remove_fixture(repo, fixture)
@@ -473,14 +473,14 @@ def test_ensure_state_ignored_preserves_crlf_line_endings(tmp_path):
 @pytest.mark.parametrize("source_is_git", [True, False])
 def test_overlay_keeps_the_fixture_review_guidelines(tmp_path, source_is_git):
     fx_repo = tmp_path / "fx_repo"
-    for rel in ("review-guidelines", "auto-coder"):
+    for rel in ("review-guidelines", "auto-builder"):
         (fx_repo / ".factory" / "skills" / rel).mkdir(parents=True)
         (fx_repo / ".factory" / "skills" / rel / "SKILL.md").write_text("old\n", encoding="utf-8")
     _git(fx_repo, "init", "-q")
     _git(fx_repo, "add", "-A")
     _git(fx_repo, "commit", "-q", "-m", "fixture")
     source = tmp_path / "checkout"
-    for rel in ("review-guidelines", "auto-coder"):
+    for rel in ("review-guidelines", "auto-builder"):
         (source / ".factory" / "skills" / rel).mkdir(parents=True)
         (source / ".factory" / "skills" / rel / "SKILL.md").write_text("new\n", encoding="utf-8")
     if source_is_git:
@@ -489,7 +489,7 @@ def test_overlay_keeps_the_fixture_review_guidelines(tmp_path, source_is_git):
     run.prepare_fixture(fx_repo, "HEAD", fixture, overlay_from=source)
     try:
         skills = fixture / ".factory" / "skills"
-        assert (skills / "auto-coder" / "SKILL.md").read_text(encoding="utf-8") == "new\n"
+        assert (skills / "auto-builder" / "SKILL.md").read_text(encoding="utf-8") == "new\n"
         assert (skills / "review-guidelines" / "SKILL.md").read_text(encoding="utf-8") == "old\n"
     finally:
         run.remove_fixture(fx_repo, fixture)
@@ -571,7 +571,12 @@ def test_agent_evals_workflow_triggers_only_on_steering_paths():
 
 def test_overlay_covers_every_trigger_path():
     # A steering change the overlay misses is either not measured or breaks the fixture (mirror drift).
-    assert sorted(p.removesuffix("/**") for p in STEERING_PATHS) == sorted(run.OVERLAY_PATHS)
+    overlaid = [p.removesuffix("/**") for p in STEERING_PATHS]
+    assert all(p in run.OVERLAY_PATHS for p in overlaid)
+    # Skill sync machinery also hardcodes skill names: a rename crashes the fixture's stale copy
+    # against the overlaid skills tree (PR #47, judge ⑤ offline_pytest_green 0/3 on unrelated cases).
+    assert "scripts/sync_skills.py" in run.OVERLAY_PATHS
+    assert "tests/unit/test_skill_mirrors.py" in run.OVERLAY_PATHS
 
 
 def test_agent_evals_workflow_uses_ci_byok_settings_without_plaintext_keys():

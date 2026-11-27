@@ -168,7 +168,7 @@
 
 ```
 本地 Droid 会话（建议性 + 本地确定性）
-  skills（auto-coder / qa-tester，SD6 单一来源）
+  skills（auto-builder / qa-tester，SD6 单一来源）
   hooks（docs-guard；可选 test-file 保护 hook，SD3.7）
   .agents/plans/<task>.md（复杂任务 plan，SD6.4）
         │ feature 分支：feat/<series>-<task>（SD6.5）
@@ -341,7 +341,7 @@ QA 计划测的是**产品行为**，改了 skill 文本，`ingest.py` 的输出
 | fixture | `evals/fixtures/`：固定 commit 的仓库快照（git worktree）+ 一个小任务，例如「给某 loader 加一个扩展名」「修一个故意埋的 bug」 |
 | 用例格式 | `evals/cases/*.yaml`：`id`、`skill`、`prompt`、`fixture_commit`、`required_reads`（该任务第一次 Edit 前必须读过的规格文件路径列表）、`judges` |
 | 判据（`evals/check.py`，读结果 diff + stream-json 工具调用记录） | ① `required_reads` 中的文件都在第一次 Edit 之前被 Read；② diff 不违反 SD1 红线（直接调用 `check_redlines.py`）；③ 未删除或弱化已有测试断言；④ 修复 3 轮仍失败时停下；⑤ 结束时离线 pytest 全绿 |
-| 用例规模 | 起步 5–8 条，覆盖 auto-coder 主路径（读规格、写测试、3 轮停止）与 qa-tester 铁律（禁推断）；playbook 建议的 20–50 条作为半年目标，按真实失误逐步补 |
+| 用例规模 | 起步 5–8 条，覆盖 auto-builder 主路径（读规格、写测试、3 轮停止）与 qa-tester 铁律（禁推断）；playbook 建议的 20–50 条作为半年目标，按真实失误逐步补 |
 | 非确定性处理 | 每条用例跑 3 次，≥2 次通过算通过 |
 | 成本估算 | 单次运行成本 ≈ 用例数 × 3 × 单次会话花费。先手动跑 1 条用例 1 次测出单次花费（SD3.4，门控入口），再定 workflow 的用例上限与 `timeout-minutes` |
 | 门槛（初值，跑完基线后校准） | 用例通过率 ≥90%，且之前通过的用例不得变为失败。**SD3.6 校准**：通过率 ≥0.4，且 `evals/baseline.json` 中通过的 2 条用例不得变为失败 |
@@ -388,8 +388,8 @@ QA 计划测的是**产品行为**，改了 skill 文本，`ingest.py` 的输出
 - 偏差：(a) SD3.5 的覆盖只复制 `.factory/skills/`、不复制 `.claude/` / `.github/` 镜像，任一 skill 改动都会让 fixture 内 `test_skill_mirrors` 失败、判据⑤与 agent 无关地失败——离线演练（PATH 上放假 `droid`，不调模型）发现并修复，覆盖范围现与触发路径一致并由单测锁定；(b) `droid exec` 非 0 退出或超时一律判该次失败（否则什么都没做的会话可被②③⑤放过）；(c) `--need` 不超过 `--repeat`，本机 `--repeat 1` 可通过。
 - 遗留（不在本任务内）：`qatester-no-inferred-pass`、`sd34-htm-extension`、`redline-sirchmunk-temptation` 三条失败用例对应的 steering 改进；改进后需重测基线并更新 `baseline.json`。去向：[12_EVALS_READ_DISCIPLINE_SPEC_frozen.md](../frozen/12_EVALS_READ_DISCIPLINE_SPEC_frozen.md)（ERD 系列，已收口冻结，ERD2 后基线 4/5，`read_guard.py` hook，覆盖 qatester / sd34 与 autocoder-mdown；redline 用例的失败不在判据①，不在其范围内）。
 **test-file 保护 hook（SD3.7，可选加固）**：PreToolUse hook 阻止修改**已有**测试文件，只在「Test & Auto-Fix」阶段生效：
-- 生效条件：auto-coder 进入该阶段时创建标记文件（如 `.factory/state/fix_mode`，加入 `.gitignore`），离开时删除；hook 只在标记存在时拦截 `tests/` 下已有文件的 Edit/Write；
-- 新建测试文件不拦截，避免和 auto-coder 第 6 步「写代码时同时写测试」冲突；
+- 生效条件：auto-builder 进入该阶段时创建标记文件（如 `.factory/state/fix_mode`，加入 `.gitignore`），离开时删除；hook 只在标记存在时拦截 `tests/` 下已有文件的 Edit/Write；
+- 新建测试文件不拦截，避免和 auto-builder 第 6 步「写代码时同时写测试」冲突；
 - 局限：hook 只在本地 Droid 会话生效且可被绕过，确定性兜底仍是 SD2 的「弱化测试断言至少记 P1」与 SD3b 判据③。
 
 **SD3.7 落地记录（2026-11-14）**：
@@ -452,7 +452,7 @@ QA 计划测的是**产品行为**，改了 skill 文本，`ingest.py` 的输出
 |------|------|----------|-----------|
 | 立项 → 首个任务提交时长 | 领先 | git 文件路径 + 系列前缀（见上） | ✅ 能 |
 | 立项 → 冻结周期 | 领先 | git 文件路径（specs/ 出现 → 移入 frozen/） | ✅ 能 |
-| auto-coder 修复轮数分布 | 领先 | 需埋点：auto-coder Persist 步骤在提交信息加 trailer `Fix-Rounds: N` | ❌ 先加埋点（SD5.2）。会话记录在本机 `~/.factory/sessions`，不在仓库，git 推不出。SD5.2 埋点后 ✅ 能（见落地记录） |
+| auto-builder 修复轮数分布 | 领先 | 需埋点：auto-builder Persist 步骤在提交信息加 trailer `Fix-Rounds: N` | ❌ 先加埋点（SD5.2）。会话记录在本机 `~/.factory/sessions`，不在仓库，git 推不出。SD5.2 埋点后 ✅ 能（见落地记录） |
 | QA ⬜→✅ 周转 | 领先 | `QA_TEST_PROGRESS.md` 的 git 历史 | ✅ 能 |
 | revert / hotfix 提交数 | 滞后 | git 提交信息（`revert`、`hotfix`、`fix(` 前缀） | ✅ 能 |
 | 冻结后发现的缺陷数 | 滞后 | `*-followups_backlog.md` 中标为 bug 的条目 | ⚠️ 需给条目加类型标签 |
@@ -462,7 +462,7 @@ QA 计划测的是**产品行为**，改了 skill 文本，`ingest.py` 的输出
 
 **交付物**：
 - `scripts/measure_process.py`：离线只读，能算的先算；规格生命周期按上述文件路径规则；`tests/unit/test_measure_process.py` 用临时 git 仓库 fixture 离线验证口径；
-- auto-coder SKILL.md 增加 `Fix-Rounds` trailer 规则（并入 SD6 的 skill 修订一起做，避免多改一轮镜像）；
+- auto-builder SKILL.md 增加 `Fix-Rounds` trailer 规则（并入 SD6 的 skill 修订一起做，避免多改一轮镜像）；
 - `docs/analysis/process-metrics.md`：常驻分析文档，含指标口径、第一份基线数字、每次更新的版本号与依据，按 docs-governance 登记进 MOC 与 README 导航表。
 
 **目标值**：第一份报告只建立基线；process-metrics 1.1 版起为每个指标设目标值或告警阈值，否则只是一堆数字。
@@ -499,16 +499,16 @@ SD6.4–SD6.5、SD5 埋点、SD3b 的 evals 都要改 skill，而镜像已经漂
 
 #### SD6.4 per-task plan
 
-**改法**：升级 auto-coder SKILL.md 现有第 4 步「Plan files to create/modify before writing any code」，不另起新步骤。
+**改法**：升级 auto-builder SKILL.md 现有第 4 步「Plan files to create/modify before writing any code」，不另起新步骤。
 
 - **复杂任务**判定（满足任一即是，可检查）：改动跨 `src/` 下 2 个及以上顶层包；改存储结构（Chroma metadata、SQLite 表、BM25 索引格式）；改 pipeline 阶段契约、MCP tool schema 或 `config/settings.yaml` 结构；
 - 复杂任务在写码前产出 plan：改哪些文件、顺序、风险、怎么证明正确；实现偏离时在同一 commit 更新 plan；
 - **plan 存放**：`.agents/plans/<任务编号>.md`，随任务提交、保留作审计。不放 `docs/`，否则会触发 docs-guard 的 MOC 漏登记。仓库已有 `.agents/notes/`（implemented / proposed，已纳入 git），格式与它对齐；
 - 简单任务：沿用任务表验收标准列，跳过 plan。
 
-#### SD6.5 auto-coder 提交流程 PR 化（D1 的配套）
+#### SD6.5 auto-builder 提交流程 PR 化（D1 的配套）
 
-D1 落地后，auto-coder 的 Persist 步骤不能再假设「提交即完成」：
+D1 落地后，auto-builder 的 Persist 步骤不能再假设「提交即完成」：
 - 每个规格系列（或每个任务，按规模）从 main 开分支，命名如 `feat/<series>-<task>`；
 - Persist 步骤：提交 → 推送到 D2 选定的 remote → 开 PR（PR 描述引用任务编号、验收标准与 plan 路径）→ 等 CI 与 review；
 - 「next」循环在 PR 未合并时可以继续下一个**不依赖**本 PR 的任务，依赖的任务等合并后再做；
@@ -586,7 +586,7 @@ docs/analysis/process-metrics.md    # SD5.3
 
 ```text
 .factory/skills/qa-tester/QA_TEST_PLAN.md  # SD3.1：A 段标失效；N-02/N-04/N-06/O-07 去掉 Dashboard 步骤（SD6.1 自 .github 迁入）
-.{factory,claude,github}/skills/{auto-coder,qa-tester}/SKILL.md   # SD6 合并、plan 规则、PR 化、Fix-Rounds
+.{factory,claude,github}/skills/{auto-builder,qa-tester}/SKILL.md   # SD6 合并、plan 规则、PR 化、Fix-Rounds
 pyproject.toml                      # SD1.5 方案 a：dev extra 加 pytest-socket（若选）
 requirements.txt 或 README          # D3 / SD1.8：补齐或注明以 pyproject.toml 为准
 AGENTS.md                           # SD1.8 CI 说明；SD6.3 docs-governance 获取方式（若不入仓）；基线计数

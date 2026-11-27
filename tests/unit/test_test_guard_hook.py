@@ -3,7 +3,7 @@
 在 tmp_path 伪造项目（tests/ 下放已有文件），伪造 stdin JSON 调用 hook 子命令，
 覆盖：标记缺失放行；Edit / Create / ApplyPatch 拦截已有、放行新建；路径归一；
 Execute 启发式的正反例；reset 只在 startup / clear 清标记；fail-open；以及
-hooks.json 注册、auto-coder skill 与 hook 的标记路径一致、.gitignore。
+hooks.json 注册、auto-builder skill 与 hook 的标记路径一致、.gitignore。
 """
 
 from __future__ import annotations
@@ -221,8 +221,8 @@ class TestWiring:
         assert any(c.endswith("docs_guard.py snapshot") for _, c in self._commands("UserPromptSubmit"))
         assert any(c.endswith("docs_guard.py stop") for _, c in self._commands("Stop"))
 
-    def test_auto_coder_skill_uses_the_hook_marker(self) -> None:
-        skill = (REPO_ROOT / ".factory" / "skills" / "auto-coder" / "SKILL.md").read_text(encoding="utf-8")
+    def test_auto_builder_skill_uses_the_hook_marker(self) -> None:
+        skill = (REPO_ROOT / ".factory" / "skills" / "auto-builder" / "SKILL.md").read_text(encoding="utf-8")
         marker = MARKER.as_posix()
         assert f"touch {marker}" in skill
         assert f"rm -f {marker}" in skill

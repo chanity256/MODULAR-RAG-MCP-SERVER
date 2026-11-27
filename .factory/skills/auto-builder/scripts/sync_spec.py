@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Spec Sync — splits spec markdown into chapter files under auto-coder/references/.
+Spec Sync — splits spec markdown into chapter files under auto-builder/references/.
 
 Supports multiple specs so incremental specs (docs/specs/*.md) get their own
 prefixed chapter files instead of clobbering the main DEV_SPEC chapters.
@@ -88,7 +88,7 @@ def detect_chapters(content: str) -> List[Chapter]:
 
 
 def _default_spec() -> Path:
-    skill_dir = Path(__file__).parent.parent          # auto-coder/
+    skill_dir = Path(__file__).parent.parent          # auto-builder/
     repo_root = skill_dir.parent.parent.parent        # project root
     candidates = (
         repo_root / "docs/frozen/01_DEV_SPEC_frozen.md",  # frozen spec (docs reorg)
@@ -102,7 +102,7 @@ def _default_spec() -> Path:
 
 
 def sync(spec: Path, prefix: str, force: bool = False):
-    skill_dir = Path(__file__).parent.parent          # auto-coder/
+    skill_dir = Path(__file__).parent.parent          # auto-builder/
     specs_dir = skill_dir / "references"
     hash_file = skill_dir / (".spec_hash" if not prefix else f".spec_hash.{prefix}")
 
