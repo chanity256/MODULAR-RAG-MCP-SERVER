@@ -137,6 +137,7 @@ docs/ 文档分两类：
 | [mode-router-followups_backlog.md](backlog/mode-router-followups_backlog.md) | 检索模式路由器遗留事项台账（MR 规格冻结遗留）：#1 同一问题集合 auto 与人工三选一的质量 / 延迟 / 成本对比记表（用户决议延后）；#2 接入 Jev（`typesafe` 后端，原 MR6，用户决议不接入，2026-11-19，仅留档）；#3 接入本地微调模型（`openai_compatible` 后端，原 MR7，待端点） |
 | [pageindex-followups_backlog.md](backlog/pageindex-followups_backlog.md) | PageIndex 树检索遗留事项台账（PI 规格开发中，PI0 收口起记录）：决议与已知限制 5 项（PDF 题无区分度不补、agentic_deep/pdf 无效路、主链路无 PDF 页码 metadata、`data/db` 语料约束、上游 DocStore 不去重）；上游 issue 草稿 3 份（401→500、DEEP 对 PDF 证据恒空、DocStore 不按内容去重）；产品缺陷候选池 2 项（摄取链路空文本防护、Chroma `images` 空 list 校验）；可选优化（flash 混合建树，用户裁决维持 submit 基线）；PI2 代码审查遗留（PI2.1 批次待排期：孤儿派生 PDF 无 GC、`API_VERSION` 双份、plan 笔误；安全/契约类 3 项已随审查修复）；PI3 代码审查遗留（待排期：`_positive_int` 闭包同文件两份；规格计数勘误与契约 fixture 两类已随审查修复） |
 | [ingestion-empty-content-guard_backlog.md](backlog/ingestion-empty-content-guard_backlog.md) | 摄取异常内容前置防护提案（草案，机器起草 2026-11-23 待人工核实；起源 PI 台账候选池 + logs/app 一周异常互证）：Chroma 空 list metadata（`images` ×3 / `heading_outline` ×1）store 阶段整篇失败且重试不收敛，最小修复点 `chroma_store._chroma_safe_value` 丢弃空列表；空文本防护（PI 台账候选池 #1）关联待裁决 |
+| [pdf-scan-ocr-fallback_backlog.md](backlog/pdf-scan-ocr-fallback_backlog.md) | 扫描件 PDF OCR 兜底提案（草案，2026-11-27；起源会话调研「仓库有无 OCR 模块」→ 三子代理全面调研确认无，IR 冻结时有意 Out of Scope）：逐页空文本检测 + PaddleOCR 兜底回填既有 pipeline（下游零改动），集成形态 sidecar 模式（PageIndex 先例）与可选依赖组（rerank 先例）两案并陈立项时裁决；第一期仅扫描 PDF，不做独立图片文件加载；与 empty-content-guard 防护提案互补可组合，六个待研究问题待立项前回答 |
 
 ## reference/ — 使用参考
 
