@@ -118,10 +118,15 @@ agentic_search:
     - data/db
 
 # 重排配置
+# cross_encoder 需可选依赖组：pip install -e ".[rerank]"（见 docs/reference/USAGE_GUIDE.md 第 13 章）。
+# 默认模型为英文专用；中文/多语语料建议换 rerank.model（如 BAAI/bge-reranker-v2-m3，改配置即可）。
 rerank:
   backend: cross_encoder    # none | cross_encoder | llm
   model: cross-encoder/ms-marco-MiniLM-L-6-v2
   top_m: 30
+  # extra 为自由 dict，可选键（未装依赖时无需配置）：
+  #   device: cpu        # 透传 CrossEncoder(device=...)；默认 None 交上游自动选择
+  #   batch_size: 32     # 透传 predict(batch_size=...)，正整数
 
 # 评估配置
 evaluation:

@@ -38,6 +38,12 @@ dev = [
 ingest-formats = [
     "markitdown[docx,pptx,xlsx]>=0.1.0",
 ]
+# 本地 Cross-Encoder 精排（CER 系列）；不进主依赖、不进 CI（禁网不装 torch）。
+# 连带 torch（CPU 版约 2 GB 磁盘）；不安装时 cross_encoder 后端在首次 rerank
+# 抛 RuntimeError，走 D6 回退通道①（结果退回融合排名，行为与未装一致）。
+rerank = [
+    "sentence-transformers>=3.0",
+]
 
 [project.scripts]
 modular-rag-mcp-server = "mcp_server.server:main"
