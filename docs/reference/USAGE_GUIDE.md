@@ -785,7 +785,7 @@ RAG_PAGEINDEX_INTEGRATION=1 pytest tests/e2e/test_pageindex_integration.py -v -s
 
 ## 13. 本地 Cross-Encoder 精排
 
-`config/settings.yaml` 的 `rerank` 节已配置 `backend: cross_encoder` + `model: cross-encoder/ms-marco-MiniLM-L-6-v2`（设计契约见 DEV_SPEC D6 / B7.8，交付规格见 [CROSS_ENCODER_RERANKER_SPEC](../specs/CROSS_ENCODER_RERANKER_SPEC.md)）。精排在 RRF 融合之后执行，只对 `top_m`（默认 30）条候选打分重排。
+`config/settings.yaml` 的 `rerank` 节已配置 `backend: cross_encoder` + `model: cross-encoder/ms-marco-MiniLM-L-6-v2`（设计契约见 DEV_SPEC D6 / B7.8，交付规格见 [20_CROSS_ENCODER_RERANKER_SPEC_frozen](../frozen/20_CROSS_ENCODER_RERANKER_SPEC_frozen.md)）。精排在 RRF 融合之后执行，只对 `top_m`（默认 30）条候选打分重排。
 
 **安装（可选依赖组）**：`sentence-transformers` 连带 torch（CPU 版约 2 GB 磁盘），不进主依赖、不进 CI：
 

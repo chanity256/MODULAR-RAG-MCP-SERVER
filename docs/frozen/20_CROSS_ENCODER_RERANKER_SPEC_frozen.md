@@ -2,6 +2,11 @@
 
 # 本地 Cross-Encoder 精排生效规格 (CROSS_ENCODER_RERANKER_SPEC)
 
+> **📌 冻结记录**
+>
+> - 冻结时间：2026-11-27
+> - 完成概要：CER1–CER4 全部交付收口（任务表 4/4、验收清单 6/6）——CrossEncoderScorer 适配层（惰性加载 + loader 注入点）、工厂 `_ctor` 默认惰性装配（三段优先级、显式注入与直接构造契约不变、加载失败走 D6 通道①）、可选依赖组 `rerank` + USAGE_GUIDE 第 13 章、门控 `RAG_RERANKER_INTEGRATION` 真实模型冒烟（英文 sanity 通过、端到端 `fallback=false`、top_m=30 热模型单次精排 11–12 ms）。已装/未装两种依赖环境行为均已实测；附带发现已记录于 §5.1（langchain_text_splitters 传递性 import torch、markitdown 缺失模拟机制修复）。
+
 > 版本：0.2 — v0.2 规格评审修订（2026-11-27：修正默认装配归属至工厂 `_ctor` 以保持 `test_no_scorer_raises_on_rerank` 零改动通过、统一 D6 通道①/② 失败划分并保留诊断指引、补齐 `rerank.model` 缺失契约、修正 CER4 英文模型 sanity 口径与语言适用风险、补正字段名/装配点计数/文档落点/安装命令与已装依赖离线共存验收）；v0.1 立项（跳过提案：用户在会话中直接拍板「直接立项 spec」，决策依据见第 1、2 章，无 backlog 草案阶段）
 >
 > 起源与决策依据：会话内配置核查（2026-11-27，非文件来源）——用户询问 `cross-encoder/ms-marco-MiniLM-L-6-v2` 是否已配置好，核查结论为「配置已写、实现缺失、运行时空转」（详见 §1.2 三问）；契约依据以 [01_DEV_SPEC_frozen.md](../frozen/01_DEV_SPEC_frozen.md) D6 / B7.8 为权威来源
