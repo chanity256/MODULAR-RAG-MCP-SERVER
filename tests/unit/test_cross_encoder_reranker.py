@@ -332,3 +332,193 @@ def test_tie_scores_stable_sort():
     reranker = CrossEncoderReranker(rc, scorer=_fixed_scorer([0.5, 0.5, 0.5]))
     result = reranker.rerank("query", candidates)
     assert [r.id for r in result] == ["a", "b", "c"]  # 原序
+
+
+# ---------------------------------------------------------------------------
+# CER2：工厂默认惰性装配（不改上方既有用例，只新增）
+# ---------------------------------------------------------------------------
+
+
+def test_factory_default_lazy_assembly_zero_io_then_build_once(tmp_path, registered, monkeypatch):
+    """工厂未注入 scorer 时登记默认工厂：构造零 IO、首次 rerank 才构建并缓存。"""
+    import libs.reranker.cross_encoder_reranker as cer_module
+
+    factory_calls: list[int] = []
+
+    def fake_make_default(rc):
+        def _factory():
+            factory_calls.append(1)
+            return _fixed_scorer([0.9, 0.1])
+
+        return _factory
+
+    monkeypatch.setattr(cer_module, "_make_default_scorer_factory", fake_make_default)
+    settings = _settings(tmp_path, backend="cross_encoder")
+
+    backend = registered.create(settings)
+    assert factory_calls == []  # 构造零 IO：默认工厂只登记、未调用
+
+    candidates = [RerankCandidate(id="a", text="a"), RerankCandidate(id="b", text="b")]
+    r1 = backend.rerank("q", candidates)
+    assert factory_calls == [1]  # 首次 rerank 才构建
+    assert [r.id for r in r1] == ["a", "b"]  # 0.9 > 0.1
+    assert r1[0].score == 0.9
+
+    r2 = backend.rerank("q", candidates)
+    assert factory_calls == [1]  # 已缓存，工厂只调一次
+
+
+def test_explicit_scorer_beats_default_factory(tmp_path, registered, monkeypatch):
+    """显式注入 scorer 时默认工厂不得被创建（三段优先级第 1 段）。"""
+    import libs.reranker.cross_encoder_reranker as cer_module
+
+    def boom(rc):
+        raise AssertionError("default scorer factory must not be built when scorer is explicit")
+
+    monkeypatch.setattr(cer_module, "_make_default_scorer_factory", boom)
+    settings = _settings(tmp_path, backend="cross_encoder")
+
+    backend = registered.create(settings, scorer=_fixed_scorer([0.7, 0.2]))
+    result = backend.rerank("q", [RerankCandidate(id="a", text="a"), RerankCandidate(id="b", text="b")])
+    assert [r.id for r in result] == ["a", "b"]
+
+
+def test_explicit_scorer_factory_beats_default_and_caches(tmp_path, registered, monkeypatch):
+    """显式注入 scorer_factory 优先于默认工厂，且构建后缓存（只调一次）。"""
+    import libs.reranker.cross_encoder_reranker as cer_module
+
+    def boom(rc):
+        raise AssertionError("default scorer factory must not be built when scorer_factory is explicit")
+
+    monkeypatch.setattr(cer_module, "_make_default_scorer_factory", boom)
+
+    factory_calls: list[int] = []
+
+    def explicit_factory():
+        factory_calls.append(1)
+        return _fixed_scorer([0.2, 0.8])
+
+    settings = _settings(tmp_path, backend="cross_encoder")
+    backend = registered.create(settings, scorer_factory=explicit_factory)
+
+    candidates = [RerankCandidate(id="a", text="a"), RerankCandidate(id="b", text="b")]
+    r1 = backend.rerank("q", candidates)
+    r2 = backend.rerank("q", candidates)
+
+    assert factory_calls == [1]  # 只构建一次并缓存
+    assert [r.id for r in r1] == ["b", "a"]
+    assert [r.id for r in r2] == ["b", "a"]
+
+
+def test_default_factory_load_failure_walks_d6_channel1(tmp_path, registered, monkeypatch):
+    """默认工厂加载失败 → _ensure_scorer 抛错走 D6 通道①：诊断信息完整保留。"""
+    from core.query_engine.reranker import Reranker
+    from core.trace.trace_context import TraceContext
+    from core.types import RetrievalResult
+    from libs.reranker.cross_encoder_scorer import CrossEncoderScorer
+
+    hint = 'pip install -e ".[rerank]"'
+
+    def _raise(self):
+        raise RuntimeError(f"sentence-transformers is not installed. Install: {hint}")
+
+    monkeypatch.setattr(CrossEncoderScorer, "ensure_loaded", _raise)
+    settings = _settings(tmp_path, backend="cross_encoder", model="cross-encoder/test-model")
+
+    trace = TraceContext(trace_type="query")
+    results = [RetrievalResult(chunk_id="c1", score=0.5, text="t1", metadata={})]
+    out = Reranker(settings).rerank("q", results, trace=trace)
+
+    # D6 通道①：完整输入原序原分 + fallback 标记 + last_error 保留指引
+    assert [r.chunk_id for r in out] == ["c1"]
+    assert out[0].score == 0.5
+    core = Reranker(settings)
+    core.rerank("q", results)
+    assert core.last_fallback is True
+    assert hint in core.last_error
+
+    trace2 = TraceContext(trace_type="query")
+    Reranker(settings).rerank("q", results, trace=trace2)
+    record = trace2.get_stage("rerank")
+    assert record["details"]["fallback"] is True
+    assert hint in record["details"]["error"]
+
+
+def test_default_factory_reads_extra_device_and_batch_size(tmp_path, registered, monkeypatch):
+    """rerank.extra 的 device / batch_size 透传给默认适配层。"""
+    import libs.reranker.cross_encoder_reranker as cer_module
+
+    captured: dict = {}
+
+    class _FakeScorer:
+        def __init__(self, model_name, *, device=None, batch_size=32):
+            captured.update(model_name=model_name, device=device, batch_size=batch_size)
+
+        def ensure_loaded(self):
+            return self
+
+        def __call__(self, query, texts):
+            return [float(len(t)) for t in texts]
+
+    monkeypatch.setattr(cer_module, "CrossEncoderScorer", _FakeScorer)
+    settings = _settings(
+        tmp_path,
+        backend="cross_encoder",
+        model="cross-encoder/test-model",
+        extra={"device": "cpu", "batch_size": 5},
+    )
+
+    backend = registered.create(settings)
+    backend.rerank("q", [RerankCandidate(id="a", text="aaa")])
+
+    assert captured == {
+        "model_name": "cross-encoder/test-model",
+        "device": "cpu",
+        "batch_size": 5,
+    }
+
+
+def test_default_factory_invalid_batch_size_falls_back(tmp_path, registered, monkeypatch):
+    """extra.batch_size 非正 int 时回退默认 32。"""
+    import libs.reranker.cross_encoder_reranker as cer_module
+
+    captured: dict = {}
+
+    class _FakeScorer:
+        def __init__(self, model_name, *, device=None, batch_size=32):
+            captured["batch_size"] = batch_size
+
+        def ensure_loaded(self):
+            return self
+
+        def __call__(self, query, texts):
+            return [0.0] * len(texts)
+
+    monkeypatch.setattr(cer_module, "CrossEncoderScorer", _FakeScorer)
+    settings = _settings(tmp_path, backend="cross_encoder", extra={"batch_size": 0})
+
+    registered.create(settings).rerank("q", [RerankCandidate(id="a", text="a")])
+    assert captured["batch_size"] == 32
+
+
+def test_inference_failure_after_load_walks_channel2(tmp_path, registered):
+    """模型加载成功后的推理期异常走 B7.8 内部回退（通道②），不冒出 backend。"""
+    from core.query_engine.reranker import Reranker
+    from core.types import RetrievalResult
+
+    settings = _settings(tmp_path, backend="cross_encoder", model="cross-encoder/test-model")
+    backend = registered.create(settings, scorer_factory=lambda: _raising_scorer(RuntimeError("predict exploded")))
+
+    candidates = [RerankCandidate(id="a", text="a"), RerankCandidate(id="b", text="b")]
+    out = backend.rerank("q", candidates)
+
+    # B7.8 内部回退：截断后原序 + last_fallback=True（不抛错）
+    assert [r.id for r in out] == ["a", "b"]
+    assert out[0].score == 0.0  # 原分保留（未更新）
+    assert backend.last_fallback is True
+
+    # Core 层透传通道②标记：注入同一 backend，last_error 为内部回退说明而非异常原文
+    core = Reranker(settings, backend=backend)
+    core.rerank("q", [RetrievalResult(chunk_id="c1", score=0.5, text="t", metadata={})])
+    assert core.last_fallback is True
+    assert core.last_error == "CrossEncoderReranker internal fallback"
